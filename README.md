@@ -48,6 +48,9 @@ project's code may legally be copied. Rows will be updated whenever code is actu
 | [Nvidium](https://github.com/MCRcortex/nvidium) | MCRcortex (Cortex) | LGPL-3.0 | Two-phase temporal GPU occlusion culling, quad vertex layout, GPU compaction. |
 | [Embeddium](https://github.com/embeddedt/embeddium) | embeddedt and contributors | LGPL-3.0 | Mod-facing meshing/visibility API ideas. |
 | [Indium](https://github.com/comp500/Indium) | comp500 | Apache-2.0 | Historical Fabric Rendering API on Sodium. |
+| [minecraft-metal-renderer](https://github.com/Kausik-Velaga/minecraft-metal-renderer) | Kausik-Velaga | MIT (stated as AI-generated; MetalRender/Sodium were read) | Pack attachment injection at render-pass creation, shader-cache and math-mode policies, Metal smoke tests. |
+| [Sulkan](https://github.com/mravatins/sulkanShaders) | mravatins | GPL-3.0 | Shadow-cascade terrain integration with Sodium on vanilla's Vulkan backend. |
+| [VulkanMod](https://github.com/xCollateral/VulkanMod) | xCollateral and contributors | LGPL-3.0 | Area mega-buffers, compressed vertex, facing-based draw merging, indirect terrain draws. |
 | [glsl-transformer](https://github.com/IrisShaders/glsl-transformer) | douira | AGPL-3.0 | Used only through Iris at runtime; not bundled. |
 | Minecraft | Mojang Studios | Minecraft EULA | Decompiled for research only; never redistributed. |
 

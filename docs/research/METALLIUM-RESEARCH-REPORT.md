@@ -17,6 +17,8 @@ This report is the synthesis. The detailed evidence (file:line citations, per-cl
 | [`notes/metalrender.md`](notes/metalrender.md) | MetalRender (26.1 branch + 1.21.x branch) |
 | [`notes/mcopt.md`](notes/mcopt.md) | mcopt Metal backend + own terrain renderer + LOD |
 | [`notes/nvidium-embeddium-frapi.md`](notes/nvidium-embeddium-frapi.md) | Nvidium, Embeddium, Indium, Fabric API rendering modules |
+| [`notes/minecraft-metal-renderer.md`](notes/minecraft-metal-renderer.md) | Kausik-Velaga/minecraft-metal-renderer (renderpearl Metal backend + own OptiFine/Iris-format pack loader) — addendum |
+| [`notes/sulkan-vulkanmod.md`](notes/sulkan-vulkanmod.md) | Sulkan (shaders on vanilla's Vulkan backend) and VulkanMod — addendum |
 
 Evidence labels used throughout: **[V] Verified** (read in implementation code), **[SI] Strongly inferred**, **[H] Hypothesis**,
 **[U] Unverified**, **[M] Measured** (nothing in this report is measured — no code was built or run).
@@ -110,6 +112,9 @@ All active projects converge on 26.3.
 | Embeddium | github.com/embeddedt/embeddium | `21.1/neoforge` = `fc5c69b0` | 1.21.1 NeoForge; no 26.x; last code commit 2025-02 | LGPL-3.0 | Moderate audit |
 | Indium | github.com/comp500/Indium | `1.21.x/main` = `c4203e6` | ≤1.21.1; superseded (Sodium ships FRAPI) | Apache-2.0 | Historical |
 | Fabric API | github.com/FabricMC/fabric | `26.3` = `33b369075baa5ad6c969f44787a18bf2c3ea0a5d` (0.163.0+26.3) | 26.3 | Apache-2.0 | Rendering modules audited |
+| minecraft-metal-renderer | github.com/Kausik-Velaga/minecraft-metal-renderer | `main` = `c609745f` (2026-10-07) | 26.3, no Sodium/Iris dependency | MIT (README: 100% Codex-generated; provenance doc: MetalRender/Sodium were read) | Audited (addendum) |
+| Sulkan | github.com/mravatins/sulkanShaders | `main` = `c588577a` (v0.3.1, 2026-08-20); Modrinth has 0.6.0 for 26.3, **not in repo** | 26.2 (repo), Sodium 0.9.1 | GPL-3.0 | Audited (addendum) |
+| VulkanMod | github.com/xCollateral/VulkanMod | `dev` = `087ef24e` (2026-08-13); 26.1 releases not in repo | 1.21.11 (repo) | LGPL-3.0 | Audited (addendum) |
 | glsl-transformer | github.com/IrisShaders/glsl-transformer | `9d26f0f` | n/a | AGPL-3.0 | Audited for capability/licence |
 | SPIRV-Cross | github.com/KhronosGroup/SPIRV-Cross | `300681b` | n/a | Apache-2.0 | MSL backend limits audited |
 | glslang | github.com/KhronosGroup/glslang | `5cf91e7` | n/a | BSD-3/Apache-2.0 family | GLSL→SPIR-V rules audited |
@@ -331,6 +336,47 @@ Detail: `notes/metalrender.md`.
 - Mostly `require=0` mixins with no `minecraft` upper bound → silent breakage on 26.3 [SI].
 - **Licence and owner policy forbid using it as a code source for an AI-assisted project** (§K).
 
+### C.10 Addendum: minecraft-metal-renderer (Kausik-Velaga)
+
+Detail: `notes/minecraft-metal-renderer.md`. All from reading code; nothing run.
+
+- Another renderpearl `GpuBackend` (same class as Metallum), but applied only when macOS + arm64 + `metal.enabled`;
+  otherwise vanilla's backend list is kept [V]. JNI + ~2.2k lines Objective-C++, dylib built by CMake at Gradle time [V].
+- SPIR-V → MSL 2.3 via LWJGL SPIRV-Cross; fragment-depth variant, `preserveInvariance`, per-pipeline relaxed fast-math
+  policy, load-discard hint for full-overwrite passes; MSL cache in memory only [V]. ICB / argument-buffer path exists but
+  is off by default and unbenchmarked [V].
+- **Own OptiFine/Iris-format shader-pack loader (~11.4k LOC), no Iris**: regex-lowers legacy GLSL → vanilla shaderc →
+  SPIRV-Cross → Metal; shadow, gbuffers_*, composite, final passes; **pack attachments injected by intercepting
+  `FrontendCommandEncoder.createRenderPass`** — the same hook this report proposes for the Iris adapter (§D.1 item 7),
+  now shown to be implementable [V code; runtime U]. Hard-rejects compute, setup passes, geometry/tessellation,
+  `size.buffer.*`, shadowcolor format directives.
+- Only BSL 10.1.8 on one M3 Pro was validated; README-reported ~17–18 fps with BSL vs ~120 fps without at 3456×2168,
+  with 0.5–1 s stalls **[author's claim, not measured by us]**. No comparison with GL, Vulkan, Metallum or mcopt.
+- Licence MIT, but the README states it is entirely AI(Codex)-generated and its provenance document says MetalRender,
+  Sodium and decompiled Minecraft were read. **Treat as ideas only** (consistent with the MetalRender rule).
+- Ideas to adopt: hash-keyed SPIR-V→MSL cache (add disk cache/binary archive), per-pipeline math policy, depth-variant
+  pipelines, load-discard for full-overwrite passes, execution-statistics diagnostics, "compile every vanilla pipeline"
+  smoke test, its rejection list as a coverage checklist for §D.4.
+
+### C.11 Addendum: Sulkan and VulkanMod (Vulkan-side precedent)
+
+Detail: `notes/sulkan-vulkanmod.md`.
+
+- **Sulkan** (GPL-3.0, repo at 26.2): not an Iris/OptiFine pipeline but a fixed set of hand-written effects (4 shadow
+  cascades, SSAO, SSR water, volumetric clouds, bloom, FXAA) built only from vanilla `RenderPipeline`/`createRenderPass`
+  + mixins; no raw Vulkan, no compute/SSBO/loose uniforms/MRT [V]. Its "packs" only override its own shader files and
+  cannot add passes [V]. Main hook (`VulkanDevice#getOrCompilePipeline`, 26.2) no longer exists in 26.3 [V]. Sodium
+  integration replaces terrain pipelines at `ShaderChunkRenderer#compileProgram`, retargets `TerrainRenderPass` for
+  shadow cascades and keeps per-cascade `MultiDrawBatch`es [V] — useful precedent for Iris-adapter shadow terrain.
+  Lesson: a **native effect set** is far easier than Iris compatibility but does not run existing packs; it does not
+  change the recommendation. Ideas only (GPL).
+- **VulkanMod** (LGPL-3.0, 1.21.11): pre-renderpearl full GL replacement with its own chunk system; incompatible with
+  Sodium/Iris. Transferable terrain ideas: 512-section area mega-buffers with best-fit suballocation, 16-byte vertex,
+  quads grouped by facing so CPU backface culling merges adjacent facings into one draw, `baseInstance`-indexed
+  per-section data, one indirect draw per area per layer, frustum cache re-run only on camera change [V]. It never
+  persists its pipeline cache [V] — Metallium should (binary archives). VulkanMod flips Y via negative viewport;
+  vanilla 26.3 Vulkan does not — Metal must follow 26.3 [V].
+
 ---
 
 ## D. Iris compatibility report
@@ -384,7 +430,10 @@ From `notes/iris-arch.md` and `notes/iris-shaders-translation.md`:
    viewport/renderArea control, pipeline compile substitution (Iris MSL instead of vanilla/Sodium MSL for gbuffer/shadow
    programs).
 4. **Small C-style shims** only where Iris code reads GL capabilities or vendor strings (`FeatureFlags`, `StandardMacros`).
-5. **Upstream strategy**: propose to Iris an `IrisRenderSystem`-level backend interface (it is already a partial choke
+5. **Fallback option if an Iris fork proves unmaintainable [H]**: an independent MIT-style pack loader *is* buildable on
+   the renderpearl `createRenderPass` hook (minecraft-metal-renderer, §C.10, shows the mechanism) but would be Approach B
+   with all its compatibility costs; keep it as plan B, written independently.
+6. **Upstream strategy**: propose to Iris an `IrisRenderSystem`-level backend interface (it is already a partial choke
    point with 207 call sites). Until accepted, maintain a fork pinned per Minecraft version.
 
 ### D.4 Feature-level compatibility matrix (via the recommended path)
