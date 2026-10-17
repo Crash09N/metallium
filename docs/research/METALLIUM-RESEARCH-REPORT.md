@@ -557,7 +557,7 @@ hard-fails above 3 GB); memory pressure on 8 GB Macs with shader packs; pipeline
 
 ### G.5 Features that help performance but can hurt compatibility
 
-Replacing Sodium's terrain renderer; mesh-shader terrain (cannot run pack vertex shaders); skipping frames at present;
+Replacing Sodium's terrain renderer; mesh-shader terrain (cannot run pack vertex shaders unchanged); skipping frames at present;
 fast-math for pack shaders; aggressive GPU occlusion that disagrees with mods querying Sodium's visibility; skipping
 vanilla `ChunkSectionsToRender` (breaks Fabric `LevelRenderEvents`).
 
@@ -576,6 +576,12 @@ a Metal path that unlocks compute/SSBO/image packs that macOS GL 4.1 cannot run 
   indirect path is unmeasured.
 - **Possible later (phase 6, optional)**: a mesh-shader terrain path for shaders-off rendering on M3+, enabled only if
   benchmarks beat the indirect path.
+- **Shader packs and mesh shaders [H]**: a pack's vertex shader cannot run *unchanged* in a mesh pipeline, but it could in
+  principle be translated into a function invoked per vertex from a Metallium mesh shader (adding per-quad culling in
+  front of the pack's code). No project does this; it is unproven and adds per-pack risk. It would also target the
+  smaller cost: with packs, GPU time is dominated by fragment work, full-screen deferred/composite passes and the shadow
+  pass. Compute culling + indirect draws give most of the culling benefit (including for the shadow pass) while running
+  the pack's vertex shader as written, so they are the recommended path for packs.
 
 ### G.8 Benchmarks needed per optimisation
 
