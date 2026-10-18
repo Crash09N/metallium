@@ -4,6 +4,7 @@
 package dev.metallium.compat;
 
 import org.jspecify.annotations.Nullable;
+import org.objectweb.asm.AnnotationVisitor;
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.ClassVisitor;
 import org.objectweb.asm.FieldVisitor;
@@ -13,7 +14,9 @@ import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.Type;
 
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Set;
 
 /**
@@ -27,6 +30,8 @@ import java.util.Set;
  *   <li>otherwise <b>native</b>: only Minecraft's graphics layer (renderpearl {@code GpuDevice}/{@code RenderPass}/...),
  *       which Metallium implements on Metal.</li>
  * </ul>
+ * A Mixin class whose targets all lie in Minecraft's OpenGL backend is not reported: its code only ever runs inside that
+ * backend, which is not used while Metal renders (e.g. ImmediatelyFast's GlCommandEncoder optimisations).
  */
 public final class GlUsageScanner {
     static final String LWJGL_GL = "org/lwjgl/opengl/";
@@ -55,6 +60,9 @@ public final class GlUsageScanner {
         if (!collector.rawGl && !collector.backendGl) {
             return null; // e.g. only a string constant mentions the package
         }
+        if (!collector.mixinTargets.isEmpty() && collector.mixinTargets.stream().allMatch(t -> t.startsWith(BACKEND_GL))) {
+            return null; // only modifies Minecraft's OpenGL backend
+        }
         return new ClassUsage(collector.name, collector.rawGl, collector.backendGl, Set.copyOf(collector.functions));
     }
 
@@ -74,6 +82,8 @@ public final class GlUsageScanner {
         boolean rawGl;
         boolean backendGl;
         final Set<String> functions = new LinkedHashSet<>();
+        /** Internal names of the classes an {@code @Mixin} annotation targets (empty for ordinary classes). */
+        final List<String> mixinTargets = new ArrayList<>();
 
         Collector() {
             super(Opcodes.ASM9);
@@ -87,6 +97,31 @@ public final class GlUsageScanner {
             if (interfaces != null) {
                 for (String i : interfaces) type(i);
             }
+        }
+
+        @Override
+        public AnnotationVisitor visitAnnotation(final String descriptor, final boolean visible) {
+            if (!"Lorg/spongepowered/asm/mixin/Mixin;".equals(descriptor)) {
+                return null;
+            }
+            return new AnnotationVisitor(Opcodes.ASM9) {
+                @Override
+                public AnnotationVisitor visitArray(final String name) {
+                    if (!"value".equals(name) && !"targets".equals(name)) {
+                        return null;
+                    }
+                    return new AnnotationVisitor(Opcodes.ASM9) {
+                        @Override
+                        public void visit(final String unused, final Object value) {
+                            if (value instanceof Type type) {
+                                mixinTargets.add(type.getInternalName());
+                            } else if (value instanceof String target) {
+                                mixinTargets.add(target.replace('.', '/'));
+                            }
+                        }
+                    };
+                }
+            };
         }
 
         @Override

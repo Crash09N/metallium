@@ -93,6 +93,34 @@ class GlslProgramTranslatorTest {
             }
             """;
 
+    /**
+     * Desktop GLSL allows {@code sampler} as an identifier (Photon, Bliss: {@code float f(sampler2D sampler, ...)}); the
+     * Vulkan GLSL dialect used for SPIR-V reserves it as a type ("unexpected SAMPLER, expecting RIGHT_PAREN"). BSL names a
+     * variable {@code new}, which SPIRV-Cross copies into MSL (C++): "expected unqualified-id".
+     */
+    @Test
+    void vulkanReservedWordsAsIdentifiers() throws Exception {
+        String fs = """
+                #version 330 core
+                uniform sampler2D colortex0;
+                in vec2 texcoord;
+                layout(location = 0) out vec4 outColor0;
+                vec4 soft(sampler2D sampler, vec2 coord) {
+                    vec2 res = vec2(textureSize(sampler, 0));
+                    return texture(sampler, coord + 0.5 / res);
+                }
+                float samplerShadow = 1.0;
+                void main() {
+                    bool new = texcoord.x > 0.5; // BSL deferred: a C++ keyword, fatal in MSL
+                    float delete = new ? 1.0 : 0.5;
+                    outColor0 = soft(colortex0, texcoord) * samplerShadow * delete;
+                }
+                """;
+        Program program = GlslProgramTranslator.translate("prepare", sources(COMPOSITE_VS, fs));
+        assertTrue(names(program.stages().get(Stage.FRAGMENT), ResourceBinding.Kind.SAMPLED_TEXTURE).contains("colortex0"));
+        compileWithMetalIfAvailable(program);
+    }
+
     @Test
     void compositeProgram() throws Exception {
         Program program = GlslProgramTranslator.translate("composite", sources(COMPOSITE_VS, COMPOSITE_FS));

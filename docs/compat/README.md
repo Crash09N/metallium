@@ -27,3 +27,9 @@ the repository; most licences forbid redistribution. Screenshots and logs are wr
 - Notes: pipeline class, crash, game test result, terrain coverage (share of non-sky pixels in the lower screen band of
   the natural-world pack screenshot; only detects an empty frame, not wrong colours), translated/failed gbuffers program
   counts, programs not executed, screenshot and log paths.
+
+# Real modpack (mod compatibility)
+
+`tools/make-run-instance.sh` + `./gradlew runClientGameTest -Pinstance` run a copy of a real instance (all its mods,
+resource and shader packs) on the dev Metallium; see [real-instance-2026-10-18.md](real-instance-2026-10-18.md) for the
+first run with the owner's 145-mod pack and the findings.

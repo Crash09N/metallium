@@ -220,7 +220,11 @@ final class GbufferState implements AutoCloseable {
 
     // ---------------------------------------------------------------------------------------------- frame
 
-    void beginFrame(final RenderTarget main) {
+    /**
+     * Same lazy ID-map setup as Iris's own pipeline. Must run before the first custom-uniform update: uniforms such as
+     * {@code currentSelectedBlockId} read the block-state map (null before) as soon as the crosshair is on a block.
+     */
+    void ensureBlockIds() {
         if (!blockIdsInitialized) {
             IdMap idMap = programSet.getPack().getIdMap();
             WorldRenderingSettings.INSTANCE.setBlockStateIds(BlockMaterialMapping.createBlockStateIdMap(idMap.getBlockProperties(), idMap.getTagEntries()));
@@ -228,6 +232,10 @@ final class GbufferState implements AutoCloseable {
             Minecraft.getInstance().levelExtractor.allChanged();
             blockIdsInitialized = true;
         }
+    }
+
+    void beginFrame(final RenderTarget main) {
+        ensureBlockIds();
         GpuTexture depth = main.getDepthTexture();
         if (depthNoTranslucents == null || depthNoTranslucents.getWidth(0) != main.width || depthNoTranslucents.getHeight(0) != main.height
                 || depthNoTranslucents.getFormat() != depth.getFormat()) {
