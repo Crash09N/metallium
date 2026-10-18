@@ -540,7 +540,7 @@ public final class GlslProgramTranslator {
      * (BSL: {@code bool new}).
      */
     private static final Pattern VULKAN_ONLY_KEYWORDS = Pattern.compile(
-            "\\b(sampler|samplerShadow|length_squared|distance_squared|saturate|max3|min3|median3|powr|rsqrt|new|delete|this|template|typename|namespace|operator|friend|virtual|explicit|mutable|private|protected|public|kernel|device|thread|threadgroup|register)\\b");
+            "\\b(sampler|samplerShadow|length_squared|distance_squared|saturate|max3|min3|median3|powr|rsqrt|new|delete|this|template|typename|namespace|operator|friend|virtual|explicit|mutable|private|protected|public|kernel|device|thread|threadgroup|register|bias|level|min_lod_clamp)\\b");
 
     static ByteBuffer compileToSpirv(final String programName, final Stage stage, final String glslSource) throws TranslationException {
         String source = VULKAN_ONLY_KEYWORDS.matcher(glslSource).replaceAll("metallium_$1");
