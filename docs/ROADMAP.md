@@ -82,6 +82,14 @@ Status legend: ✅ done · 🔄 in progress · ⏳ planned · 🔬 needs researc
   separate Nvidium-style project)
 
 ## Phase 7 — Benchmarks and comparison ⏳
+**Engine shootout (fixed test stage, owner requirement: Metal must prove it is the fastest engine on Apple Silicon)**
+- Engines: Metal (Metallium) vs OpenGL (Apple GL 4.1, itself layered on Metal) vs Vulkan (MoltenVK → Metal)
+- Scenes: (1) vanilla light, (2) Sodium RD 32 CPU-heavy, (3) Complementary shaders GPU-heavy, (4) chunk loading while flying
+- Metrics: avg FPS + 1% lows, frame-time p50/p95/p99, rendered vs displayed frames, memory; identical seed, camera,
+  window size, settings; one run at a time on an idle Mac
+- One command runs the whole matrix and writes a Markdown table to `docs/benchmarks/`; re-run after every larger
+  optimisation as a performance regression test. Where Metal loses, that becomes the next optimisation target.
+- Built right after the Graphics Engine selector (Metal / OpenGL / Vulkan) lands.
 - Same world, seed and camera path; every frame presented; frame time median/p95/p99, CPU/GPU time, memory
 - Baselines: vanilla OpenGL, vanilla Vulkan via MoltenVK (and Mesa KosmicKrisp), Sodium on OpenGL, mcopt (pacing off)
 - Metal Performance HUD (`MTL_HUD_ENABLED=1`) as extra GPU-side view for Metallium
