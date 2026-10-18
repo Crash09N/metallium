@@ -53,10 +53,13 @@ final class PostProgram implements AutoCloseable {
     /** Uniform-buffer name (as bound with {@code RenderPass.setUniform}) -> CPU block of that stage. */
     final Map<String, PostUniforms.Block> blocks;
     final PostUniforms.Holder uniforms;
+    /** Stage 5: storage images/SSBOs outside the renderpearl binding table (bound per draw). */
+    final StorageBindings storage;
 
     private PostProgram(final String name, final FrontendRenderPipeline pipeline, final Set<String> samplers, final Set<String> compareSamplers,
-                        final Map<String, PostUniforms.Block> blocks) {
+                        final Map<String, PostUniforms.Block> blocks, final StorageBindings storage) {
         this.name = name;
+        this.storage = storage;
         this.compareSamplers = compareSamplers;
         this.pipeline = pipeline;
         this.samplers = samplers;
@@ -72,6 +75,13 @@ final class PostProgram implements AutoCloseable {
 
     static PostProgram compile(final String name, final String vertex, final String fragment, final List<GpuFormat> colorFormats)
             throws GlslProgramTranslator.TranslationException, UnsupportedProgramException, ShaderCompileException {
+        return compile(name, vertex, fragment, colorFormats, null);
+    }
+
+    static PostProgram compile(final String name, final String vertex, final String fragment, final List<GpuFormat> colorFormats,
+                               final StorageBindings.@org.jspecify.annotations.Nullable Validator validator)
+            throws GlslProgramTranslator.TranslationException, UnsupportedProgramException, ShaderCompileException {
+        StorageBindings storage = new StorageBindings();
         Map<Stage, String> sources = new EnumMap<>(Stage.class);
         sources.put(Stage.VERTEX, vertex);
         sources.put(Stage.FRAGMENT, fragment);
@@ -112,15 +122,22 @@ final class PostProgram implements AutoCloseable {
                         }
                         case Spvc.SPVC_RESOURCE_TYPE_SAMPLED_IMAGE -> {
                             int dim = descriptor.type().dimensions();
-                            if (dim != 1 && dim != 4) { // SpvDim2D, SpvDimRect
+                            boolean customImage = validator != null && validator.isCustomSampler(descriptor.name());
+                            if (dim != 1 && dim != 4 && !customImage) { // SpvDim2D, SpvDimRect
                                 throw new UnsupportedProgramException("sampler '" + descriptor.name() + "' has dimension " + dim + " (only 2D textures are supported yet)");
                             }
                             uniformName = descriptor.name();
                             uniformType = UniformType.COMBINED_IMAGE_SAMPLER;
                             samplers.add(uniformName);
                         }
-                        case Spvc.SPVC_RESOURCE_TYPE_STORAGE_IMAGE -> throw new UnsupportedProgramException("image '" + descriptor.name() + "' (image load/store needs stage 5)");
-                        case Spvc.SPVC_RESOURCE_TYPE_STORAGE_BUFFER -> throw new UnsupportedProgramException("buffer '" + descriptor.name() + "' (SSBOs need stage 5)");
+                        case Spvc.SPVC_RESOURCE_TYPE_STORAGE_IMAGE -> {
+                            storage.assign(descriptor, StorageBindings.Kind.IMAGE, validator);
+                            continue;
+                        }
+                        case Spvc.SPVC_RESOURCE_TYPE_STORAGE_BUFFER -> {
+                            storage.assign(descriptor, StorageBindings.Kind.BUFFER, validator);
+                            continue;
+                        }
                         default -> throw new UnsupportedProgramException("resource '" + descriptor.name() + "' of type " + descriptor.resourceType());
                     }
                     int binding = bindings.computeIfAbsent(uniformName, key -> bindings.size());
@@ -163,7 +180,7 @@ final class PostProgram implements AutoCloseable {
             formats[0] = QUAD_FORMAT;
             FrontendRenderPipeline pipeline = new FrontendRenderPipeline("iris/" + name, compiled, Arrays.asList(formats),
                     Object2IntMaps.unmodifiable(bindings), List.copyOf(uniforms), colorTargets, false, 0);
-            PostProgram program = new PostProgram(name, pipeline, samplers, Set.copyOf(compareSamplers), blocks);
+            PostProgram program = new PostProgram(name, pipeline, samplers, Set.copyOf(compareSamplers), blocks, storage);
             blocks = null; // owned by the program now
             return program;
         } finally {

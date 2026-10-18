@@ -24,6 +24,26 @@ abstract class IrisRenderSystemMixin {
      * ({@code blend.<program>.<buffer>}) are not rejected at load time. (Only the gbuffers stage uses it; it is
      * applied once gbuffers run on Metal.)
      */
+    /**
+     * Stage 5: compute shaders, image load/store (custom images, colorimg) and SSBOs run on Metal
+     * (docs/design/iris-stage5-compute.md), so Iris activates the COMPUTE_SHADERS, CUSTOM_IMAGES and SSBO feature
+     * flags for packs (their {@code IRIS_FEATURE_*} macros and pack loading checks).
+     */
+    @Inject(method = {"supportsCompute", "supportsSSBO", "supportsImageLoadStore"}, at = @At("HEAD"), cancellable = true)
+    private static void metallium$computeFeatures(final CallbackInfoReturnable<Boolean> cir) {
+        if (MetalliumRuntime.isMetalActive()) {
+            cir.setReturnValue(true);
+        }
+    }
+
+    /** Iris's {@code getMaxImageUnits} (Metal: 8 read-write textures per kernel are safe on all Apple GPUs). */
+    @Inject(method = "getMaxImageUnits", at = @At("HEAD"), cancellable = true)
+    private static void metallium$imageUnits(final CallbackInfoReturnable<Integer> cir) {
+        if (MetalliumRuntime.isMetalActive()) {
+            cir.setReturnValue(8);
+        }
+    }
+
     @Inject(method = "supportsBufferBlending", at = @At("HEAD"), cancellable = true)
     private static void metallium$bufferBlending(final CallbackInfoReturnable<Boolean> cir) {
         if (MetalliumRuntime.isMetalActive()) {

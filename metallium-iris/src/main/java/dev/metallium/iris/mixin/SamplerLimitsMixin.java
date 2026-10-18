@@ -9,7 +9,10 @@ import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Redirect;
 
-/** Answers the GL limit queries with Metal's per-stage limits (Apple GPUs: 16 sampler states, 8 colour attachments). */
+/**
+ * Answers the GL limit queries with Metal's per-stage limits (Apple GPUs: 16 sampler states, 8 colour attachments,
+ * Iris's 16 SSBO bindings - bufferObject indices are at most 12).
+ */
 @Mixin(value = SamplerLimits.class, remap = false)
 abstract class SamplerLimitsMixin {
     @Redirect(method = "<init>", at = @At(value = "INVOKE", target = "Lcom/mojang/renderpearl/backend/opengl/GlStateManager;_getInteger(I)I"))
@@ -20,7 +23,7 @@ abstract class SamplerLimitsMixin {
         return switch (pname) {
             case GL20C.GL_MAX_TEXTURE_IMAGE_UNITS -> 16;
             case GL20C.GL_MAX_DRAW_BUFFERS -> 8;
-            case GL43C.GL_MAX_SHADER_STORAGE_BUFFER_BINDINGS -> 0;
+            case GL43C.GL_MAX_SHADER_STORAGE_BUFFER_BINDINGS -> 16; // stage 5: SSBOs are Metal buffers
             default -> 0;
         };
     }

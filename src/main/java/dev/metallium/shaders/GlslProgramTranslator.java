@@ -356,17 +356,31 @@ public final class GlslProgramTranslator {
                         throw new TranslationException("varying " + resource.nameString() + " has no Location decoration");
                     }
                     long type = Spvc.spvc_compiler_get_type_handle(compiler, resource.type_id());
-                    int slots = Math.max(1, Spvc.spvc_type_get_columns(type));
-                    for (int d = 0; d < Spvc.spvc_type_get_num_array_dimensions(type); d++) {
-                        slots *= Math.max(1, Spvc.spvc_type_get_array_dimension(type, d));
-                    }
-                    out.add(new Varying(resource.nameString(), offset.get(0), slots));
+                    out.add(new Varying(resource.nameString(), offset.get(0), locationSlots(compiler, type)));
                 }
                 return out;
             } finally {
                 Spvc.spvc_context_destroy(context);
             }
         }
+    }
+
+    /** Interface locations a varying of this type occupies: matrix columns x array sizes, struct members summed. */
+    private static int locationSlots(final long compiler, final long type) {
+        int slots;
+        if (Spvc.spvc_type_get_basetype(type) == Spvc.SPVC_BASETYPE_STRUCT) {
+            slots = 0;
+            for (int i = 0; i < Spvc.spvc_type_get_num_member_types(type); i++) {
+                slots += locationSlots(compiler, Spvc.spvc_compiler_get_type_handle(compiler, Spvc.spvc_type_get_member_type(type, i)));
+            }
+            slots = Math.max(1, slots);
+        } else {
+            slots = Math.max(1, Spvc.spvc_type_get_columns(type));
+        }
+        for (int d = 0; d < Spvc.spvc_type_get_num_array_dimensions(type); d++) {
+            slots *= Math.max(1, Spvc.spvc_type_get_array_dimension(type, d));
+        }
+        return slots;
     }
 
     private static SpirvStage reflectDefaultBlock(final Stage stage, final ByteBuffer spirv) throws TranslationException {
@@ -531,7 +545,18 @@ public final class GlslProgramTranslator {
         return little == 0x07230203 || Integer.reverseBytes(little) == 0x07230203;
     }
 
-    static ByteBuffer compileToSpirv(final String programName, final Stage stage, final String source) throws TranslationException {
+    /**
+     * GL identifiers that cannot survive the trip: {@code sampler}/{@code samplerShadow} are reserved words only in
+     * Vulkan GLSL, which glslang applies even with relaxed rules (Photon: {@code sampler2D sampler}); the others are
+     * Metal standard-library functions that packs define themselves, which become ambiguous overloads in MSL
+     * ({@code using namespace metal}; Photon: {@code length_squared}), or C++/MSL keywords that are plain GLSL names
+     * (BSL: {@code bool new}).
+     */
+    private static final Pattern VULKAN_ONLY_KEYWORDS = Pattern.compile(
+            "\\b(sampler|samplerShadow|length_squared|distance_squared|saturate|max3|min3|median3|powr|rsqrt|new|delete|this|template|typename|namespace|operator|friend|virtual|explicit|mutable|private|protected|public|kernel|device|thread|threadgroup|register|bias|level|min_lod_clamp)\\b");
+
+    static ByteBuffer compileToSpirv(final String programName, final Stage stage, final String glslSource) throws TranslationException {
+        String source = VULKAN_ONLY_KEYWORDS.matcher(glslSource).replaceAll("metallium_$1");
         if (!VERSION.matcher(source).find()) {
             throw new TranslationException(programName + "/" + stage + ": missing #version directive");
         }
