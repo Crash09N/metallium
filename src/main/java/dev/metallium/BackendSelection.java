@@ -26,6 +26,13 @@ public final class BackendSelection {
         return decision;
     }
 
+    /** Whether the Metal choice makes sense on this machine (Apple Silicon macOS). */
+    public static boolean metalSupported() {
+        String os = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
+        String arch = System.getProperty("os.arch", "").toLowerCase(Locale.ROOT);
+        return os.contains("mac") && (arch.equals("aarch64") || arch.equals("arm64"));
+    }
+
     public static boolean shouldOfferMetal() {
         return decision().offerMetal();
     }
@@ -46,15 +53,12 @@ public final class BackendSelection {
         }
         boolean forced = override.equals("metal");
 
-        String os = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
-        String arch = System.getProperty("os.arch", "").toLowerCase(Locale.ROOT);
-        boolean appleSilicon = os.contains("mac") && (arch.equals("aarch64") || arch.equals("arm64"));
-        if (!appleSilicon && !forced) {
-            return new Decision(false, "not Apple Silicon macOS (" + os + ", " + arch + ")");
+        if (!metalSupported() && !forced) {
+            return new Decision(false, "not Apple Silicon macOS (" + System.getProperty("os.name") + ", " + System.getProperty("os.arch") + ")");
         }
 
-        if (!MetalliumConfig.INSTANCE.enabled && !forced) {
-            return new Decision(false, "disabled in config/metallium.json");
+        if (MetalliumConfig.INSTANCE.engine != MetalliumConfig.GraphicsEngine.METAL && !forced) {
+            return new Decision(false, "Graphics Engine is " + MetalliumConfig.INSTANCE.engine + " in config/metallium.json");
         }
 
         FabricLoader loader = FabricLoader.getInstance();

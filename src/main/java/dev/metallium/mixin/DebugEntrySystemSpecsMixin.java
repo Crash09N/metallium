@@ -24,6 +24,7 @@ abstract class DebugEntrySystemSpecsMixin {
     private Collection<String> metallium$addStatusLine(final Collection<String> lines) {
         List<String> result = new ArrayList<>(lines);
         result.add(metallium$statusLine());
+        result.addAll(MetalliumRuntime.statusLines());
         return result;
     }
 
@@ -32,7 +33,12 @@ abstract class DebugEntrySystemSpecsMixin {
                 .map(mod -> mod.getMetadata().getVersion().getFriendlyString())
                 .orElse("?");
         if (MetalliumRuntime.isMetalActive()) {
-            return "Metallium " + version + ": Metal active";
+            String details = MetalliumRuntime.metalDescription();
+            return "Metallium " + version + ": Metal active" + (details.isEmpty() ? "" : " · " + details);
+        }
+        dev.metallium.MetalliumConfig.GraphicsEngine engine = dev.metallium.MetalliumConfig.INSTANCE.engine;
+        if (engine != dev.metallium.MetalliumConfig.GraphicsEngine.METAL) {
+            return "Metallium " + version + ": inactive (Graphics Engine: " + engine + ")";
         }
         BackendSelection.Decision decision = BackendSelection.decision();
         return "Metallium " + version + ": inactive (" + (decision.offerMetal() ? "Metal init failed, using fallback" : decision.reason()) + ")";

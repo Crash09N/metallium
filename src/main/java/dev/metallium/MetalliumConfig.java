@@ -20,8 +20,17 @@ public final class MetalliumConfig {
     private static final Path FILE = FabricLoader.getInstance().getConfigDir().resolve("metallium.json");
     public static final MetalliumConfig INSTANCE = load();
 
-    public boolean enabled = true;
+    /** Selected graphics engine. Null only transiently while migrating a pre-selector config. */
+    public GraphicsEngine engine;
+    /** Legacy boolean from before the engine selector; read once for migration, never written back. */
+    public Boolean enabled;
+    /** The vanilla preferredGraphicsBackend value Metallium last wrote, used to detect changes made via vanilla's own option. */
+    public String syncedVanillaApi;
     public boolean displayP3 = false;
+
+    public enum GraphicsEngine {
+        METAL, OPENGL, VULKAN
+    }
 
     private MetalliumConfig() {
     }
@@ -29,10 +38,24 @@ public final class MetalliumConfig {
     private static MetalliumConfig load() {
         try (Reader reader = Files.newBufferedReader(FILE)) {
             MetalliumConfig config = GSON.fromJson(reader, MetalliumConfig.class);
-            return config != null ? config : new MetalliumConfig();
+            return migrate(config != null ? config : new MetalliumConfig());
         } catch (IOException | JsonParseException e) {
-            return new MetalliumConfig();
+            return migrate(new MetalliumConfig());
         }
+    }
+
+    private static MetalliumConfig migrate(MetalliumConfig config) {
+        if (config.engine == null) {
+            config.engine = Boolean.FALSE.equals(config.enabled) ? GraphicsEngine.OPENGL : GraphicsEngine.METAL;
+        }
+        config.enabled = null;
+        String override = System.getProperty("metallium.engine", "").trim().toUpperCase(java.util.Locale.ROOT);
+        for (GraphicsEngine engine : GraphicsEngine.values()) {
+            if (engine.name().equals(override)) {
+                config.engine = engine; // test/debug override, e.g. -Dmetallium.engine=VULKAN; not persisted unless saved
+            }
+        }
+        return config;
     }
 
     public void save() {

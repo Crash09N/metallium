@@ -54,9 +54,28 @@ public class MetalBackend implements GpuBackend {
         try {
             GpuDevice device = new FrontendGpuDevice(new MetalDevice(debugOptions, metalDevice, deviceName));
             dev.metallium.api.MetalliumRuntime.markMetalActive();
+            dev.metallium.api.MetalliumRuntime.setMetalDescription(describe(metalDevice));
             return device;
         } catch (Throwable throwable) {
             throw new BackendCreationException("Metal device initialization failed: " + throwable.getMessage(), BackendCreationException.Reason.OTHER);
         }
+    }
+
+    /** Highest Metal API level and Apple GPU family the device supports, plus the MSL version shaders are compiled for. */
+    private static String describe(final MTLDevice device) {
+        String api = device.supportsFamily(io.github.kokodio.metaljvm.metal.MTLGPUFamily.Metal4) ? "Metal 4"
+                : device.supportsFamily(io.github.kokodio.metaljvm.metal.MTLGPUFamily.Metal3) ? "Metal 3" : "Metal";
+        String family = "";
+        io.github.kokodio.metaljvm.metal.MTLGPUFamily[] apple = {
+                io.github.kokodio.metaljvm.metal.MTLGPUFamily.Apple11, io.github.kokodio.metaljvm.metal.MTLGPUFamily.Apple10,
+                io.github.kokodio.metaljvm.metal.MTLGPUFamily.Apple9, io.github.kokodio.metaljvm.metal.MTLGPUFamily.Apple8,
+                io.github.kokodio.metaljvm.metal.MTLGPUFamily.Apple7};
+        for (io.github.kokodio.metaljvm.metal.MTLGPUFamily f : apple) {
+            if (device.supportsFamily(f)) {
+                family = " · GPU family " + f.name();
+                break;
+            }
+        }
+        return api + family + " · MSL " + MetalCrossShaderCompiler.MSL_VERSION_STRING;
     }
 }

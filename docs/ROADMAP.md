@@ -77,7 +77,23 @@ Status legend: ✅ done · 🔄 in progress · ⏳ planned · 🔬 needs researc
 - ⏳ Rule of thumb verified in CI: mods that work on vanilla's Vulkan backend should work on Metallium
 - ⏳ Automatic fallback: detect a mod Metallium cannot handle → OpenGL at next start, with message
 
+## Phase 6b — Apple-native features ⏳ / 🔬
+- 🔬 **MetalFX upscaling** (research: `docs/research/notes/metalfx-upscaling.md`): spatial upscaler first (render scale
+  option, UI at native resolution), then temporal upscaler (needs camera jitter + motion vectors + depth)
+- ⏳ **MetalFX frame interpolation** (frame generation) after temporal upscaling works; depends on macOS version
+- ⏳ **Game Mode**: launcher wrapper `.app` with game category so macOS enables Game Mode
+- ⏳ Later, optional: hardware ray-traced effects (M3+), and a Metal-native GPU-driven terrain path (owner may start a
+  separate Nvidium-style project)
+
 ## Phase 7 — Benchmarks and comparison ⏳
+**Engine shootout (fixed test stage, owner requirement: Metal must prove it is the fastest engine on Apple Silicon)**
+- Engines: Metal (Metallium) vs OpenGL (Apple GL 4.1, itself layered on Metal) vs Vulkan (MoltenVK → Metal)
+- Scenes: (1) vanilla light, (2) Sodium RD 32 CPU-heavy, (3) Complementary shaders GPU-heavy, (4) chunk loading while flying
+- Metrics: avg FPS + 1% lows, frame-time p50/p95/p99, rendered vs displayed frames, memory; identical seed, camera,
+  window size, settings; one run at a time on an idle Mac
+- One command runs the whole matrix and writes a Markdown table to `docs/benchmarks/`; re-run after every larger
+  optimisation as a performance regression test. Where Metal loses, that becomes the next optimisation target.
+- Built right after the Graphics Engine selector (Metal / OpenGL / Vulkan) lands.
 - Same world, seed and camera path; every frame presented; frame time median/p95/p99, CPU/GPU time, memory
 - Baselines: vanilla OpenGL, vanilla Vulkan via MoltenVK (and Mesa KosmicKrisp), Sodium on OpenGL, mcopt (pacing off)
 - Metal Performance HUD (`MTL_HUD_ENABLED=1`) as extra GPU-side view for Metallium
@@ -85,3 +101,15 @@ Status legend: ✅ done · 🔄 in progress · ⏳ planned · 🔬 needs researc
 ## Phase 8 — Release ⏳
 - Owner-tested on M3 Max; CI green; known limitations documented; credits complete (`README.md`, `NOTICE`)
 - Releases per Minecraft version; port the backend when renderpearl changes
+
+## Long-term vision (owner, 2026-10-18)
+
+Order: (1) finish the Metal renderer + Iris support → (2) MetalFX upscaling and frame interpolation → (3) rename and
+broaden the project to **"Metall/Nvid-ium Reborn"**: one mod optimising for both Apple GPUs (Metal, MetalFX) and NVIDIA
+GPUs (Nvidium-style GPU-driven terrain, DLSS upscaling and multi-frame generation).
+
+Open items before the rename / NVIDIA work:
+- Name and logo derived from Nvidium (MCRcortex): ask MCRcortex for permission first; Nvidium code is LGPL-3.0, so any
+  adapted Nvidium code stays in an LGPL module (like `metallium-iris`).
+- DLSS / frame generation: NVIDIA Streamline/DLSS SDK licence terms; runs via Vulkan (vanilla 26.3 has a Vulkan
+  backend) or DirectX, not Metal → a separate backend path with its own module.

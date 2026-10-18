@@ -55,7 +55,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        variant: [vanilla, sodium, iris]
+        variant: [vanilla, sodium, iris, reglass, cullleaves, moreculling]
     runs-on: macos-15
     needs: metal
     timeout-minutes: 40
@@ -73,7 +73,7 @@ jobs:
           METALLIUM_EXPECT_BACKEND: Metal
           # Metal API validation: reports invalid bindings/formats/offsets in the log.
           MTL_DEBUG_LAYER: '1'
-        run: ./gradlew runClientGameTest --no-daemon ${{ matrix.variant == 'sodium' && '-PwithSodium' || matrix.variant == 'iris' && '-PwithIris' || '' }}
+        run: ./gradlew runClientGameTest --no-daemon ${{ matrix.variant == 'sodium' && '-PwithSodium' || matrix.variant == 'iris' && '-PwithIris' || matrix.variant == 'reglass' && '-PwithReGlass' || matrix.variant == 'cullleaves' && '-PwithCullLeaves' || matrix.variant == 'moreculling' && '-PwithMoreCulling' || '' }}
       - name: Report
         if: always()
         run: cat build/run/clientGameTest/metallium-gametest-report.txt || true

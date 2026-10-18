@@ -44,6 +44,8 @@ import net.irisshaders.iris.uniforms.CommonUniforms;
 import net.irisshaders.iris.uniforms.FrameUpdateNotifier;
 import net.irisshaders.iris.uniforms.custom.CustomUniforms;
 import net.minecraft.ChatFormatting;
+import net.irisshaders.iris.shaderpack.materialmap.BlockMaterialMapping;
+import net.irisshaders.iris.shaderpack.materialmap.WorldRenderingSettings;
 import net.minecraft.client.Minecraft;
 import net.minecraft.network.chat.Component;
 import org.lwjgl.system.MemoryUtil;
@@ -355,6 +357,17 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
 
     @Override
     public void beginLevelRendering() {
+        // Same lazy id-map setup as Iris's own pipeline: uniforms such as currentSelectedBlockId read these maps.
+        // (With gbuffers, GbufferState.beginFrame does this and also rebuilds chunks for the block IDs.)
+        if (!initializedBlockIds && gbuffers == null) {
+            WorldRenderingSettings.INSTANCE.setBlockStateIds(BlockMaterialMapping.createBlockStateIdMap(
+                    programSet.getPack().getIdMap().getBlockProperties(), programSet.getPack().getIdMap().getTagEntries()));
+            WorldRenderingSettings.INSTANCE.setBlockTypeIds(
+                    BlockMaterialMapping.createBlockTypeMap(programSet.getPack().getIdMap().getBlockRenderTypeMap()));
+            WorldRenderingSettings.INSTANCE.setEntityIds(programSet.getPack().getIdMap().getEntityIdMap());
+            WorldRenderingSettings.INSTANCE.setItemIds(programSet.getPack().getIdMap().getItemIdMap());
+            initializedBlockIds = true;
+        }
         GbufferState state = gbuffers;
         if (state == null || failed) {
             return; // stage-2 mode: all work happens in finalizeLevelRendering
@@ -404,6 +417,8 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
             fail("deferred passes failed", e);
         }
     }
+
+    private boolean initializedBlockIds;
 
     @Override
     public void finalizeLevelRendering() {

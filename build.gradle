@@ -101,6 +101,7 @@ loom.runs.clientGameTest {
 	vmArg '--enable-native-access=ALL-UNNAMED'
 	vmArg "-Dmetallium.gametest.expectBackend=${System.getenv('METALLIUM_EXPECT_BACKEND') ?: ''}"
 	if (project.hasProperty('bench')) vmArg '-Dmetallium.gametest.mode=bench'
+	if (project.hasProperty('engine')) vmArg "-Dmetallium.engine=${project.property('engine')}"
 	if (project.hasProperty('backendOff')) vmArg '-Dmetallium.backend=off'
 	// -Pshaderpack=/abs/path/pack.zip (with -PwithIris): also load that pack in the game test. Copied into the run
 	// directory at runtime only; never commit third-party packs.
@@ -124,5 +125,44 @@ if (project.hasProperty('withIris')) {
 		gametestRuntimeOnly "maven.modrinth:sodium:${project.sodium_version}"
 		gametestRuntimeOnly "maven.modrinth:iris:${project.iris_version}"
 		gametestRuntimeOnly project(':metallium-iris')
+		// also for ./gradlew :runClient -PwithIris (dev runtime only)
+		localRuntime "maven.modrinth:sodium:${project.sodium_version}"
+		localRuntime "maven.modrinth:iris:${project.iris_version}"
+		localRuntime project(':metallium-iris')
+	}
+}
+
+// Mod-compat game-test variants (Sodium + the mod; one Minecraft run each):
+//   ./gradlew runClientGameTest -PwithReGlass | -PwithCullLeaves | -PwithMoreCulling
+// Cull Leaves and More Culling are mutually exclusive in one run.
+if (project.hasProperty('withReGlass') || project.hasProperty('withCullLeaves') || project.hasProperty('withMoreCulling')) {
+	if (project.hasProperty('withCullLeaves') && project.hasProperty('withMoreCulling')) {
+		throw new GradleException('-PwithCullLeaves and -PwithMoreCulling cannot be combined')
+	}
+	dependencies {
+		gametestRuntimeOnly "maven.modrinth:sodium:${project.sodium_version}"
+		if (project.hasProperty('withReGlass')) gametestRuntimeOnly 'maven.modrinth:reglass:lmGLWyTl' // 2.1.1 for 26.3 (version numbers are shared across MC versions, so use the id)
+		if (project.hasProperty('withCullLeaves')) gametestRuntimeOnly 'maven.modrinth:cull-leaves:jqOVPlQ8'
+		if (project.hasProperty('withMoreCulling')) {
+			gametestRuntimeOnly 'maven.modrinth:moreculling:t7vAlfgO'
+			gametestRuntimeOnly 'maven.modrinth:cloth-config:fg2uyxOW' // required dependency of More Culling
+		}
+	}
+}
+
+// ./gradlew runClientGameTest -PwithDH  → Sodium + Distant Horizons 3.3.4 (26.3, fabric).
+if (project.hasProperty('withDH')) {
+	dependencies {
+		gametestRuntimeOnly "maven.modrinth:sodium:${project.sodium_version}"
+		gametestRuntimeOnly 'maven.modrinth:distanthorizons:TGgEbP9A'
+	}
+}
+
+// ./gradlew runClientGameTest -PwithVoxy=/abs/path/voxy-26.3.jar  → Sodium + a locally built Voxy (branch 263).
+// There is no 26.3 Voxy on Modrinth yet and Voxy is all-rights-reserved: the jar is never committed or redistributed.
+if (project.hasProperty('withVoxy')) {
+	dependencies {
+		gametestRuntimeOnly "maven.modrinth:sodium:${project.sodium_version}"
+		gametestRuntimeOnly files(project.property('withVoxy'))
 	}
 }
