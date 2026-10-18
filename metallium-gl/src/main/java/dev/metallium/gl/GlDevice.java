@@ -203,8 +203,8 @@ public interface GlDevice {
     /** glFlush: close any open encoder (work is submitted with the host's frame). */
     void flush();
 
-    /** glFinish: submit and wait where possible (headless); in-game this only closes the encoder. */
-    void finish();
+    /** glFinish: submit and wait for all GPU work so far; true if it waited (all earlier fences are then complete). */
+    boolean finish();
 
     // ------------------------------------------------------------------------------------------ GL 4.x (compute etc.)
     // Default implementations: CPU fallbacks or "unsupported", so test devices only implement what they exercise.

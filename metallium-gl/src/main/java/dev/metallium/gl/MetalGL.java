@@ -112,7 +112,7 @@ public final class MetalGL {
     }
 
     public static void glFinish() {
-        gl().device.finish();
+        gl().finish();
     }
 
     public static void glHint(final int target, final int mode) {

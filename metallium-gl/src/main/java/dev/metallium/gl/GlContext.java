@@ -2160,6 +2160,13 @@ public final class GlContext {
 
     // ---------------------------------------------------------------------------------------------- sync
 
+    /** glFinish: once the device waited for all GPU work, every existing sync object is signaled. */
+    public void finish() {
+        if (device.finish()) {
+            syncs.values().forEach(sync -> sync.signaled = true);
+        }
+    }
+
     public long fenceSync(final int condition, final int flags) {
         if (condition != GL_SYNC_GPU_COMMANDS_COMPLETE || flags != 0) {
             error(condition != GL_SYNC_GPU_COMMANDS_COMPLETE ? GL_INVALID_ENUM : GL_INVALID_VALUE);
@@ -2182,6 +2189,12 @@ public final class GlContext {
         }
         if (timeoutNs > 0 && sync.use.await(timeoutNs)) {
             sync.signaled = true;
+            return GL_CONDITION_SATISFIED;
+        }
+        if (timeoutNs > 0 && device.finish()) {
+            // Work of the frame being recorded cannot complete before the frame is submitted: the application waits,
+            // so commit what is recorded so far and wait (GL semantics; costs a mid-frame submit).
+            syncs.values().forEach(other -> other.signaled = true);
             return GL_CONDITION_SATISFIED;
         }
         return GL_TIMEOUT_EXPIRED;

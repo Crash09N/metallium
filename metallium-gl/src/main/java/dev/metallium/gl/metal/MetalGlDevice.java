@@ -1325,10 +1325,10 @@ public final class MetalGlDevice implements GlDevice {
     }
 
     @Override
-    public void finish() {
+    public boolean finish() {
         endEncoders();
         commandBuffer = null;
-        host.submitAndWait();
+        return host.submitAndWait();
     }
 
     // ---------------------------------------------------------------------------------------------- GL → Metal enums

@@ -133,7 +133,8 @@ final class RecordingDevice implements GlDevice {
     }
 
     @Override
-    public void finish() {
+    public boolean finish() {
+        return true;
     }
 
     final List<DispatchOp> dispatches = new ArrayList<>();
