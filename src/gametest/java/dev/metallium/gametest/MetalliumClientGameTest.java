@@ -19,7 +19,7 @@ import java.util.List;
  * Set {@code -Dmetallium.gametest.expectBackend=Metal} to fail when a different backend was chosen.
  */
 public final class MetalliumClientGameTest implements FabricClientGameTest {
-    private static final String BENCH_SEED = "metallium";
+    private static final String BENCH_SEED = System.getProperty("metallium.bench.seed", "metallium");
     private static final int BENCH_SECONDS = Integer.getInteger("metallium.bench.seconds", 30);
 
     private static final String BENCH_SCENE = System.getProperty("metallium.bench.scene", "light");
@@ -104,10 +104,15 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
             // Raise the render distance only after the initial load (waitForChunksRender at a high RD times out).
             int rd = renderDistance;
             context.runOnClient(client -> client.options.renderDistance().set(rd));
+            // The integrated server caps the view distance independently of the client option.
+            world.getServer().runOnServer(server -> {
+                server.getPlayerList().setViewDistance(rd);
+                server.getPlayerList().setSimulationDistance(Math.min(rd, 12));
+            });
             // Camera: above the terrain at the origin so the view shows land to the horizon, not mostly sky.
             String cameraSetting = System.getProperty("metallium.bench.camera", "");
             int surface = context.computeOnClient(client -> client.level.getHeight(net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING, 0, 0));
-            String camera = !cameraSetting.isEmpty() ? cameraSetting : "0 " + (surface + 20) + " 0 " + (flight ? "-90 10" : "30 8");
+            String camera = !cameraSetting.isEmpty() ? cameraSetting : "0 " + (surface + 25) + " 0 " + (flight ? "-90 10" : "110 15");
             line("bench: surface y at origin=" + surface + ", camera=" + camera);
             tryCommand(world, "tp @a " + camera);
 
