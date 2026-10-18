@@ -1,0 +1,15 @@
+Metallium
+Copyright (c) 2026 Crash09N (https://github.com/Crash09N) and Metallium contributors
+
+This product includes software developed by Crash09N for the Metallium project
+(https://github.com/Crash09N/metallium).
+
+Any redistribution or derivative work must retain this NOTICE file, or an equivalent
+attribution to Crash09N and the Metallium project, as required by section 4(d) of the
+Apache License, Version 2.0.
+
+Third-party code included in this distribution:
+- Metallum (https://github.com/kokodio/metallum), Copyright (c) 2026 kokodio, MIT License
+  (LICENSES/MIT-metallum.txt). Basis of the Metal backend in dev.metallium.backend.
+- metal-jvm (https://github.com/kokodio/metal-jvm), Copyright (c) 2026 kokodio, MIT License
+  (LICENSES/MIT-metal-jvm.txt). Bundled as a dependency.
