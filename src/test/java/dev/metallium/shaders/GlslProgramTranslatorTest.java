@@ -318,6 +318,55 @@ class GlslProgramTranslatorTest {
     }
 
     @Test
+    void vulkanOnlyKeywordsAreValidGlIdentifiers() throws Exception {
+        // Photon's bicubic helper: "sampler" is a type keyword only in Vulkan GLSL.
+        Map<Stage, String> sources = new EnumMap<>(Stage.class);
+        sources.put(Stage.FRAGMENT, """
+                #version 330 core
+                uniform sampler2D colortex0;
+                layout(location = 0) out vec4 color;
+                vec4 fetch(sampler2D sampler, vec2 coord) { return textureLod(sampler, coord, 0.0); }
+                float length_squared(vec3 v) { return dot(v, v); }
+                float saturate(float x) { return clamp(x, 0.0, 1.0); }
+                float level(float bias) { return bias; }
+                void main() { bool new = level(1.0) > 0.0; color = fetch(colortex0, vec2(0.5)) * saturate(length_squared(vec3(new ? 0.5 : 0.25))); }
+                """);
+        Program program = GlslProgramTranslator.translate("bicubic", sources);
+        assertTrue(names(program.stages().get(Stage.FRAGMENT), ResourceBinding.Kind.SAMPLED_TEXTURE).contains("colortex0"));
+        compileWithMetalIfAvailable(program);
+    }
+
+    @Test
+    void structVaryingsTakeOneLocationPerMember() throws Exception {
+        // Photon: "flat out CloudsParameters clouds_params;" next to plain varyings.
+        String common = "struct Params { vec2 coverage; vec2 detail; float height; };\n";
+        Map<Stage, GlslProgramTranslator.SpirvStage> stages = GlslProgramTranslator.compileToSpirv("clouds", Map.of(
+                Stage.VERTEX, "#version 330 core\n" + common + """
+                        in vec3 Position;
+                        flat out Params params;
+                        out vec2 uv;
+                        void main() { params = Params(vec2(1.0), vec2(2.0), 3.0); uv = Position.xy; gl_Position = vec4(Position, 1.0); }
+                        """,
+                Stage.FRAGMENT, "#version 330 core\n" + common + """
+                        flat in Params params;
+                        in vec2 uv;
+                        layout(location = 0) out vec4 color;
+                        void main() { color = vec4(params.coverage + uv, params.detail.x, params.height); }
+                        """));
+        try {
+            var outputs = GlslProgramTranslator.varyingsForTest(stages.get(Stage.VERTEX).spirv(), org.lwjgl.util.spvc.Spvc.SPVC_RESOURCE_TYPE_STAGE_OUTPUT);
+            java.nio.IntBuffer words = stages.get(Stage.VERTEX).spirv().asIntBuffer();
+            Map<String, Integer> locations = new java.util.HashMap<>();
+            outputs.forEach(e -> locations.put(e.getKey(), words.get(e.getValue())));
+            int params = locations.get("params");
+            int uv = locations.get("uv");
+            assertTrue(uv >= params + 3 || uv < params, "struct occupies 3 locations: " + locations);
+        } finally {
+            stages.values().forEach(stage -> org.lwjgl.system.MemoryUtil.memFree(stage.spirv()));
+        }
+    }
+
+    @Test
     void geometryLikeErrorsAreReported() {
         Map<Stage, String> sources = new EnumMap<>(Stage.class);
         sources.put(Stage.FRAGMENT, "#version 330 core\nvoid main() { undefined_call(); }\n");

@@ -1,5 +1,9 @@
 package dev.metallium.shaders;
 
+import dev.metallium.shadercache.CacheKey;
+import dev.metallium.shadercache.ShaderCache;
+import dev.metallium.shadercache.ShaderCacheStats;
+import dev.metallium.shadercache.ShaderDiskCache;
 import org.jspecify.annotations.Nullable;
 import org.lwjgl.PointerBuffer;
 import org.lwjgl.system.MemoryStack;
@@ -352,17 +356,31 @@ public final class GlslProgramTranslator {
                         throw new TranslationException("varying " + resource.nameString() + " has no Location decoration");
                     }
                     long type = Spvc.spvc_compiler_get_type_handle(compiler, resource.type_id());
-                    int slots = Math.max(1, Spvc.spvc_type_get_columns(type));
-                    for (int d = 0; d < Spvc.spvc_type_get_num_array_dimensions(type); d++) {
-                        slots *= Math.max(1, Spvc.spvc_type_get_array_dimension(type, d));
-                    }
-                    out.add(new Varying(resource.nameString(), offset.get(0), slots));
+                    out.add(new Varying(resource.nameString(), offset.get(0), locationSlots(compiler, type)));
                 }
                 return out;
             } finally {
                 Spvc.spvc_context_destroy(context);
             }
         }
+    }
+
+    /** Interface locations a varying of this type occupies: matrix columns x array sizes, struct members summed. */
+    private static int locationSlots(final long compiler, final long type) {
+        int slots;
+        if (Spvc.spvc_type_get_basetype(type) == Spvc.SPVC_BASETYPE_STRUCT) {
+            slots = 0;
+            for (int i = 0; i < Spvc.spvc_type_get_num_member_types(type); i++) {
+                slots += locationSlots(compiler, Spvc.spvc_compiler_get_type_handle(compiler, Spvc.spvc_type_get_member_type(type, i)));
+            }
+            slots = Math.max(1, slots);
+        } else {
+            slots = Math.max(1, Spvc.spvc_type_get_columns(type));
+        }
+        for (int d = 0; d < Spvc.spvc_type_get_num_array_dimensions(type); d++) {
+            slots *= Math.max(1, Spvc.spvc_type_get_array_dimension(type, d));
+        }
+        return slots;
     }
 
     private static SpirvStage reflectDefaultBlock(final Stage stage, final ByteBuffer spirv) throws TranslationException {
@@ -518,28 +536,43 @@ public final class GlslProgramTranslator {
         return source.substring(lineStart, Math.min(source.length(), declarationStart + 1)).contains("layout");
     }
 
-    /**
-     * Identifiers that desktop GLSL allows but a later stage does not, renamed to {@code metallium_<word>} before
-     * compiling (a uniform named like this would be renamed too; none seen in packs):
-     * <ul>
-     *   <li>{@code sampler}, {@code samplerShadow}: types in GL_KHR_vulkan_glsl, the dialect shaderc compiles for SPIR-V
-     *       (Photon/Bliss {@code float f(sampler2D sampler, ...)}: "unexpected SAMPLER, expecting RIGHT_PAREN");</li>
-     *   <li>C++ keywords that are not GLSL reserved words: SPIRV-Cross keeps variable names, and MSL is C++
-     *       (BSL {@code bool new = ...}: "expected unqualified-id").</li>
-     * </ul>
-     */
-    private static final Pattern RESERVED_IDENTIFIERS = Pattern.compile("(?<![\\w#])(sampler|samplerShadow|new|delete|operator|typename"
-            + "|virtual|friend|explicit|mutable|private|protected|register|nullptr|constexpr|decltype|noexcept|throw|try|catch"
-            + "|alignas|alignof|static_assert|thread_local|export|this|typeid|dynamic_cast|static_cast|const_cast|reinterpret_cast)(?!\\w)");
-
-    static String renameReservedIdentifiers(final String source) {
-        return RESERVED_IDENTIFIERS.matcher(source).replaceAll("metallium_$1");
+    private static boolean isSpirv(final byte[] bytes) {
+        // SPIR-V magic 0x07230203 in either byte order, whole words, at least the 5-word header.
+        if (bytes.length < 20 || bytes.length % 4 != 0) {
+            return false;
+        }
+        int little = (bytes[0] & 0xFF) | (bytes[1] & 0xFF) << 8 | (bytes[2] & 0xFF) << 16 | (bytes[3] & 0xFF) << 24;
+        return little == 0x07230203 || Integer.reverseBytes(little) == 0x07230203;
     }
 
-    static ByteBuffer compileToSpirv(final String programName, final Stage stage, final String rawSource) throws TranslationException {
-        String source = renameReservedIdentifiers(rawSource);
+    /**
+     * GL identifiers that cannot survive the trip: {@code sampler}/{@code samplerShadow} are reserved words only in
+     * Vulkan GLSL, which glslang applies even with relaxed rules (Photon: {@code sampler2D sampler}); the others are
+     * Metal standard-library functions that packs define themselves, which become ambiguous overloads in MSL
+     * ({@code using namespace metal}; Photon: {@code length_squared}), or C++/MSL keywords that are plain GLSL names
+     * (BSL: {@code bool new}).
+     */
+    private static final Pattern VULKAN_ONLY_KEYWORDS = Pattern.compile(
+            "\\b(sampler|samplerShadow|length_squared|distance_squared|saturate|max3|min3|median3|powr|rsqrt|new|delete|this|template|typename|namespace|operator|friend|virtual|explicit|mutable|private|protected|public|kernel|device|thread|threadgroup|register|bias|level|min_lod_clamp|nullptr|constexpr|decltype|noexcept|throw|try|catch|alignas|alignof|static_assert|thread_local|export|typeid|dynamic_cast|static_cast|const_cast|reinterpret_cast)\\b");
+
+    static ByteBuffer compileToSpirv(final String programName, final Stage stage, final String glslSource) throws TranslationException {
+        String source = VULKAN_ONLY_KEYWORDS.matcher(glslSource).replaceAll("metallium_$1");
         if (!VERSION.matcher(source).find()) {
             throw new TranslationException(programName + "/" + stage + ": missing #version directive");
+        }
+        // Persistent GLSL -> SPIR-V cache (only once the Metal device opened it). The shaderc options below are fixed;
+        // the cache environment includes a hash of this class, so changing them invalidates old entries.
+        ShaderDiskCache cache = ShaderCache.disk();
+        String cacheKey = null;
+        if (cache != null) {
+            cacheKey = CacheKey.of("glsl").add(stage.name()).add(source).hex();
+            byte[] cached = cache.get("glsl", cacheKey);
+            if (cached != null && isSpirv(cached)) {
+                ShaderCacheStats.glslCacheHits.increment();
+                ByteBuffer copy = MemoryUtil.memAlloc(cached.length);
+                copy.put(cached).flip();
+                return copy;
+            }
         }
         long compiler = Shaderc.shaderc_compiler_initialize();
         long options = Shaderc.shaderc_compile_options_initialize();
@@ -558,9 +591,12 @@ public final class GlslProgramTranslator {
             ByteBuffer fileName = MemoryUtil.memUTF8(programName + "." + stage.name().toLowerCase());
             ByteBuffer entryPoint = MemoryUtil.memUTF8("main");
             long result;
+            long start = System.nanoTime();
             try {
                 result = Shaderc.shaderc_compile_into_spv(compiler, sourceText, stage.shadercKind, fileName, entryPoint, options);
             } finally {
+                ShaderCacheStats.glslCompiles.increment();
+                ShaderCacheStats.glslNs.add(System.nanoTime() - start);
                 MemoryUtil.memFree(sourceText);
                 MemoryUtil.memFree(fileName);
                 MemoryUtil.memFree(entryPoint);
@@ -572,6 +608,11 @@ public final class GlslProgramTranslator {
                 ByteBuffer bytes = Shaderc.shaderc_result_get_bytes(result);
                 ByteBuffer copy = MemoryUtil.memAlloc(bytes.remaining());
                 copy.put(bytes).flip();
+                if (cache != null) {
+                    byte[] stored = new byte[copy.remaining()];
+                    copy.duplicate().get(stored);
+                    cache.put("glsl", cacheKey, stored);
+                }
                 return copy;
             } finally {
                 Shaderc.shaderc_result_release(result);
