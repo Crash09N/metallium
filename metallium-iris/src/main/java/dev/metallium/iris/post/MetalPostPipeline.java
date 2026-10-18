@@ -39,6 +39,8 @@ import net.irisshaders.iris.uniforms.CommonUniforms;
 import net.irisshaders.iris.uniforms.FrameUpdateNotifier;
 import net.irisshaders.iris.uniforms.custom.CustomUniforms;
 import net.minecraft.ChatFormatting;
+import net.irisshaders.iris.shaderpack.materialmap.BlockMaterialMapping;
+import net.irisshaders.iris.shaderpack.materialmap.WorldRenderingSettings;
 import net.minecraft.client.Minecraft;
 import net.minecraft.network.chat.Component;
 import org.lwjgl.system.MemoryUtil;
@@ -326,7 +328,19 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
     @Override
     public void beginLevelRendering() {
         // No GL program to unbind; per-frame work happens in finalizeLevelRendering.
+        // Same lazy id-map setup as Iris's own pipeline: uniforms such as currentSelectedBlockId read these maps.
+        if (!initializedBlockIds) {
+            WorldRenderingSettings.INSTANCE.setBlockStateIds(BlockMaterialMapping.createBlockStateIdMap(
+                    programSet.getPack().getIdMap().getBlockProperties(), programSet.getPack().getIdMap().getTagEntries()));
+            WorldRenderingSettings.INSTANCE.setBlockTypeIds(
+                    BlockMaterialMapping.createBlockTypeMap(programSet.getPack().getIdMap().getBlockRenderTypeMap()));
+            WorldRenderingSettings.INSTANCE.setEntityIds(programSet.getPack().getIdMap().getEntityIdMap());
+            WorldRenderingSettings.INSTANCE.setItemIds(programSet.getPack().getIdMap().getItemIdMap());
+            initializedBlockIds = true;
+        }
     }
+
+    private boolean initializedBlockIds;
 
     @Override
     public void finalizeLevelRendering() {

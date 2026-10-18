@@ -124,5 +124,9 @@ if (project.hasProperty('withIris')) {
 		gametestRuntimeOnly "maven.modrinth:sodium:${project.sodium_version}"
 		gametestRuntimeOnly "maven.modrinth:iris:${project.iris_version}"
 		gametestRuntimeOnly project(':metallium-iris')
+		// also for ./gradlew :runClient -PwithIris (dev runtime only)
+		localRuntime "maven.modrinth:sodium:${project.sodium_version}"
+		localRuntime "maven.modrinth:iris:${project.iris_version}"
+		localRuntime project(':metallium-iris')
 	}
 }
