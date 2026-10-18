@@ -95,6 +95,14 @@ Status legend: ✅ done · 🔄 in progress · ⏳ planned · 🔬 needs researc
   option, UI at native resolution), then temporal upscaler (needs camera jitter + motion vectors + depth)
 - ⏳ **MetalFX frame interpolation** (frame generation) after temporal upscaling works; depends on macOS version
 - ⏳ **Game Mode**: launcher wrapper `.app` with game category so macOS enables Game Mode
+- ⏳ **Low Power / efficiency mode** (owner request): detect macOS Low Power Mode (`NSProcessInfo.isLowPowerModeEnabled` +
+  power-state change notification), thermal state and battery vs. AC; switch live, no restart. Measures, by expected
+  savings: FPS cap + VSync; lower internal resolution + MetalFX upscaling; worker/chunk-builder threads at a lower QoS
+  class so they run on efficiency cores; fewer frames in flight; optionally reduced shader-pack cost (shadow resolution).
+  Measure watts (powermetrics / Metal HUD) per mode in the benchmark stage.
+- ⏳ **"Metallium" settings tab** (Sodium config API → also shown by Reese's Sodium Options): Graphics Engine, Power mode
+  (Automatic / Performance / Balanced / Low Power), FPS limit on battery, MetalFX options (later), Display P3, diagnostics
+  (Metal HUD toggle, validation).
 - ⏳ Later, optional: hardware ray-traced effects (M3+), and a Metal-native GPU-driven terrain path (owner may start a
   separate Nvidium-style project)
 
