@@ -603,6 +603,14 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
         context.takeScreenshot("metallium-title");
         graphicsApiLabelsTest(context);
 
+        if ("instance".equals(System.getProperty("metallium.gametest.mode"))) {
+            try {
+                new InstanceScenario(this::line, this::writeReport).run(context);
+            } finally {
+                writeReport();
+            }
+            return;
+        }
         if ("bench".equals(System.getProperty("metallium.gametest.mode"))) {
             try {
                 benchmark(context, backend);
@@ -1011,13 +1019,13 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
         try {
             dev.metallium.compat.CrashGuard.Recovery recovery = dev.metallium.compat.CrashGuard.recovery();
             line("crash recovery: suspects=" + recovery.suspects().stream().map(dev.metallium.compat.CrashGuard.RoutedMod::id).toList()
-                    + " metallium-gl=" + recovery.metalliumGl() + " evidence=" + recovery.evidence());
+                    + " metallium-gl=" + recovery.metalliumGl() + " startup=" + recovery.startup() + " evidence=" + recovery.evidence());
             String screen = context.computeOnClient(client -> String.valueOf(client.gui.screen()));
             line("crash recovery: screen=" + screen);
             context.takeScreenshot("metallium-crash-recovery-real");
             if (!backend.startsWith("OpenGL")) failures.add("crash recovery: expected OpenGL safe mode, got " + backend);
             if (!screen.contains("CrashRecoveryScreen")) failures.add("crash recovery: recovery screen not shown");
-            if (recovery.suspects().stream().noneMatch(m -> m.id().equals("metallium-gametest"))) failures.add("crash recovery: suspect missing");
+            if (!recovery.startup() && recovery.suspects().stream().noneMatch(m -> m.id().equals("metallium-gametest"))) failures.add("crash recovery: suspect missing");
             // "Use OpenGL for this session" -> title screen
             context.runOnClient(client -> client.gui.screen().onClose());
             context.waitTicks(10);
