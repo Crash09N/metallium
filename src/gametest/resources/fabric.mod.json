@@ -7,6 +7,9 @@
   "entrypoints": {
     "fabric-client-gametest": ["dev.metallium.gametest.MetalliumClientGameTest"]
   },
+  "custom": {
+    "metallium-gl": {"packages": ["dev.metallium.gametest.gl"]}
+  },
   "depends": {
     "metallium": "*",
     "fabric-client-gametest-api-v1": "*"

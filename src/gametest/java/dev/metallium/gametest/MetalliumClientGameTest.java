@@ -44,6 +44,11 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
                     }
                     lastFrameNs = now;
                 });
+        // metallium-gl test mod: raw OpenGL calls at the end of level rendering (only active in the metallium-gl
+        // scenario). Not in a HUD element: 26.3 extracts the HUD before the frame is rendered, so GL drawn there would be
+        // overwritten by the world (on OpenGL as well).
+        net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderEvents.END_MAIN.register(
+                context -> dev.metallium.gametest.gl.RawGlQuads.render());
     }
 
     private static void startRecording() {
@@ -367,6 +372,62 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
         return (double) magenta / Math.max(1, total);
     }
 
+    /**
+     * metallium-gl (needs -PwithGl): the test mod in {@code dev.metallium.gametest.gl} issues raw GL calls after level
+     * rendering; its classes are retargeted to metallium-gl, which must draw them into the main render target on Metal.
+     * On the OpenGL backend the same retargeted calls fall through to real OpenGL (reported, not failing).
+     */
+    private void metalliumGlScenario(ClientGameTestContext context) {
+        boolean metal = backendIsMetal(context);
+        dev.metallium.gametest.gl.RawGlQuads.enabled = true;
+        context.waitTicks(20);
+        Path shot = context.takeScreenshot("metallium-gl-hud");
+        dev.metallium.gametest.gl.RawGlQuads.enabled = false;
+        line("metallium-gl: test mod status=" + dev.metallium.gametest.gl.RawGlQuads.status + ", frames drawn=" + dev.metallium.gametest.gl.RawGlQuads.frames);
+        for (String status : dev.metallium.api.MetalliumRuntime.statusLines()) {
+            if (status.startsWith("metallium-gl")) line(status);
+        }
+        List<String> problems = new ArrayList<>();
+        if (!"ok".equals(dev.metallium.gametest.gl.RawGlQuads.status)) {
+            problems.add("test mod: " + dev.metallium.gametest.gl.RawGlQuads.status);
+        }
+        try {
+            java.awt.image.BufferedImage image = javax.imageio.ImageIO.read(shot.toFile());
+            int[][] expected = {
+                    // quad, fx, fy (GL-up fraction inside the quad), r, g, b
+                    {0, 50, 50, 255, 0, 255},
+                    {1, 25, 25, 255, 0, 0}, {1, 75, 25, 0, 255, 0}, {1, 25, 75, 0, 0, 255}, {1, 75, 75, 255, 255, 0},
+                    {2, 50, 50, 0, 255, 255}};
+            String[] names = {"uniform colour", "texture bottom-left", "texture bottom-right", "texture top-left", "texture top-right", "FBO texture"};
+            int w = image.getWidth();
+            int h = image.getHeight();
+            StringBuilder seen = new StringBuilder();
+            for (int i = 0; i < expected.length; i++) {
+                int[] e = expected[i];
+                double x0 = dev.metallium.gametest.gl.RawGlQuads.X0 + e[0] * dev.metallium.gametest.gl.RawGlQuads.STEP;
+                int x = (int) (w * (x0 + dev.metallium.gametest.gl.RawGlQuads.W * e[1] / 100.0));
+                double glY = dev.metallium.gametest.gl.RawGlQuads.Y0 + dev.metallium.gametest.gl.RawGlQuads.H * e[2] / 100.0;
+                int y = Math.clamp((int) (h * (1.0 - glY)), 0, h - 1);
+                int rgb = image.getRGB(x, y);
+                int r = (rgb >> 16) & 0xFF, g = (rgb >> 8) & 0xFF, b = rgb & 0xFF;
+                seen.append(String.format(" %s=(%d,%d,%d)", names[i], r, g, b));
+                if (Math.abs(r - e[3]) > 8 || Math.abs(g - e[4]) > 8 || Math.abs(b - e[5]) > 8) {
+                    problems.add(names[i] + " expected (" + e[3] + "," + e[4] + "," + e[5] + ") got (" + r + "," + g + "," + b + ")");
+                }
+            }
+            line("metallium-gl pixels:" + seen);
+        } catch (IOException e) {
+            problems.add("could not analyse screenshot: " + e);
+        }
+        if (problems.isEmpty()) {
+            line("metallium-gl: raw GL quads rendered correctly on " + (metal ? "Metal" : "OpenGL"));
+        } else if (metal) {
+            failures.add("metallium-gl: " + String.join("; ", problems));
+        } else {
+            line("metallium-gl on OpenGL (informational): " + String.join("; ", problems));
+        }
+    }
+
     /** Chat messages (e.g. Metallium's shader-pack notices) would cover part of the compared area. */
     private static void clearChat(ClientGameTestContext context) {
         context.runOnClient(client -> client.gui.hud.getChat().clearMessages(false));
@@ -515,6 +576,9 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
                     failures.remove(failures.size() - 1); // diagnostic only
                 }
                 context.runOnClient(client -> client.options.chunkSectionFadeInTime().set(0.75));
+                if (net.fabricmc.loader.api.FabricLoader.getInstance().isModLoaded("metallium-gl")) {
+                    metalliumGlScenario(context);
+                }
                 if (net.fabricmc.loader.api.FabricLoader.getInstance().isModLoaded("iris")) {
                     shaderPackScenario(context, world);
                 }

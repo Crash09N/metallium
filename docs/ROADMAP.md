@@ -36,7 +36,12 @@ Status legend: ✅ done · 🔄 in progress · ⏳ planned · 🔬 needs researc
   Sodium Extra's fog culling and Iris's shadow pass
 - Later, optional: mesh-shader terrain for shaders-off on M3+ — only if it beats the indirect path in benchmarks
 
-## Phase 4 — `metallium-gl`: OpenGL → Metal translation layer ⏳
+## Phase 4 — `metallium-gl`: OpenGL → Metal translation layer 🔄
+- ✅ Foundation (design: `docs/design/metallium-gl.md`): module `metallium-gl`, opt-in bytecode retargeting with
+  OpenGL fallback bridges, per-mod unimplemented-function log, GL state tracker + Metal device for buffers (persistent
+  mapping), 2D textures, FBOs, GLSL 330+ programs, VAOs, draws, blend/depth/cull state, fences; unit tests incl. real
+  Metal readback; game test `-PwithGl` (raw-GL test mod renders on Metal, pixel-checked)
+- ⏳ Next for Voxy: compute, SSBO + atomics, image load/store, indirect + indirect-count draws, UBOs, DSA (design §12)
 - Calls to `org.lwjgl.opengl.*` in mod code are redirected at load time to Metallium's layer
 - Emulated GL state (textures, buffers, framebuffers, programs, blend/depth) with synthetic GL names → Metal objects
 - Draws are recorded into Metallium's current render pass; GLSL goes through `GlslProgramTranslator`

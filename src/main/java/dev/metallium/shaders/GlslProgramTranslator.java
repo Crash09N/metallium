@@ -563,7 +563,20 @@ public final class GlslProgramTranslator {
         }
     }
 
+    /**
+     * Translates one stage produced by {@link #compileToSpirv(String, Map)} to MSL (the SPIR-V buffer stays owned by the
+     * caller). {@code glClipSpace}: the source writes OpenGL clip-space depth (-w..w); the vertex stage then remaps it to
+     * Metal's 0..w. Used by hosts that run unmodified OpenGL programs (metallium-gl).
+     */
+    public static StageResult spirvToMsl(final SpirvStage stage, final int mslVersion, final boolean glClipSpace) throws TranslationException {
+        return spirvToMsl(stage.stage(), stage.spirv().duplicate().order(stage.spirv().order()), mslVersion, glClipSpace);
+    }
+
     private static StageResult spirvToMsl(final Stage stage, final ByteBuffer spirv, final int mslVersion) throws TranslationException {
+        return spirvToMsl(stage, spirv, mslVersion, false);
+    }
+
+    private static StageResult spirvToMsl(final Stage stage, final ByteBuffer spirv, final int mslVersion, final boolean glClipSpace) throws TranslationException {
         try (MemoryStack stack = MemoryStack.stackPush()) {
             IntBuffer words = spirv.asIntBuffer();
             PointerBuffer p = stack.mallocPointer(1);
@@ -584,6 +597,9 @@ public final class GlslProgramTranslator {
                 check(Spvc.spvc_compiler_options_set_bool(options, Spvc.SPVC_COMPILER_OPTION_MSL_TEXTURE_BUFFER_NATIVE, true), "TEXTURE_BUFFER_NATIVE");
                 check(Spvc.spvc_compiler_options_set_bool(options, Spvc.SPVC_COMPILER_OPTION_MSL_PAD_FRAGMENT_OUTPUT_COMPONENTS, true), "PAD_FRAGMENT_OUTPUT");
                 check(Spvc.spvc_compiler_options_set_bool(options, Spvc.SPVC_COMPILER_OPTION_MSL_TEXTURE_1D_AS_2D, true), "TEXTURE_1D_AS_2D");
+                if (glClipSpace && stage == Stage.VERTEX) {
+                    check(Spvc.spvc_compiler_options_set_bool(options, Spvc.SPVC_COMPILER_OPTION_FIXUP_DEPTH_CONVENTION, true), "FIXUP_DEPTH_CONVENTION");
+                }
                 check(Spvc.spvc_compiler_install_compiler_options(compiler, options), "install_compiler_options");
 
                 check(Spvc.spvc_compiler_compile(compiler, p), "compile");

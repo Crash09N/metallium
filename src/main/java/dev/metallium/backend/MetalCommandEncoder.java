@@ -86,6 +86,11 @@ final class MetalCommandEncoder implements CommandEncoderBackend {
         return commandBuffer;
     }
 
+    /** Orders Metallium's encoders; also used by external encoders ({@link MetalliumInterop}). */
+    MTLFence frameFence() {
+        return fence;
+    }
+
     MTLBlitCommandEncoder blitCommandEncoder() {
         endEncoder();
         MTLCommandBuffer buffer = commandBuffer();
@@ -101,6 +106,7 @@ final class MetalCommandEncoder implements CommandEncoderBackend {
     }
 
     void endEncoder() {
+        MetalliumInterop.endExternalEncoding(); // metallium-gl: close its encoder before Metallium encodes again
         if (currentEncoder != null) {
             if (currentEncoder instanceof MTLRenderCommandEncoder renderEncoder) {
                 renderEncoder.updateFence(fence, MTLRenderStages.Vertex | MTLRenderStages.Fragment);

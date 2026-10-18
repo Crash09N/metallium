@@ -133,6 +133,14 @@ if (project.hasProperty('withIris')) {
 	}
 }
 
+// ./gradlew runClientGameTest -PwithGl  → also loads metallium-gl; the gametest's raw-GL test mod is retargeted to Metal.
+if (project.hasProperty('withGl')) {
+	dependencies {
+		gametestRuntimeOnly project(':metallium-gl')
+		localRuntime project(':metallium-gl')
+	}
+}
+
 // Mod-compat game-test variants (Sodium + the mod; one Minecraft run each):
 //   ./gradlew runClientGameTest -PwithReGlass | -PwithCullLeaves | -PwithMoreCulling
 // Cull Leaves and More Culling are mutually exclusive in one run.
