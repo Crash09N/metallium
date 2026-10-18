@@ -101,6 +101,7 @@ loom.runs.clientGameTest {
 	vmArg '--enable-native-access=ALL-UNNAMED'
 	vmArg "-Dmetallium.gametest.expectBackend=${System.getenv('METALLIUM_EXPECT_BACKEND') ?: ''}"
 	if (project.hasProperty('bench')) vmArg '-Dmetallium.gametest.mode=bench'
+	if (project.hasProperty('engine')) vmArg "-Dmetallium.engine=${project.property('engine')}"
 	if (project.hasProperty('backendOff')) vmArg '-Dmetallium.backend=off'
 	// -Pshaderpack=/abs/path/pack.zip (with -PwithIris): also load that pack in the game test. Copied into the run
 	// directory at runtime only; never commit third-party packs.

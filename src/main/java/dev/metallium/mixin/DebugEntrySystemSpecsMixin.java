@@ -36,6 +36,10 @@ abstract class DebugEntrySystemSpecsMixin {
             String details = MetalliumRuntime.metalDescription();
             return "Metallium " + version + ": Metal active" + (details.isEmpty() ? "" : " · " + details);
         }
+        dev.metallium.MetalliumConfig.GraphicsEngine engine = dev.metallium.MetalliumConfig.INSTANCE.engine;
+        if (engine != dev.metallium.MetalliumConfig.GraphicsEngine.METAL) {
+            return "Metallium " + version + ": inactive (Graphics Engine: " + engine + ")";
+        }
         BackendSelection.Decision decision = BackendSelection.decision();
         return "Metallium " + version + ": inactive (" + (decision.offerMetal() ? "Metal init failed, using fallback" : decision.reason()) + ")";
     }
