@@ -45,36 +45,38 @@ The blueprint proposed per-draw retargeting hooks in the backend (H1-H6). Stage 
    names vanilla/Sodium set (`Sampler0`, `u_BlockTex`, `u_LightTex`, `u_Globals`, `u_SectionTimeInfo`, ...). Sodium's
    `iris_SodiumPushConstants` block becomes a SPIR-V push-constant block (same layout as Sodium's own `PC`).
 
-## Vertex formats
+## Vertex formats and "pack in use"
 
 The pipeline sets `WorldRenderingSettings` like `IrisRenderingPipeline` (Iris's extended Sodium terrain format
 `FormatAnalyzer.createFormat(true,true,true,true)`, block/entity/item ID maps, AO, separate AO...), so Sodium meshes
 with `mc_Entity`, `iris_Normal`, `mc_midTexCoord`, `at_midBlock` through Iris's unchanged Sodium mixins.
-`Iris.isPackInUseQuick()` stays false on Metal (it tests for `IrisRenderingPipeline`), so vanilla buffers keep vanilla
-formats; inputs a program declares but the vertex layout lacks (`mc_Entity`, `at_tangent`, ... for entities) become
-constants (`GbufferProgram.defaultMissingInputs`, like an unbound GL attribute).
+`Iris.isPackInUseQuick()` (normally `instanceof IrisRenderingPipeline`) is also true for `MetalPostPipeline` while its
+gbuffers run (`IrisPackInUseMixin`). That switches on what Iris does on GL for an active pack: extended vanilla vertex
+formats (`IrisVertexFormats.ENTITY/TERRAIN/GLYPH`, filled by Iris's `MixinBufferBuilder`), entity/block-entity ID
+capture, and the in-level hand (`HandRenderer` opens its passes on the main target, so they are captured and use
+`gbuffers_hand`; Iris suppresses the vanilla hand). Passes that are not captured (e.g. the entity outline target) get
+their pipeline recompiled for the extended layout (`GbufferState.uncaptured`). Inputs a program declares but the vertex
+layout still lacks become constants (`GbufferProgram.defaultMissingInputs`, like an unbound GL attribute).
 
 ## Frame structure on Metal
 
 ```
 beginLevelRendering : resize/clear colortex (colortex0 to fog colour), begin+prepare passes, capture ON (flip: after prepare)
 level frame graph   : sky, terrain (Sodium), entities, particles... -> captured passes -> gbuffers programs
-beginHand           : copy depth -> depthtex2
+beginHand           : copy depth -> depthtex2; Iris's HandRenderer draws the solid hand (captured, gbuffers_hand)
 beginTranslucents   : copy depth -> depthtex1, deferred passes, capture continues (flip: after deferred)
-level frame graph   : translucent terrain, weather, ...
+level frame graph   : translucent terrain, weather, ...; translucent hand (HandRenderer)
 finalizeLevel...    : capture OFF, composite passes, final pass -> main target, swap copies
 ```
 
 ## Not supported yet
 
 - Shadow pass (stage 4): `shadow*` samplers stay white placeholders.
-- Hand (`gbuffers_hand*`): Iris renders the hand inside the level only when `isPackInUseQuick()`; on Metal the vanilla
-  hand is drawn over the final image.
-- Extended vanilla vertex formats (entity IDs/`at_tangent`/`mc_midTexCoord` for entities, block entities, text): they need
-  `isPackInUseQuick()` (vertex-format mixins in Iris's `MixinBufferBuilder`/`MixinRenderPipeline`).
-- `gbuffers_*` with geometry/tessellation shaders, explicit pack uniform blocks, images/SSBOs (stage 5): vanilla shader
-  is used for that pipeline.
+- `gbuffers_*` with geometry/tessellation shaders, explicit pack uniform blocks, images/SSBOs (stage 5), or more than
+  16 textures in use (Metal: 16 samplers per stage, the backend numbers textures per pipeline): the vanilla shader is
+  used for that pipeline (reported once in the log).
 - More than 8 written colortex buffers in gbuffers (Metal limit): writes beyond the 8th are dropped.
 - Custom textures (`texture.gbuffers.*`), real PBR normal/specular atlases (defaults are bound).
-- Per-draw uniform freshness: uniforms are uploaded per `setPipeline`, not per draw (entity IDs per entity need the
-  extended vertex formats anyway).
+- Per-draw uniform freshness: loose uniforms are uploaded per `setPipeline`, not per draw (per-entity IDs come from
+  the extended vertex formats, as in Iris).
+- `prepare` passes run at `beginLevelRendering` (Iris runs them after the shadow pass, which does not exist yet).

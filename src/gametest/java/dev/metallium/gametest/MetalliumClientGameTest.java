@@ -123,6 +123,18 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
             context.waitTicks(100);
             context.takeScreenshot("metallium-iris-external-pack");
             line("external pack: still running after 100 ticks");
+            // More gbuffers programs: block entities (chest, sign), weather (rain). Removed again before the
+            // shaders-off comparison below.
+            tryCommand(world, "execute as @p at @s positioned ^ ^-1 ^4 run setblock ~ ~ ~ minecraft:chest");
+            tryCommand(world, "execute as @p at @s positioned ^1 ^-1 ^4 run setblock ~ ~ ~ minecraft:oak_sign");
+            tryCommand(world, "weather rain");
+            context.waitTicks(80);
+            clearChat(context);
+            context.takeScreenshot("metallium-iris-external-pack-rain");
+            tryCommand(world, "weather clear");
+            tryCommand(world, "execute as @p at @s positioned ^ ^-1 ^4 run setblock ~ ~ ~ minecraft:air");
+            tryCommand(world, "execute as @p at @s positioned ^1 ^-1 ^4 run setblock ~ ~ ~ minecraft:air");
+            context.waitTicks(40);
         }
 
         line("iris shaders off: pipeline=" + context.computeOnClient(client -> irisSelectPack(TEST_PACK, false)));

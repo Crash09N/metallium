@@ -51,10 +51,10 @@ Status legend: ✅ done · 🔄 in progress · ⏳ planned · 🔬 needs researc
   (`MetalPostPipeline`, design: `docs/design/iris-stage2-post-pipeline.md`). Open items: mipmapped buffers,
   viewport scale, composite blend overrides, custom textures, `size.buffer.*`, explicit uniform blocks
 - 🔄 Stage 3: gbuffers programs render the world into the pack's colortex buffers (design:
-  `docs/design/iris-stage3-gbuffers.md`): Sodium terrain (solid/cutout/translucent), sky, clouds, particles, entities
-  via Iris's own pipeline mapping and GLSL patcher; deferred passes between opaque and translucent geometry;
-  depthtex1/2 copies. Open items: hand (`gbuffers_hand*`), extended vanilla vertex formats (entity/item IDs,
-  `at_tangent`), custom textures, PBR atlases, programs with >16 samplers or geometry shaders (vanilla shader used)
+  `docs/design/iris-stage3-gbuffers.md`): Sodium terrain (solid/cutout/translucent), sky, particles, entities, hand,
+  lines via Iris's own pipeline mapping and GLSL patcher, Iris's extended vertex formats; deferred passes between
+  opaque and translucent geometry; depthtex1/2 copies. Open items: custom textures, PBR atlases, programs with >16
+  textures or geometry shaders (vanilla shader used), a test with clouds/weather/block entities
 - ⏳ Stage 4: shadow pass
 - ⏳ Stage 5: compute, image load/store, SSBO (packs that macOS OpenGL 4.1 cannot run today)
 - ⏳ Stage 6: geometry/tessellation shaders via compute emulation, learning from Mesa's Apple-GPU emulation (MIT)
