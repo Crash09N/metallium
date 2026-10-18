@@ -337,6 +337,25 @@ class GlslProgramTranslatorTest {
     }
 
     @Test
+    void glInstanceIdExcludesBaseInstanceForGlPrograms() throws Exception {
+        String vs = """
+                #version 460 core
+                flat out int instance;
+                void main() { instance = gl_InstanceID; gl_Position = vec4(float(gl_VertexID), 0.0, 0.0, 1.0); }
+                """;
+        Map<Stage, GlslProgramTranslator.SpirvStage> spirv = GlslProgramTranslator.compileToSpirv("instance", Map.of(Stage.VERTEX, vs));
+        try {
+            StageResult gl = GlslProgramTranslator.spirvToMsl(spirv.get(Stage.VERTEX), GlslProgramTranslator.MSL_VERSION_3_2, true);
+            assertTrue(gl.msl().contains("[[base_instance]]") && gl.msl().contains("gl_InstanceIndex = spvMetalInstanceId - "), gl.msl());
+            compileWithMetalIfAvailable(new Program("instance", Map.of(Stage.VERTEX, gl)), true);
+            StageResult vulkan = GlslProgramTranslator.spirvToMsl(spirv.get(Stage.VERTEX), GlslProgramTranslator.MSL_VERSION_3_2, false);
+            assertFalse(vulkan.msl().contains("spvMetalInstanceId"), "Vulkan-semantics callers are unchanged");
+        } finally {
+            spirv.values().forEach(s -> org.lwjgl.system.MemoryUtil.memFree(s.spirv()));
+        }
+    }
+
+    @Test
     void subgroupArithmeticAndClusteredOpsCompileToMsl() throws Exception {
         String source = """
                 #version 460 core

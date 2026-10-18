@@ -95,11 +95,10 @@ public final class MetalliumGlBootstrap {
 
     private static byte[] retarget(final String className, final byte[] bytes) {
         String mod = optIn.modFor(className);
-        if (mod == null) {
-            return bytes;
-        }
         try {
-            GlCallRetargeter.Result result = GlCallRetargeter.transform(mod, bytes);
+            // Classes of other mods: only methods an opted-in mod's mixins merged into them (e.g. Voxy's Sodium hooks).
+            GlCallRetargeter.Result result = mod != null ? GlCallRetargeter.transform(mod, bytes)
+                    : GlCallRetargeter.transformMerged(bytes, optIn::modFor);
             if (result.methodReferences() > 0) {
                 MetalGLLog.warn(className + " uses " + result.methodReferences() + " GL method references (lambdas); these are not retargeted yet");
             }

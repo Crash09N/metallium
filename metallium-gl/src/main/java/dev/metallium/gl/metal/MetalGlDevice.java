@@ -39,6 +39,9 @@ public final class MetalGlDevice implements GlDevice {
     private @Nullable MTLCommandBuffer commandBuffer;
     private @Nullable MTLRenderCommandEncoder renderEncoder;
     private @Nullable MTLBlitCommandEncoder blitEncoder;
+    private @Nullable MTLComputeCommandEncoder computeEncoder;
+    private @Nullable IndirectCountDraws indirectCount;
+    private @Nullable MTLComputePipelineState fillPipeline;
     private @Nullable RenderTargets encoderTargets;
     private @Nullable MTLFence encoderFence;
     private @Nullable GpuUse frameUse;
@@ -99,6 +102,10 @@ public final class MetalGlDevice implements GlDevice {
         final int height;
         final int levels;
         final boolean external;
+        /** The engine's texture behind an external wrapper (lazy clears are applied before each use), else null. */
+        @Nullable Object engine;
+        /** Single-level views for storage-image bindings of mip level i (index = level). */
+        @Nullable MTLTexture @Nullable [] levelViews;
 
         MetalTexture(final MTLTexture texture, final MTLPixelFormat pixelFormat, final TexFormat format, final int width, final int height,
                      final int levels, final boolean external) {
@@ -129,6 +136,20 @@ public final class MetalGlDevice implements GlDevice {
         @Override
         public int levels() {
             return levels;
+        }
+    }
+
+    static final class MetalComputeProgram implements ProgramStore {
+        final int id;
+        final MTLFunction function;
+        final MTLComputePipelineState pipeline;
+        final MTLSize threadsPerGroup;
+
+        MetalComputeProgram(final int id, final MTLFunction function, final MTLComputePipelineState pipeline, final int[] localSize) {
+            this.id = id;
+            this.function = function;
+            this.pipeline = pipeline;
+            this.threadsPerGroup = new MTLSize(localSize[0], localSize[1], localSize[2]);
         }
     }
 
@@ -167,7 +188,8 @@ public final class MetalGlDevice implements GlDevice {
         try (AutoreleasePool _ = AutoreleasePool.push()) {
             MTLTextureDescriptor descriptor = MTLTextureDescriptor.texture2DDescriptor(pixelFormat, width, height, false);
             descriptor.setMipmapLevelCount(levels);
-            descriptor.setUsage(MTLTextureUsage.ShaderRead | MTLTextureUsage.RenderTarget);
+            // ShaderWrite: storage images (glBindImageTexture); depth formats cannot be shader-written on Metal.
+            descriptor.setUsage(MTLTextureUsage.ShaderRead | MTLTextureUsage.RenderTarget | (format.isDepth() ? 0 : MTLTextureUsage.ShaderWrite));
             descriptor.setStorageMode(MTLStorageMode.Private);
             texture = device.newTexture(descriptor);
         }
@@ -230,7 +252,10 @@ public final class MetalGlDevice implements GlDevice {
 
     private MTLFunction function(final String label, final StageCode code) throws DeviceException {
         try (AutoreleasePool _ = AutoreleasePool.push()) {
-            MTLLibrary library = device.newLibraryWithSource(code.msl(), null);
+            MTLCompileOptions options = MTLCompileOptions.alloc().init();
+            options.setLanguageVersion(MTLLanguageVersion.Version3_2);
+            MTLLibrary library = device.newLibraryWithSource(code.msl(), options);
+            options.release();
             MTLFunction function = library.newFunctionWithName(code.entryPoint());
             library.release();
             if (function == null) {
@@ -239,6 +264,24 @@ public final class MetalGlDevice implements GlDevice {
             return function;
         } catch (NSErrorException e) {
             throw new DeviceException(label + ": MSL compile failed: " + e.getMessage());
+        }
+    }
+
+    @Override
+    public ProgramStore createComputeProgram(final String label, final StageCode compute, final int[] localSize) throws DeviceException {
+        MTLFunction function = function(label + ".csh", compute);
+        try {
+            MTLComputePipelineState pipeline = device.newComputePipelineStateWithFunction(function);
+            if (pipeline == null) {
+                throw new DeviceException(label + ": newComputePipelineState returned nil");
+            }
+            long threads = (long) localSize[0] * localSize[1] * localSize[2];
+            if (threads > pipeline.maxTotalThreadsPerThreadgroup()) {
+                throw new DeviceException(label + ": workgroup of " + threads + " threads exceeds " + pipeline.maxTotalThreadsPerThreadgroup());
+            }
+            return new MetalComputeProgram(nextProgramId++, function, pipeline, localSize);
+        } catch (NSErrorException e) {
+            throw new DeviceException(label + ": compute pipeline failed: " + e.getMessage());
         }
     }
 
@@ -306,6 +349,31 @@ public final class MetalGlDevice implements GlDevice {
             blitEncoder.release();
             blitEncoder = null;
         }
+        if (computeEncoder != null) {
+            if (encoderFence != null) {
+                computeEncoder.updateFence(encoderFence);
+            }
+            computeEncoder.endEncoding();
+            computeEncoder.release();
+            computeEncoder = null;
+        }
+    }
+
+    /** One serial compute encoder for consecutive dispatches: each dispatch sees the previous one's writes. */
+    MTLComputeCommandEncoder computeEncoder() {
+        if (computeEncoder != null) {
+            return computeEncoder;
+        }
+        endEncoders();
+        MTLCommandBuffer buffer = commandBuffer();
+        try (AutoreleasePool _ = AutoreleasePool.push()) {
+            computeEncoder = buffer.computeCommandEncoder();
+            computeEncoder.retain();
+        }
+        if (encoderFence != null) {
+            computeEncoder.waitForFence(encoderFence);
+        }
+        return computeEncoder;
     }
 
     private MTLBlitCommandEncoder blitEncoder() {
@@ -337,6 +405,11 @@ public final class MetalGlDevice implements GlDevice {
     }
 
     private MTLRenderCommandEncoder renderEncoder(final RenderTargets targets, final @Nullable ClearOp clear) {
+        // First: applying an engine texture's lazy clear makes the engine encode (which closes our encoder).
+        for (TextureStore color : targets.colors()) {
+            if (color != null) prepare((MetalTexture) color, true);
+        }
+        if (targets.depth() != null) prepare((MetalTexture) targets.depth(), true);
         if (renderEncoder != null && clear == null && sameTargets(encoderTargets, targets)) {
             return renderEncoder;
         }
@@ -505,9 +578,65 @@ public final class MetalGlDevice implements GlDevice {
 
     @Override
     public void draw(final DrawOp op) {
+        MTLRenderCommandEncoder encoder = prepareDraw(op, false);
+        if (encoder == null) {
+            return;
+        }
+        MTLPrimitiveType primitive = primitive(op.glPrimitive());
+        if (op.indexBuffer() == null) {
+            encoder.drawPrimitives(primitive, op.first(), op.count(), op.instanceCount(), op.baseInstance());
+        } else {
+            MetalBuffer index = (MetalBuffer) op.indexBuffer();
+            index.lastUse = frameUse;
+            encoder.drawIndexedPrimitives(primitive, op.count(), op.index32() ? MTLIndexType.UInt32 : MTLIndexType.UInt16,
+                    index.buffer, op.indexOffset(), op.instanceCount(), op.baseVertex(), op.baseInstance());
+        }
+    }
+
+    @Override
+    public void drawIndirect(final DrawOp op, final IndirectDraws draws) {
+        MetalBuffer commands = (MetalBuffer) draws.commands();
+        MetalBuffer index = (MetalBuffer) op.indexBuffer();
+        if (index == null) {
+            MetalGLLog.unsupported("non-indexed indirect draws");
+            return;
+        }
+        commands.lastUse = frameUse;
+        index.lastUse = frameUse;
+        if (draws.countBuffer() != null) {
+            // GL's draw count lives in GPU memory: a compute pass turns the commands into an indirect command buffer
+            // (draws >= count are reset), which the render encoder executes; no CPU readback, no per-draw CPU cost.
+            MetalBuffer count = (MetalBuffer) draws.countBuffer();
+            count.lastUse = frameUse;
+            if (indirectCount == null) {
+                indirectCount = new IndirectCountDraws(device, host);
+            }
+            IndirectCountDraws.Encoded icb = indirectCount.encode(computeEncoder(), commands, draws.offset(), draws.stride(), count,
+                    draws.countOffset(), draws.drawCount(), index, op.index32(), op.glPrimitive());
+            MTLRenderCommandEncoder encoder = prepareDraw(op, true);
+            if (encoder == null) {
+                return;
+            }
+            encoder.useResource(index.buffer, MTLResourceUsage.Read, MTLRenderStages.Vertex);
+            encoder.executeCommandsInBuffer(icb.buffer(), new io.github.kokodio.metaljvm.foundation.NSRange(0, icb.commands()));
+            return;
+        }
+        MTLRenderCommandEncoder encoder = prepareDraw(op, false);
+        if (encoder == null) {
+            return;
+        }
+        MTLPrimitiveType primitive = primitive(op.glPrimitive());
+        for (int i = 0; i < draws.drawCount(); i++) {
+            encoder.drawIndexedPrimitives(primitive, op.index32() ? MTLIndexType.UInt32 : MTLIndexType.UInt16, index.buffer, 0,
+                    commands.buffer, draws.offset() + (long) i * draws.stride());
+        }
+    }
+
+    /** Encoder with pipeline, vertex buffers, resources and fixed-function state set; null if the draw is skipped. */
+    private @Nullable MTLRenderCommandEncoder prepareDraw(final DrawOp op, final boolean indirectCommandBuffer) {
         RasterState raster = op.raster();
         if (raster.cullFace() == GL_FRONT_AND_BACK && isTriangles(op.glPrimitive())) {
-            return;
+            return null;
         }
         // Anything that may encode a blit (the lazily uploaded placeholder texture) must happen before the render
         // encoder is acquired: a blit ends the render encoder.
@@ -515,11 +644,18 @@ public final class MetalGlDevice implements GlDevice {
             for (TextureBinding binding : stage.textures()) {
                 if (binding.texture() == null) {
                     blackTexture();
+                } else {
+                    prepare((MetalTexture) binding.texture(), false);
                 }
+            }
+            for (ImageBinding image : stage.images()) {
+                if (image.texture() != null) prepare((MetalTexture) image.texture(), image.written());
             }
         }
         MTLRenderCommandEncoder encoder = renderEncoder(op.targets(), null);
-        MetalProgram program = (MetalProgram) op.program();
+        if (!(op.program() instanceof MetalProgram program)) {
+            return null;
+        }
 
         // Vertex layout: attributes reading the same buffer with the same stride/divisor share one Metal buffer slot.
         List<Slot> slots = new ArrayList<>();
@@ -557,12 +693,13 @@ public final class MetalGlDevice implements GlDevice {
         }
         for (Slot slot : slots) key.append("|s").append(slot.index).append(',').append(slot.buffer == null ? -1 : slot.stride).append(',').append(slot.divisor);
         for (BlendState b : raster.blend()) key.append("|b").append(b);
+        if (indirectCommandBuffer) key.append("|icb");
         String pipelineKey = key.toString();
         MTLRenderPipelineState pipeline = pipelines.get(pipelineKey);
         if (pipeline == null) {
-            pipeline = buildPipeline(program, op, slots, attributeSlot, attributeOffset);
+            pipeline = buildPipeline(program, op, slots, attributeSlot, attributeOffset, indirectCommandBuffer);
             if (pipeline == null) {
-                return;
+                return null;
             }
             pipelines.put(pipelineKey, pipeline);
         }
@@ -593,20 +730,15 @@ public final class MetalGlDevice implements GlDevice {
         encoder.setFrontFacingWinding(raster.frontFaceCcw() ? MTLWinding.Clockwise : MTLWinding.CounterClockwise);
         encoder.setTriangleFillMode(raster.wireframe() ? MTLTriangleFillMode.Lines : MTLTriangleFillMode.Fill);
         boolean hasDepth = op.targets().depth() != null;
-        encoder.setDepthStencilState(depthState(hasDepth && raster.depthTest(), raster.depthFunc(), hasDepth && raster.depthWrite()));
+        StencilState stencil = raster.stencil();
+        encoder.setDepthStencilState(depthState(hasDepth && raster.depthTest(), raster.depthFunc(), hasDepth && raster.depthWrite(), stencil));
+        if (stencil.enabled()) {
+            encoder.setStencilReferenceValue(stencil.ref());
+        }
         encoder.setDepthBias(raster.polygonOffset() ? raster.offsetUnits() : 0f, raster.polygonOffset() ? raster.offsetFactor() : 0f, 0f);
         float[] bc = raster.blendColor();
         encoder.setBlendColorRed(bc[0], bc[1], bc[2], bc[3]);
-
-        MTLPrimitiveType primitive = primitive(op.glPrimitive());
-        if (op.indexBuffer() == null) {
-            encoder.drawPrimitives(primitive, op.first(), op.count(), op.instanceCount(), op.baseInstance());
-        } else {
-            MetalBuffer index = (MetalBuffer) op.indexBuffer();
-            index.lastUse = frameUse;
-            encoder.drawIndexedPrimitives(primitive, op.count(), op.index32() ? MTLIndexType.UInt32 : MTLIndexType.UInt16,
-                    index.buffer, op.indexOffset(), op.instanceCount(), op.baseVertex(), op.baseInstance());
-        }
+        return encoder;
     }
 
     private static final class Slot {
@@ -654,6 +786,276 @@ public final class MetalGlDevice implements GlDevice {
                 encoder.setFragmentSamplerState(sampler, binding.samplerIndex());
             }
         }
+        for (BufferBinding binding : stage.buffers()) {
+            MetalBuffer buffer = binding.buffer() == null ? emptyBuffer() : (MetalBuffer) binding.buffer();
+            buffer.lastUse = frameUse;
+            if (vertex) encoder.setVertexBuffer(buffer.buffer, binding.offset(), binding.index());
+            else encoder.setFragmentBuffer(buffer.buffer, binding.offset(), binding.index());
+        }
+        for (ImageBinding binding : stage.images()) {
+            MTLTexture view = binding.texture() == null ? blackTexture().texture : levelView((MetalTexture) binding.texture(), binding.level());
+            if (vertex) encoder.setVertexTexture(view, binding.index());
+            else encoder.setFragmentTexture(view, binding.index());
+        }
+    }
+
+    private @Nullable MetalBuffer emptyBuffer;
+
+    /** Bound where GL has no buffer (reads return zeros instead of faulting). */
+    private MetalBuffer emptyBuffer() {
+        if (emptyBuffer == null) {
+            emptyBuffer = (MetalBuffer) createBuffer(256);
+        }
+        return emptyBuffer;
+    }
+
+    /** A view of exactly one mip level (storage images bind one level). */
+    static MTLTexture levelView(final MetalTexture texture, final int level) {
+        if (level == 0 && texture.levels == 1) {
+            return texture.texture;
+        }
+        if (texture.levelViews == null) {
+            texture.levelViews = new MTLTexture[texture.levels];
+        }
+        int l = Math.clamp(level, 0, texture.levels - 1);
+        MTLTexture view = texture.levelViews[l];
+        if (view == null) {
+            try (AutoreleasePool _ = AutoreleasePool.push()) {
+                view = texture.texture.newTextureViewWithPixelFormat(texture.pixelFormat, MTLTextureType.Type2D,
+                        new io.github.kokodio.metaljvm.foundation.NSRange(l, 1), new io.github.kokodio.metaljvm.foundation.NSRange(0, 1));
+            }
+            texture.levelViews[l] = view;
+        }
+        return view;
+    }
+
+    /** Applies the engine's lazily recorded clear to an external texture before GL reads or writes it. */
+    private void prepare(final MetalTexture texture, final boolean write) {
+        if (texture.engine != null) {
+            host.engineTexture(texture.engine, write);
+        }
+    }
+
+    // ---------------------------------------------------------------------------------------------- compute
+
+    @Override
+    public void dispatch(final DispatchOp op) {
+        MetalComputeProgram program = (MetalComputeProgram) op.program();
+        StageBindings bindings = op.bindings();
+        for (TextureBinding binding : bindings.textures()) {
+            if (binding.texture() == null) blackTexture();
+            else prepare((MetalTexture) binding.texture(), false);
+        }
+        for (ImageBinding image : bindings.images()) {
+            if (image.texture() != null) prepare((MetalTexture) image.texture(), image.written());
+        }
+        MTLComputeCommandEncoder encoder = computeEncoder();
+        encoder.setComputePipelineState(program.pipeline);
+        ByteBuffer uniforms = bindings.uniforms();
+        if (uniforms != null && bindings.uniformBufferIndex() >= 0) {
+            int size = uniforms.capacity();
+            if (size <= MAX_SET_BYTES) {
+                encoder.setBytes(MemorySegment.ofAddress(MemoryUtil.memAddress(uniforms, 0)).reinterpret(size), size, bindings.uniformBufferIndex());
+            } else {
+                MTLBuffer copy = device.newBuffer(size, MTLResourceOptions.StorageModeShared);
+                MemoryUtil.memCopy(MemoryUtil.memAddress(uniforms, 0), MemoryUtil.memAddress(ObjC.byteBufferView(copy.contents(), size)), size);
+                encoder.setBuffer(copy, 0, bindings.uniformBufferIndex());
+                host.releaseAfterGpu(copy::release);
+            }
+        }
+        for (TextureBinding binding : bindings.textures()) {
+            MetalTexture texture = binding.texture() == null ? blackTexture() : (MetalTexture) binding.texture();
+            encoder.setTexture(texture.texture, binding.textureIndex());
+            encoder.setSamplerState(sampler(binding.sampler(), texture.levels > 1), binding.samplerIndex());
+        }
+        for (BufferBinding binding : bindings.buffers()) {
+            MetalBuffer buffer = binding.buffer() == null ? emptyBuffer() : (MetalBuffer) binding.buffer();
+            buffer.lastUse = frameUse;
+            encoder.setBuffer(buffer.buffer, binding.offset(), binding.index());
+        }
+        for (ImageBinding binding : bindings.images()) {
+            encoder.setTexture(binding.texture() == null ? blackTexture().texture : levelView((MetalTexture) binding.texture(), binding.level()),
+                    binding.index());
+        }
+        if (op.indirect() != null) {
+            MetalBuffer indirect = (MetalBuffer) op.indirect();
+            indirect.lastUse = frameUse;
+            encoder.dispatchThreadgroupsWithIndirectBuffer(indirect.buffer, op.indirectOffset(), program.threadsPerGroup);
+        } else {
+            encoder.dispatchThreadgroups(new MTLSize(op.groupsX(), op.groupsY(), op.groupsZ()), program.threadsPerGroup);
+        }
+    }
+
+    // ---------------------------------------------------------------------------------------------- buffer / texture transfers
+
+    @Override
+    public void copyBuffer(final BufferStore source, final long sourceOffset, final BufferStore destination, final long destinationOffset, final long size) {
+        MetalBuffer src = (MetalBuffer) source;
+        MetalBuffer dst = (MetalBuffer) destination;
+        src.lastUse = frameUse;
+        dst.lastUse = frameUse;
+        if ((sourceOffset | destinationOffset | size) % 4 != 0) {
+            // Metal blits on buffers need 4-byte alignment on macOS; GL allows any. Rare: do it after the GPU.
+            MetalGLLog.warn("unaligned glCopyBufferSubData (" + sourceOffset + "," + destinationOffset + "," + size + ")");
+        }
+        blitEncoder().copyFromBuffer(src.buffer, sourceOffset, dst.buffer, destinationOffset, size);
+    }
+
+    @Override
+    public void fillBuffer(final BufferStore destination, final long offset, final long size, final int pattern) {
+        MetalBuffer dst = (MetalBuffer) destination;
+        dst.lastUse = frameUse;
+        byte b = (byte) pattern;
+        if (pattern == (b & 0xFF) * 0x01010101) {
+            blitEncoder().fillBuffer(dst.buffer, new io.github.kokodio.metaljvm.foundation.NSRange(offset, size), b);
+            return;
+        }
+        MTLComputeCommandEncoder encoder = computeEncoder();
+        encoder.setComputePipelineState(fillPipeline());
+        encoder.setBuffer(dst.buffer, offset, 0);
+        try (java.lang.foreign.Arena arena = java.lang.foreign.Arena.ofConfined()) {
+            MemorySegment params = arena.allocate(8);
+            params.setAtIndex(java.lang.foreign.ValueLayout.JAVA_INT, 0, pattern);
+            params.setAtIndex(java.lang.foreign.ValueLayout.JAVA_INT, 1, (int) (size / 4));
+            encoder.setBytes(params, 8, 1);
+        }
+        long words = size / 4;
+        encoder.dispatchThreadgroups(new MTLSize((words + 255) / 256, 1, 1), new MTLSize(256, 1, 1));
+    }
+
+    private MTLComputePipelineState fillPipeline() {
+        if (fillPipeline == null) {
+            String msl = """
+                    #include <metal_stdlib>
+                    using namespace metal;
+                    kernel void fill_u32(device uint* data [[buffer(0)]], constant uint2& p [[buffer(1)]], uint i [[thread_position_in_grid]]) {
+                        if (i < p.y) data[i] = p.x;
+                    }
+                    """;
+            try {
+                MTLFunction function = function("metallium-gl fill", new StageCode(msl, "fill_u32"));
+                fillPipeline = device.newComputePipelineStateWithFunction(function);
+                function.release();
+            } catch (DeviceException | NSErrorException e) {
+                throw new IllegalStateException(e);
+            }
+        }
+        return fillPipeline;
+    }
+
+    @Override
+    public void uploadBuffer(final BufferStore destination, final long offset, final ByteBuffer data) {
+        MetalBuffer dst = (MetalBuffer) destination;
+        long size = data.remaining();
+        MTLBuffer staging = device.newBuffer(Math.max(4, size), MTLResourceOptions.StorageModeShared);
+        MemoryUtil.memCopy(MemoryUtil.memAddress(data), MemoryUtil.memAddress(ObjC.byteBufferView(staging.contents(), size)), size);
+        dst.lastUse = frameUse;
+        blitEncoder().copyFromBuffer(staging, 0, dst.buffer, offset, size);
+        host.releaseAfterGpu(staging::release);
+    }
+
+    @Override
+    public boolean readBuffer(final BufferStore source, final long offset, final ByteBuffer out) {
+        endEncoders();
+        commandBuffer = null;
+        if (!host.submitAndWait()) {
+            return false;
+        }
+        ((MetalBuffer) source).lastUse = null;
+        MemoryUtil.memCopy(MemoryUtil.memAddress(source.contents()) + offset, MemoryUtil.memAddress(out), out.remaining());
+        return true;
+    }
+
+    @Override
+    public boolean readTexture(final TextureStore store, final int level, final ByteBuffer out) {
+        MetalTexture texture = (MetalTexture) store;
+        prepare(texture, false);
+        int w = Math.max(1, texture.width >> level);
+        int h = Math.max(1, texture.height >> level);
+        long row = (long) w * texture.format.bytesPerPixel;
+        long size = row * h;
+        if (out.remaining() < size) {
+            return false;
+        }
+        MTLBuffer readback = device.newBuffer(size, MTLResourceOptions.StorageModeShared);
+        blitEncoder().copyFromTexture(texture.texture, 0, level, new MTLOrigin(0, 0, 0), new MTLSize(w, h, 1), readback, 0, row, size);
+        endEncoders();
+        commandBuffer = null;
+        boolean ok = host.submitAndWait();
+        if (ok) {
+            MemoryUtil.memCopy(MemoryUtil.memAddress(ObjC.byteBufferView(readback.contents(), size)), MemoryUtil.memAddress(out), size);
+        }
+        readback.release();
+        return ok;
+    }
+
+    @Override
+    public void clearTexture(final TextureStore store, final int level, final ByteBuffer texel) {
+        MetalTexture texture = (MetalTexture) store;
+        prepare(texture, true);
+        int w = Math.max(1, texture.width >> level);
+        int h = Math.max(1, texture.height >> level);
+        int bpp = texture.format.bytesPerPixel;
+        long size = (long) w * h * bpp;
+        MTLBuffer staging = device.newBuffer(size, MTLResourceOptions.StorageModeShared);
+        ByteBuffer data = ObjC.byteBufferView(staging.contents(), size);
+        for (long i = 0; i < size; i += bpp) {
+            for (int b = 0; b < bpp; b++) data.put((int) (i + b), texel.get(texel.position() + b % texel.remaining()));
+        }
+        blitEncoder().copyFromBuffer(staging, 0, (long) w * bpp, size, new MTLSize(w, h, 1), texture.texture, 0, level, new MTLOrigin(0, 0, 0));
+        host.releaseAfterGpu(staging::release);
+    }
+
+    @Override
+    public void copyTextureRegion(final TextureStore source, final int sourceLevel, final int sx, final int sy, final TextureStore destination,
+                                  final int destinationLevel, final int dx, final int dy, final int width, final int height) {
+        MetalTexture src = (MetalTexture) source;
+        MetalTexture dst = (MetalTexture) destination;
+        prepare(src, false);
+        prepare(dst, true);
+        blitEncoder().copyFromTexture(src.texture, 0, sourceLevel, new MTLOrigin(sx, sy, 0), new MTLSize(width, height, 1),
+                dst.texture, 0, destinationLevel, new MTLOrigin(dx, dy, 0));
+    }
+
+    @Override
+    public @Nullable TextureStore externalTexture(final Object engineTexture) {
+        MTLTexture texture = host.engineTexture(engineTexture, false);
+        if (texture == null) {
+            return null;
+        }
+        MetalTexture wrapper = external(texture);
+        wrapper.engine = engineTexture;
+        return wrapper;
+    }
+
+    @Override
+    public @Nullable TextureStore textureView(final TextureStore store, final TexFormat format, final int minLevel, final int levels) {
+        MetalTexture texture = (MetalTexture) store;
+        MTLPixelFormat viewFormat = pixelFormat(format);
+        if (viewFormat != texture.pixelFormat) {
+            MetalGLLog.unsupported("glTextureView with a different pixel format (" + texture.pixelFormat + " as " + viewFormat + ")");
+            return null;
+        }
+        MTLTexture view;
+        try (AutoreleasePool _ = AutoreleasePool.push()) {
+            view = texture.texture.newTextureViewWithPixelFormat(viewFormat, MTLTextureType.Type2D,
+                    new io.github.kokodio.metaljvm.foundation.NSRange(minLevel, levels), new io.github.kokodio.metaljvm.foundation.NSRange(0, 1));
+        }
+        if (view == null) {
+            return null;
+        }
+        MetalTexture wrapper = new MetalTexture(view, viewFormat, format, Math.max(1, texture.width >> minLevel), Math.max(1, texture.height >> minLevel),
+                levels, false);
+        wrapper.engine = texture.engine;
+        return wrapper;
+    }
+
+    @Override
+    public void textureBarrier() {
+        // Draws after this sample what earlier draws rendered: start a new render encoder (stores the attachments).
+        if (renderEncoder != null) {
+            endEncoders();
+        }
     }
 
     /** GL samples an incomplete / unbound texture as (0, 0, 0, 1). */
@@ -677,9 +1079,10 @@ public final class MetalGlDevice implements GlDevice {
     }
 
     private @Nullable MTLRenderPipelineState buildPipeline(final MetalProgram program, final DrawOp op, final List<Slot> slots,
-                                                           final int[] attributeSlot, final long[] attributeOffset) {
+                                                           final int[] attributeSlot, final long[] attributeOffset, final boolean indirectCommandBuffer) {
         try (AutoreleasePool _ = AutoreleasePool.push()) {
             MTLRenderPipelineDescriptor descriptor = MTLRenderPipelineDescriptor.alloc().init();
+            descriptor.setSupportIndirectCommandBuffers(indirectCommandBuffer);
             descriptor.setVertexFunction(program.vertex);
             descriptor.setFragmentFunction(program.fragment);
             MTLVertexDescriptor vertexDescriptor = MTLVertexDescriptor.alloc().init();
@@ -763,17 +1166,60 @@ public final class MetalGlDevice implements GlDevice {
     }
 
     private MTLDepthStencilState depthState(final boolean test, final int func, final boolean write) {
-        long key = ((long) (test ? func : GL_ALWAYS) << 1) | (write ? 1 : 0);
-        MTLDepthStencilState state = depthStates.get(key);
+        return depthState(test, func, write, StencilState.DISABLED);
+    }
+
+    private final Map<String, MTLDepthStencilState> stencilStates = new HashMap<>();
+
+    private MTLDepthStencilState depthState(final boolean test, final int func, final boolean write, final StencilState stencil) {
+        if (!stencil.enabled()) {
+            long key = ((long) (test ? func : GL_ALWAYS) << 1) | (write ? 1 : 0);
+            MTLDepthStencilState state = depthStates.get(key);
+            if (state == null) {
+                MTLDepthStencilDescriptor descriptor = MTLDepthStencilDescriptor.alloc().init();
+                descriptor.setDepthCompareFunction(compare(test ? func : GL_ALWAYS));
+                descriptor.setDepthWriteEnabled(write);
+                state = device.newDepthStencilState(descriptor);
+                descriptor.release();
+                depthStates.put(key, state);
+            }
+            return state;
+        }
+        String key = (test ? func : GL_ALWAYS) + "," + write + "," + stencil.func() + "," + stencil.readMask() + "," + stencil.writeMask()
+                + "," + stencil.sfail() + "," + stencil.dpfail() + "," + stencil.dppass();
+        MTLDepthStencilState state = stencilStates.get(key);
         if (state == null) {
             MTLDepthStencilDescriptor descriptor = MTLDepthStencilDescriptor.alloc().init();
             descriptor.setDepthCompareFunction(compare(test ? func : GL_ALWAYS));
             descriptor.setDepthWriteEnabled(write);
+            MTLStencilDescriptor s = MTLStencilDescriptor.alloc().init();
+            s.setStencilCompareFunction(compare(stencil.func()));
+            s.setStencilFailureOperation(stencilOp(stencil.sfail()));
+            s.setDepthFailureOperation(stencilOp(stencil.dpfail()));
+            s.setDepthStencilPassOperation(stencilOp(stencil.dppass()));
+            s.setReadMask(stencil.readMask() & 0xFF);
+            s.setWriteMask(stencil.writeMask() & 0xFF);
+            descriptor.setFrontFaceStencil(s);
+            descriptor.setBackFaceStencil(s);
             state = device.newDepthStencilState(descriptor);
+            s.release();
             descriptor.release();
-            depthStates.put(key, state);
+            stencilStates.put(key, state);
         }
         return state;
+    }
+
+    private static MTLStencilOperation stencilOp(final int op) {
+        return switch (op) {
+            case GL_ZERO -> MTLStencilOperation.Zero;
+            case GL_REPLACE -> MTLStencilOperation.Replace;
+            case GL_INCR -> MTLStencilOperation.IncrementClamp;
+            case GL_DECR -> MTLStencilOperation.DecrementClamp;
+            case GL_INCR_WRAP -> MTLStencilOperation.IncrementWrap;
+            case GL_DECR_WRAP -> MTLStencilOperation.DecrementWrap;
+            case GL_INVERT -> MTLStencilOperation.Invert;
+            default -> MTLStencilOperation.Keep;
+        };
     }
 
     private MTLSamplerState sampler(final SamplerState s, final boolean mipmapped) {
@@ -857,6 +1303,10 @@ public final class MetalGlDevice implements GlDevice {
             case MetalProgram program -> host.releaseAfterGpu(() -> {
                 program.vertex.release();
                 program.fragment.release();
+            });
+            case MetalComputeProgram program -> host.releaseAfterGpu(() -> {
+                program.pipeline.release();
+                program.function.release();
             });
             default -> {
             }

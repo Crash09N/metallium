@@ -652,8 +652,9 @@ public final class GlslProgramTranslator {
 
     /**
      * Translates one stage produced by {@link #compileToSpirv(String, Map)} to MSL (the SPIR-V buffer stays owned by the
-     * caller). {@code glClipSpace}: the source writes OpenGL clip-space depth (-w..w); the vertex stage then remaps it to
-     * Metal's 0..w. Used by hosts that run unmodified OpenGL programs (metallium-gl).
+     * caller). {@code glClipSpace}: the program has OpenGL semantics — it writes GL clip-space depth (-w..w), which the
+     * vertex stage remaps to Metal's 0..w, and its {@code gl_InstanceID} excludes the base instance
+     * ({@link #glInstanceId}). Used by hosts that run unmodified OpenGL programs (metallium-gl).
      */
     public static StageResult spirvToMsl(final SpirvStage stage, final int mslVersion, final boolean glClipSpace) throws TranslationException {
         return spirvToMsl(stage.stage(), stage.spirv().duplicate().order(stage.spirv().order()), mslVersion, glClipSpace);
@@ -691,6 +692,9 @@ public final class GlslProgramTranslator {
 
                 check(Spvc.spvc_compiler_compile(compiler, p), "compile");
                 String msl = MemoryUtil.memUTF8(p.get(0));
+                if (glClipSpace && stage == Stage.VERTEX) {
+                    msl = glInstanceId(msl);
+                }
 
                 List<UniformMember> members = new ArrayList<>();
                 List<ResourceBinding> resources = new ArrayList<>();
@@ -713,6 +717,31 @@ public final class GlslProgramTranslator {
                 Spvc.spvc_context_destroy(context);
             }
         }
+    }
+
+    private static final Pattern INSTANCE_INDEX_PARAM = Pattern.compile("uint gl_InstanceIndex \\[\\[instance_id\\]\\]");
+    private static final Pattern BASE_INSTANCE_PARAM = Pattern.compile("uint (\\w+) \\[\\[base_instance\\]\\]");
+
+    /**
+     * OpenGL's {@code gl_InstanceID} does not include the draw's base instance; Metal's {@code [[instance_id]]} (and
+     * Vulkan's {@code gl_InstanceIndex}, which glslang maps {@code gl_InstanceID} to) does. For programs with GL
+     * semantics the vertex entry point therefore receives Metal's value under another name and recomputes
+     * {@code gl_InstanceIndex = instance_id - base_instance}. Matters for {@code glDraw*BaseInstance} and indirect draws.
+     */
+    static String glInstanceId(final String msl) {
+        Matcher param = INSTANCE_INDEX_PARAM.matcher(msl);
+        if (!param.find()) {
+            return msl;
+        }
+        Matcher base = BASE_INSTANCE_PARAM.matcher(msl);
+        String baseName = base.find() ? base.group(1) : "spvGlBaseInstance";
+        String replacement = "uint spvMetalInstanceId [[instance_id]]" + (baseName.equals("spvGlBaseInstance") ? ", uint spvGlBaseInstance [[base_instance]]" : "");
+        String patched = msl.substring(0, param.start()) + replacement + msl.substring(param.end());
+        int body = patched.indexOf('{', param.start() + replacement.length());
+        if (body < 0) {
+            return msl;
+        }
+        return patched.substring(0, body + 1) + "\n    uint gl_InstanceIndex = spvMetalInstanceId - " + baseName + ";" + patched.substring(body + 1);
     }
 
     private static int executionModel(final Stage stage) {

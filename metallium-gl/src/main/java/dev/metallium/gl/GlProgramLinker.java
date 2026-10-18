@@ -5,6 +5,7 @@ package dev.metallium.gl;
 
 import dev.metallium.shaders.GlslProgramTranslator;
 import dev.metallium.shaders.GlslProgramTranslator.BlockMember;
+import dev.metallium.shaders.GlslProgramTranslator.ExplicitLayout;
 import dev.metallium.shaders.GlslProgramTranslator.ResourceBinding;
 import dev.metallium.shaders.GlslProgramTranslator.SpirvStage;
 import dev.metallium.shaders.GlslProgramTranslator.Stage;
@@ -14,21 +15,33 @@ import org.lwjgl.system.MemoryUtil;
 
 import java.util.ArrayList;
 import java.util.EnumMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
  * Links a GL program: GLSL → SPIR-V (shaderc) → MSL (SPIRV-Cross, GL clip-space depth fixed up) through
  * {@link GlslProgramTranslator}, then derives what GL exposes by name — uniform locations (std140 offsets of the folded
- * default block per stage), sampler uniforms (Metal texture/sampler slots) and vertex attribute locations.
+ * default block per stage; explicit {@code layout(location = N)} kept), sampler uniforms (Metal texture/sampler slots,
+ * initial unit from {@code layout(binding = N)}), vertex attribute locations, and the GL binding points of uniform
+ * blocks, storage blocks and images (→ Metal slots).
+ *
+ * <p>Compute programs use the same structures with the compute stage in the "vertex" position and no fragment stage.
  */
 final class GlProgramLinker {
+    /** MSL language version of every metallium-gl program (GLSL memory barriers need 3.2's thread-scope fences). */
+    static final int MSL_VERSION = GlslProgramTranslator.MSL_VERSION_3_2;
+
     private static final Pattern ATTRIBUTE = Pattern.compile("(\\w+)\\s+(\\w+)\\s*\\[\\[attribute\\((\\d+)\\)\\]\\]");
     private static final Pattern SAMPLER = Pattern.compile("sampler\\s+(\\w+?)Smplr\\s*\\[\\[sampler\\((\\d+)\\)\\]\\]");
     private static final Pattern VERTEX_INPUT = Pattern.compile("(?m)^(\\s*)((?:(?:highp|mediump|lowp|flat|smooth)\\s+)*)(in|attribute)\\s+(\\w+)\\s+(\\w+)\\s*;");
+    /** GL extensions whose features metallium-gl does not implement; shaders requiring them fail to compile, as in GL. */
+    private static final Pattern UNSUPPORTED_EXTENSION = Pattern.compile(
+            "(?m)^\\s*#\\s*extension\\s+(GL_ARB_gpu_shader_int64|GL_NV_\\w+|GL_NVX_\\w+|GL_AMD_\\w+|GL_ARB_bindless_texture|GL_ARB_sparse_\\w+)\\s*:\\s*(require|enable)");
 
     private GlProgramLinker() {
     }
@@ -44,13 +57,37 @@ final class GlProgramLinker {
         }
     }
 
-    /** A sampler uniform; its value is a texture unit. Slots are -1 in a stage that does not use it. */
-    record Sampler(String name, int location, int vertexTexture, int vertexSampler, int fragmentTexture, int fragmentSampler) {
+    /**
+     * A sampler uniform; its value is a texture unit ({@code unit}: initial value, from {@code layout(binding)}). Slots
+     * are -1 in a stage that does not use it.
+     */
+    record Sampler(String name, int location, int vertexTexture, int vertexSampler, int fragmentTexture, int fragmentSampler, int unit) {
     }
 
-    record Linked(StageResult vertex, StageResult fragment, int vertexBlockSize, int fragmentBlockSize,
+    /** A uniform block (UBO) or shader storage block (SSBO) at GL binding point {@code binding}, Metal buffer {@code metalIndex}. */
+    record BufferSlot(boolean storage, String name, int binding, int metalIndex) {
+    }
+
+    /** An image uniform at GL image unit {@code unit}, Metal texture {@code metalIndex}. */
+    record ImageSlot(String name, int unit, int metalIndex) {
+    }
+
+    /** GL binding points one stage reads besides loose uniforms and samplers. */
+    record StageInterface(List<BufferSlot> buffers, List<ImageSlot> images) {
+        static final StageInterface EMPTY = new StageInterface(List.of(), List.of());
+    }
+
+    /**
+     * {@code fragment == null} for compute programs ({@code vertex} is then the compute stage and {@code localSize} its
+     * workgroup size).
+     */
+    record Linked(StageResult vertex, @Nullable StageResult fragment, int vertexBlockSize, int fragmentBlockSize,
                   int vertexBlockIndex, int fragmentBlockIndex, List<Uniform> uniforms, List<Sampler> samplers,
-                  Map<String, Integer> attributes, String log) {
+                  Map<String, Integer> attributes, String log, StageInterface vertexInterface, StageInterface fragmentInterface,
+                  int @Nullable [] localSize) {
+        boolean compute() {
+            return fragment == null;
+        }
     }
 
     static final class LinkException extends Exception {
@@ -61,6 +98,10 @@ final class GlProgramLinker {
 
     /** Compiles one stage alone, for glCompileShader's status and info log. Returns null on success, else the log. */
     static @Nullable String checkCompile(final String label, final Stage stage, final String source) {
+        Matcher unsupported = UNSUPPORTED_EXTENSION.matcher(source);
+        if (unsupported.find()) {
+            return "0:0: error: extension " + unsupported.group(1) + " is not supported (metallium-gl)";
+        }
         try {
             Map<Stage, SpirvStage> result = GlslProgramTranslator.compileToSpirv(label, Map.of(stage, source));
             result.values().forEach(s -> MemoryUtil.memFree(s.spirv()));
@@ -75,54 +116,132 @@ final class GlProgramLinker {
         Map<Stage, String> sources = new EnumMap<>(Stage.class);
         sources.put(Stage.VERTEX, applyAttributeBindings(vertexSource, attributeBindings));
         sources.put(Stage.FRAGMENT, fragmentSource);
+        return linkStages(label, sources);
+    }
+
+    static Linked linkCompute(final String label, final String computeSource) throws LinkException {
+        return linkStages(label, Map.of(Stage.COMPUTE, computeSource));
+    }
+
+    private static Linked linkStages(final String label, final Map<Stage, String> sources) throws LinkException {
+        boolean compute = sources.containsKey(Stage.COMPUTE);
+        Map<String, ExplicitLayout> explicit = new LinkedHashMap<>();
         Map<Stage, SpirvStage> spirv;
         try {
+            for (Map.Entry<Stage, String> entry : sources.entrySet()) {
+                explicit.putAll(GlslProgramTranslator.explicitLayouts(GlslProgramTranslator.preprocess(label, entry.getKey(), entry.getValue())));
+            }
             spirv = GlslProgramTranslator.compileToSpirv(label, sources);
         } catch (GlslProgramTranslator.TranslationException | RuntimeException e) {
             throw new LinkException(String.valueOf(e.getMessage()));
         }
         try {
-            SpirvStage vs = spirv.get(Stage.VERTEX);
-            SpirvStage fs = spirv.get(Stage.FRAGMENT);
-            StageResult vertex = GlslProgramTranslator.spirvToMsl(vs, GlslProgramTranslator.DEFAULT_MSL_VERSION, true);
-            StageResult fragment = GlslProgramTranslator.spirvToMsl(fs, GlslProgramTranslator.DEFAULT_MSL_VERSION, true);
+            SpirvStage vs = spirv.get(compute ? Stage.COMPUTE : Stage.VERTEX);
+            SpirvStage fs = compute ? null : spirv.get(Stage.FRAGMENT);
+            StageResult vertex = GlslProgramTranslator.spirvToMsl(vs, MSL_VERSION, !compute);
+            StageResult fragment = fs == null ? null : GlslProgramTranslator.spirvToMsl(fs, MSL_VERSION, true);
 
-            List<Uniform> uniforms = new ArrayList<>();
             Map<String, BlockMember> vsMembers = byName(vs.defaultBlock());
-            Map<String, BlockMember> fsMembers = byName(fs.defaultBlock());
+            Map<String, BlockMember> fsMembers = fs == null ? Map.of() : byName(fs.defaultBlock());
             Map<String, BlockMember> all = new LinkedHashMap<>(vsMembers);
             fsMembers.forEach(all::putIfAbsent);
-            int location = 0;
-            for (Map.Entry<String, BlockMember> entry : all.entrySet()) {
-                BlockMember v = vsMembers.get(entry.getKey());
-                BlockMember f = fsMembers.get(entry.getKey());
-                Uniform uniform = new Uniform(entry.getKey(), location,
-                        v == null ? null : new StagePlacement(v.offset(), v), f == null ? null : new StagePlacement(f.offset(), f), entry.getValue());
-                uniforms.add(uniform);
-                location += uniform.locations();
-            }
 
             Map<String, int[]> samplerSlots = new LinkedHashMap<>();
             collectSamplers(vertex, 0, samplerSlots);
-            collectSamplers(fragment, 2, samplerSlots);
+            if (fragment != null) {
+                collectSamplers(fragment, 2, samplerSlots);
+            }
+
+            // Locations: explicit layout(location = N) first, then the rest in declaration order around them.
+            Set<Integer> taken = new HashSet<>();
+            for (Map.Entry<String, BlockMember> entry : all.entrySet()) {
+                int at = explicitLocation(explicit, entry.getKey());
+                if (at >= 0) for (int i = 0; i < Math.max(1, entry.getValue().arraySize()); i++) taken.add(at + i);
+            }
+            for (String name : samplerSlots.keySet()) {
+                int at = explicitLocation(explicit, name);
+                if (at >= 0) taken.add(at);
+            }
+            int[] next = {0};
+            List<Uniform> uniforms = new ArrayList<>();
+            for (Map.Entry<String, BlockMember> entry : all.entrySet()) {
+                BlockMember v = vsMembers.get(entry.getKey());
+                BlockMember f = fsMembers.get(entry.getKey());
+                int count = Math.max(1, entry.getValue().arraySize());
+                int location = explicitLocation(explicit, entry.getKey());
+                if (location < 0) location = allocate(taken, next, count);
+                uniforms.add(new Uniform(entry.getKey(), location,
+                        v == null ? null : new StagePlacement(v.offset(), v), f == null ? null : new StagePlacement(f.offset(), f), entry.getValue()));
+            }
             List<Sampler> samplers = new ArrayList<>();
             for (Map.Entry<String, int[]> entry : samplerSlots.entrySet()) {
                 int[] s = entry.getValue();
-                samplers.add(new Sampler(entry.getKey(), location++, s[0], s[1], s[2], s[3]));
+                int location = explicitLocation(explicit, entry.getKey());
+                if (location < 0) location = allocate(taken, next, 1);
+                ExplicitLayout layout = explicit.get(entry.getKey());
+                int unit = layout != null && layout.binding() >= 0 ? layout.binding() : 0;
+                samplers.add(new Sampler(entry.getKey(), location, s[0], s[1], s[2], s[3], unit));
             }
 
             Map<String, Integer> attributes = new LinkedHashMap<>();
-            Matcher m = ATTRIBUTE.matcher(vertex.msl());
-            while (m.find()) {
-                attributes.put(m.group(2), Integer.parseInt(m.group(3)));
+            if (!compute) {
+                Matcher m = ATTRIBUTE.matcher(vertex.msl());
+                while (m.find()) {
+                    attributes.put(m.group(2), Integer.parseInt(m.group(3)));
+                }
             }
-            return new Linked(vertex, fragment, vs.defaultBlockSize(), fs.defaultBlockSize(),
-                    blockIndex(vertex), blockIndex(fragment), uniforms, samplers, attributes, "");
+            return new Linked(vertex, fragment, vs.defaultBlockSize(), fs == null ? 0 : fs.defaultBlockSize(),
+                    blockIndex(vertex), fragment == null ? -1 : blockIndex(fragment), uniforms, samplers, attributes, "",
+                    stageInterface(vertex, explicit), fragment == null ? StageInterface.EMPTY : stageInterface(fragment, explicit),
+                    compute ? vertex.localSize() : null);
         } catch (GlslProgramTranslator.TranslationException | RuntimeException e) {
             throw new LinkException(String.valueOf(e.getMessage()));
         } finally {
             spirv.values().forEach(s -> MemoryUtil.memFree(s.spirv()));
         }
+    }
+
+    private static int explicitLocation(final Map<String, ExplicitLayout> explicit, final String name) {
+        ExplicitLayout layout = explicit.get(name);
+        return layout == null ? -1 : layout.location();
+    }
+
+    private static int allocate(final Set<Integer> taken, final int[] next, final int count) {
+        outer:
+        while (true) {
+            for (int i = 0; i < count; i++) {
+                if (taken.contains(next[0] + i)) {
+                    next[0] += i + 1;
+                    continue outer;
+                }
+            }
+            int location = next[0];
+            for (int i = 0; i < count; i++) taken.add(location + i);
+            next[0] += count;
+            return location;
+        }
+    }
+
+    /** UBOs other than the default block, SSBOs and images; GL binding = explicit layout(binding), else 0 (GL default). */
+    private static StageInterface stageInterface(final StageResult stage, final Map<String, ExplicitLayout> explicit) {
+        List<BufferSlot> buffers = new ArrayList<>();
+        List<ImageSlot> images = new ArrayList<>();
+        for (ResourceBinding binding : stage.resources()) {
+            ExplicitLayout layout = explicit.get(binding.name());
+            int glBinding = layout != null && layout.binding() >= 0 ? layout.binding() : 0;
+            switch (binding.kind()) {
+                case UNIFORM_BUFFER -> {
+                    if (!binding.name().equals(stage.defaultUniformBlock())) {
+                        buffers.add(new BufferSlot(false, binding.name(), glBinding, binding.metalIndex()));
+                    }
+                }
+                case STORAGE_BUFFER -> buffers.add(new BufferSlot(true, binding.name(), glBinding, binding.metalIndex()));
+                case STORAGE_IMAGE -> images.add(new ImageSlot(binding.name(), glBinding, binding.metalIndex()));
+                default -> {
+                }
+            }
+        }
+        return new StageInterface(List.copyOf(buffers), List.copyOf(images));
     }
 
     private static Map<String, BlockMember> byName(final List<BlockMember> members) {

@@ -15,7 +15,7 @@ import java.util.Set;
 /**
  * {@code GL.getCapabilities()} for retargeted mods. There is no GL context, so the object is allocated without running
  * LWJGL's constructor; it claims OpenGL 1.1-4.6 core, the extensions in {@link MetalGLStrings#EXTENSIONS}, and a non-zero
- * "function address" for every entry point {@link MetalGL} implements (mods sometimes test {@code caps.glFoo != 0}).
+ * "function address" for every entry point {@link MetalGL} / {@link MetalGL4} implement (mods sometimes test {@code caps.glFoo != 0}).
  * Everything else reads as unsupported.
  */
 final class MetalGLCapabilities {
@@ -37,9 +37,11 @@ final class MetalGLCapabilities {
             unsafeField.setAccessible(true);
             GLCapabilities caps = (GLCapabilities) ((Unsafe) unsafeField.get(null)).allocateInstance(GLCapabilities.class);
             Set<String> implemented = new HashSet<>();
-            for (Method method : MetalGL.class.getDeclaredMethods()) {
-                if (Modifier.isPublic(method.getModifiers()) && method.getName().startsWith("gl")) {
-                    implemented.add(method.getName());
+            for (Class<?> sink : new Class<?>[]{MetalGL.class, MetalGL4.class}) {
+                for (Method method : sink.getDeclaredMethods()) {
+                    if (Modifier.isPublic(method.getModifiers()) && method.getName().startsWith("gl")) {
+                        implemented.add(method.getName());
+                    }
                 }
             }
             for (Field field : GLCapabilities.class.getDeclaredFields()) {

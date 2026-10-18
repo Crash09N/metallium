@@ -86,6 +86,14 @@ public final class MetalliumInterop {
         return metal.metalTexture();
     }
 
+    /**
+     * Commits everything encoded so far in the current frame and waits until the GPU finished it (synchronous GL
+     * readbacks). Expensive: only for rare, explicit waits. Encoding then continues in a new command buffer.
+     */
+    public static void submitAndWait() {
+        require().createCommandEncoder().commitAndWait();
+    }
+
     /** Runs {@code action} once the GPU has finished every command buffer submitted so far (incl. the current one). */
     public static void releaseAfterGpu(final Runnable action) {
         require().createCommandEncoder().queueForDestroy(action);

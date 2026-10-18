@@ -137,4 +137,42 @@ class GlCallRetargeterTest {
         assertTrue(missing.isEmpty(), "no LWJGL twin: " + missing);
         assertTrue(count > 150, "implemented entry points: " + count);
     }
+
+    @Test
+    void metalGl4AndStateManagerMirrorTheirOriginals() throws ClassNotFoundException {
+        List<Class<?>> lwjgl = new ArrayList<>();
+        for (String version : new String[]{"11", "15", "20", "30", "31", "32", "33", "40", "41", "42", "43", "44", "45", "46"}) {
+            lwjgl.add(Class.forName("org.lwjgl.opengl.GL" + version + "C", false, getClass().getClassLoader()));
+        }
+        for (String ext : new String[]{"ARBIndirectParameters", "ARBDrawBuffersBlend", "ARBDirectStateAccess", "ARBTimerQuery", "ARBShaderImageLoadStore"}) {
+            lwjgl.add(Class.forName("org.lwjgl.opengl." + ext, false, getClass().getClassLoader()));
+        }
+        List<String> missing = new ArrayList<>();
+        int count = 0;
+        for (Method method : dev.metallium.gl.MetalGL4.class.getDeclaredMethods()) {
+            if (!Modifier.isPublic(method.getModifiers()) || !(method.getName().startsWith("gl") || method.getName().startsWith("ngl"))) continue;
+            count++;
+            if (!hasTwin(lwjgl, method)) missing.add(method.toString());
+        }
+        assertTrue(missing.isEmpty(), "no LWJGL twin: " + missing);
+        assertTrue(count > 150, "MetalGL4 entry points: " + count);
+        Class<?> stateManager = Class.forName("com.mojang.renderpearl.backend.opengl.GlStateManager", false, getClass().getClassLoader());
+        for (Method method : dev.metallium.gl.MetalGLStateManager.class.getDeclaredMethods()) {
+            if (Modifier.isPublic(method.getModifiers()) && !hasTwin(List.of(stateManager), method)) missing.add(method.toString());
+        }
+        assertTrue(missing.isEmpty(), "no GlStateManager twin: " + missing);
+    }
+
+    private static boolean hasTwin(final List<Class<?>> classes, final Method method) {
+        for (Class<?> type : classes) {
+            try {
+                if (type.getMethod(method.getName(), method.getParameterTypes()).getReturnType() == method.getReturnType()) {
+                    return true;
+                }
+            } catch (NoSuchMethodException ignored) {
+                // try the next class
+            }
+        }
+        return false;
+    }
 }
