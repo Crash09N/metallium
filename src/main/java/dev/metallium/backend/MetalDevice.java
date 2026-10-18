@@ -25,6 +25,7 @@ import com.mojang.renderpearl.backend.api.BackendRenderPipeline;
 import com.mojang.renderpearl.backend.api.GpuDeviceBackend;
 import com.mojang.renderpearl.backend.api.GpuSurfaceBackend;
 import com.mojang.renderpearl.util.ShaderCompileException;
+import dev.metallium.shadercache.ShaderCacheStats;
 import io.github.kokodio.metaljvm.foundation.NSObject;
 import io.github.kokodio.metaljvm.metal.*;
 import io.github.kokodio.metaljvm.quartzcore.CAMetalLayer;
@@ -225,7 +226,10 @@ final class MetalDevice implements GpuDeviceBackend {
 
     @Nullable
     private MTLFunction compileFunction(final MslFunctionKey key, final String name) {
+        long start = System.nanoTime();
         MTLLibrary library = MetalUtilities.newLibrary(this.metalDevice, key.msl());
+        ShaderCacheStats.libraryCompiles.increment();
+        ShaderCacheStats.libraryNs.add(System.nanoTime() - start);
         if (library == null) {
             return null;
         }

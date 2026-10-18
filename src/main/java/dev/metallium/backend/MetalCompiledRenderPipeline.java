@@ -6,6 +6,7 @@
 package dev.metallium.backend;
 
 import dev.metallium.Metallium;
+import dev.metallium.shadercache.ShaderCacheStats;
 import com.mojang.renderpearl.api.GpuFormat;
 import com.mojang.renderpearl.api.pipeline.BlendFunction;
 import com.mojang.renderpearl.api.pipeline.ColorTargetState;
@@ -66,6 +67,8 @@ final class MetalCompiledRenderPipeline implements BackendRenderPipeline {
     private final Int2ObjectOpenHashMap<MTLRenderPipelineState> pipelinesByLayout = new Int2ObjectOpenHashMap<>();
 
     private boolean closed;
+    /** False while the constructor runs (pipeline compile); later variants are built lazily while encoding. */
+    private boolean constructed;
 
     MetalCompiledRenderPipeline(
             final MetalDevice device,
@@ -129,6 +132,7 @@ final class MetalCompiledRenderPipeline implements BackendRenderPipeline {
         if (this.descriptor != null && getNativePipeline(layout) == null) {
             Metallium.LOGGER.error("[metallium] Pipeline {} failed to build", info.name());
         }
+        this.constructed = true;
     }
 
     private static MTLRenderPipelineDescriptor buildDescriptor(
@@ -193,7 +197,15 @@ final class MetalCompiledRenderPipeline implements BackendRenderPipeline {
                     variant.colorAttachments().objectAtIndexedSubscript(slot).setPixelFormat(MTLPixelFormat.Invalid);
                 }
             }
+            long start = System.nanoTime();
             MTLRenderPipelineState pipeline = MetalUtilities.newRenderPipelineState(device.metalDevice(), variant);
+            long elapsed = System.nanoTime() - start;
+            ShaderCacheStats.pipelineStates.increment();
+            ShaderCacheStats.pipelineStateNs.add(elapsed);
+            if (this.constructed) {
+                ShaderCacheStats.renderThreadPipelineStates.increment();
+                ShaderCacheStats.renderThreadPipelineStateNs.add(elapsed);
+            }
             variant.release();
             return pipeline;
         }

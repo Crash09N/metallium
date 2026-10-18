@@ -109,6 +109,8 @@ loom.runs.clientGameTest {
 	if (project.hasProperty('benchSeconds')) vmArg "-Dmetallium.bench.seconds=${project.property('benchSeconds')}"
 	if (project.hasProperty('benchScene')) vmArg "-Dmetallium.bench.scene=${project.property('benchScene')}"
 	if (project.hasProperty('perfCounters')) vmArg '-Dmetallium.perfCounters=true'
+	if (project.hasProperty('playSeconds')) vmArg "-Dmetallium.gametest.playSeconds=${project.property('playSeconds')}"
+	if (project.hasProperty('shaderCache')) vmArg "-Dmetallium.shaderCache=${project.property('shaderCache')}"
 }
 
 // ./gradlew runClientGameTest -PwithSodium  → runs the game tests with Sodium loaded.

@@ -539,9 +539,12 @@ public final class GlslProgramTranslator {
             ByteBuffer fileName = MemoryUtil.memUTF8(programName + "." + stage.name().toLowerCase());
             ByteBuffer entryPoint = MemoryUtil.memUTF8("main");
             long result;
+            long start = System.nanoTime();
             try {
                 result = Shaderc.shaderc_compile_into_spv(compiler, sourceText, stage.shadercKind, fileName, entryPoint, options);
             } finally {
+                dev.metallium.shadercache.ShaderCacheStats.glslCompiles.increment();
+                dev.metallium.shadercache.ShaderCacheStats.glslNs.add(System.nanoTime() - start);
                 MemoryUtil.memFree(sourceText);
                 MemoryUtil.memFree(fileName);
                 MemoryUtil.memFree(entryPoint);

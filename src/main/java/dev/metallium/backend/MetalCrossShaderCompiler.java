@@ -12,6 +12,7 @@ import com.mojang.renderpearl.api.pipeline.UniformType;
 import com.mojang.renderpearl.backend.api.BackendRenderPipeline;
 import com.mojang.renderpearl.backend.api.SpvModule;
 import com.mojang.renderpearl.util.ShaderCompileException;
+import dev.metallium.shadercache.ShaderCacheStats;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
 import org.jspecify.annotations.Nullable;
@@ -73,9 +74,12 @@ final class MetalCrossShaderCompiler {
         List<UniformDescription> uniforms = info.uniforms();
         MetalIndices metalIndices = MetalIndices.of(uniforms);
 
+        long start = System.nanoTime();
         MslShader vertexMsl = spirvToMsl(vertexSpirv.spv(), metalIndices, vertexAttributeFormats(info), true);
         boolean enableFragDepth = info.depthStencilState() != null;
         MslShader fragmentMsl = spirvToMsl(fragmentSpirv.spv(), metalIndices, Map.of(), enableFragDepth);
+        ShaderCacheStats.mslTranslations.add(2);
+        ShaderCacheStats.mslNs.add(System.nanoTime() - start);
 
         String vertexEntryPoint = extractEntryPoint(vertexMsl.source(), VERTEX_ENTRY_PATTERN, "main0");
         String fragmentEntryPoint = extractEntryPoint(fragmentMsl.source(), FRAGMENT_ENTRY_PATTERN, "main0");
