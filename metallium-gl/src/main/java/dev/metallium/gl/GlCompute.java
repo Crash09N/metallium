@@ -86,8 +86,7 @@ final class GlCompute {
      * {@code offset}; {@code countOffset >= 0}: the draw count is read by the GPU from GL_PARAMETER_BUFFER.
      */
     void drawElementsIndirect(final int mode, final int type, final long offset, final int drawCount, final int stride, final long countOffset) {
-        if (type != GL_UNSIGNED_SHORT && type != GL_UNSIGNED_INT) {
-            if (type == GL_UNSIGNED_BYTE) MetalGLLog.unsupported("indirect draws with GL_UNSIGNED_BYTE indices");
+        if (type != GL_UNSIGNED_SHORT && type != GL_UNSIGNED_INT && type != GL_UNSIGNED_BYTE) {
             gl.error(GL_INVALID_ENUM);
             return;
         }
@@ -107,7 +106,7 @@ final class GlCompute {
         Buffer elements = gl.vertexArray.elementBuffer;
         int effectiveStride = stride == 0 ? 20 : stride;
         if (commands == null || commands.store == null || elements == null || elements.store == null
-                || offset + (long) (drawCount - 1) * effectiveStride + 20 > commands.size) {
+                || offset + (long) ((countOffset >= 0 ? 1 : drawCount) - 1) * effectiveStride + 20 > commands.size) {
             gl.error(GL_INVALID_OPERATION);
             return;
         }
@@ -119,12 +118,29 @@ final class GlCompute {
                 return;
             }
         }
-        GlDevice.DrawOp op = gl.resolveDraw(mode, elements.store, 0, type == GL_UNSIGNED_INT, 0, 0, 1, 0, 0);
-        if (op == null) {
-            return;
+        // Metal has no 8-bit indices: widen to 16 bits (firstIndex counts indices, so commands stay valid).
+        GlDevice.BufferStore indices = type == GL_UNSIGNED_BYTE ? widened(elements) : elements.store;
+        // GL reads at most the commands that fit in the buffer; maxdrawcount may be far larger (Voxy passes capacities).
+        int draws = (int) Math.min(drawCount, (commands.size - offset - 20) / effectiveStride + 1);
+        GlDevice.DrawOp op = gl.resolveDraw(mode, indices, 0, type == GL_UNSIGNED_INT, 0, 0, 1, 0, 0);
+        if (op != null) {
+            gl.device.drawIndirect(op, new GlDevice.IndirectDraws(commands.store, offset, draws, effectiveStride,
+                    counts == null ? null : counts.store, Math.max(0, countOffset)));
         }
-        gl.device.drawIndirect(op, new GlDevice.IndirectDraws(commands.store, offset, drawCount, effectiveStride,
-                counts == null ? null : counts.store, Math.max(0, countOffset)));
+        if (indices != elements.store) {
+            gl.device.release(indices);
+        }
+    }
+
+    private GlDevice.BufferStore widened(final Buffer elements) {
+        int count = (int) elements.size;
+        GlDevice.BufferStore wide = gl.device.createBuffer(Math.max(4, count * 2L));
+        long src = MemoryUtil.memAddress(elements.store.contents());
+        long dst = MemoryUtil.memAddress(wide.contents());
+        for (int i = 0; i < count; i++) {
+            MemoryUtil.memPutShort(dst + i * 2L, (short) (MemoryUtil.memGetByte(src + i) & 0xFF));
+        }
+        return wide;
     }
 
     // ---------------------------------------------------------------------------------------------- buffer operations

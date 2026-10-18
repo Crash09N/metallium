@@ -86,6 +86,7 @@ final class IndirectCountDraws {
     private final MTLComputePipelineState pipeline32;
     private final MTLArgumentEncoder argumentEncoder;
     private final ConcurrentLinkedDeque<Pooled> pool = new ConcurrentLinkedDeque<>();
+    private long allocated;
 
     IndirectCountDraws(final MTLDevice device, final MetalHost host) {
         this.device = device;
@@ -117,7 +118,7 @@ final class IndirectCountDraws {
                 return p;
             }
         }
-        int capacity = Integer.highestOneBit(Math.max(256, draws - 1)) << 1;
+        int capacity = (Math.max(256, draws) + 1023) & ~1023;
         MTLIndirectCommandBufferDescriptor descriptor = MTLIndirectCommandBufferDescriptor.alloc().init();
         descriptor.setCommandTypes(MTLIndirectCommandType.DrawIndexed);
         descriptor.setInheritPipelineState(true);
@@ -129,6 +130,8 @@ final class IndirectCountDraws {
         if (icb == null) {
             throw new OutOfMemoryError("metallium-gl: newIndirectCommandBuffer(" + capacity + ") failed");
         }
+        allocated += capacity;
+        dev.metallium.gl.MetalGLLog.LOGGER.info("[metallium-gl] indirect command buffer for {} draws ({} commands allocated in total)", capacity, allocated);
         MTLBuffer arguments = device.newBuffer(Math.max(16, argumentEncoder.encodedLength()), MTLResourceOptions.StorageModeShared);
         argumentEncoder.setArgumentBuffer(arguments, 0);
         argumentEncoder.setIndirectCommandBuffer(icb, 0);

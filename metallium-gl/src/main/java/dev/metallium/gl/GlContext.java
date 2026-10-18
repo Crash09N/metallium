@@ -363,7 +363,7 @@ public final class GlContext {
             error(GL_INVALID_OPERATION);
             return;
         }
-        if (buffer.gpuWritten && !buffer.persistent() && buffer.store.inUseByGpu()) {
+        if ((buffer.gpuWritten || buffer.size > RENAME_LIMIT) && !buffer.persistent() && buffer.store.inUseByGpu()) {
             // The GPU writes this buffer (SSBO / copy target) in pending work: renaming would lose those writes, so the
             // update is a GPU-ordered upload instead.
             device.uploadBuffer(buffer.store, offset, data);
@@ -378,9 +378,12 @@ public final class GlContext {
      * the buffer gets fresh storage (contents copied) instead of being overwritten ("renaming"). Persistent buffers are
      * synchronised by the application (fences), as in GL.
      */
+    /** Buffers above this size are never renamed (a copy of a multi-GiB buffer per update would exhaust memory). */
+    static final long RENAME_LIMIT = 16L << 20;
+
     void ensureWritable(final Buffer buffer) {
         GlDevice.BufferStore store = buffer.store;
-        if (store == null || buffer.persistent() || buffer.gpuWritten || !store.inUseByGpu()) {
+        if (store == null || buffer.persistent() || buffer.gpuWritten || buffer.size > RENAME_LIMIT || !store.inUseByGpu()) {
             return;
         }
         GlDevice.BufferStore fresh = device.createBuffer(store.size());
