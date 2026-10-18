@@ -177,6 +177,9 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
             line(String.format("bench: rendered frames counted=%d in %.1f s (per rendered frame via HUD hook; presented/displayed frames are not counted)", frameMs.size(), seconds));
             line(String.format("bench-result: scene=%s avg_fps=%.1f low1_fps=%.1f p50_ms=%.2f p95_ms=%.2f p99_ms=%.2f max_ms=%.2f frames=%d heap_mb=%d",
                     BENCH_SCENE, avgFps, low1, pct(frameMs, 0.50), pct(frameMs, 0.95), pct(frameMs, 0.99), frameMs.get(frameMs.size() - 1), frameMs.size(), heapMb));
+            if (Boolean.getBoolean("metallium.bench.power")) {
+                powerBench(context);
+            }
             line("result: PASS");
         }
     }
@@ -379,6 +382,13 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
      */
     private void metalliumGlScenario(ClientGameTestContext context) {
         boolean metal = backendIsMetal(context);
+        // No opt-in in fabric.mod.json: the start-up scan must find the raw-GL classes and route them automatically.
+        dev.metallium.compat.GlRouting.Decision routing = dev.metallium.compat.GlRouting.plan().get("metallium-gametest");
+        line("metallium-gl: gametest mod routing=" + (routing == null ? "none" : routing.status() + (routing.automatic() ? " (automatic)" : "")
+                + " classes=" + routing.classes() + " reason=" + routing.reason()) + ", hooked=" + dev.metallium.compat.GlRouting.hooked());
+        if (metal && (routing == null || !routing.routed() || !routing.automatic() || !dev.metallium.compat.GlRouting.hooked())) {
+            failures.add("metallium-gl: gametest mod was not routed automatically: " + routing);
+        }
         dev.metallium.gametest.gl.RawGlQuads.enabled = true;
         context.waitTicks(20);
         Path shot = context.takeScreenshot("metallium-gl-hud");
@@ -540,6 +550,10 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
         for (String mod : new String[] {"distanthorizons", "voxy", "reglass", "cullleaves", "moreculling"}) {
             line(mod + " loaded: " + net.fabricmc.loader.api.FabricLoader.getInstance().isModLoaded(mod));
         }
+        if (dev.metallium.compat.CrashGuard.recovery() != null) {
+            crashRecoveryRun(context, backend);
+            return;
+        }
         context.takeScreenshot("metallium-title");
         graphicsApiLabelsTest(context);
 
@@ -564,6 +578,7 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
                 context.waitTicks(SETTLE_TICKS);
                 checkTerrainVisible(context.takeScreenshot("metallium-flat-world"), "flat world");
                 measure(context, "flat world");
+                compatCenterScenario(context);
                 if (net.fabricmc.loader.api.FabricLoader.getInstance().isModLoaded("reglass")) {
                     reglassScreens(context);
                 }
@@ -885,6 +900,155 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
         int fps = context.computeOnClient(Minecraft::getFps);
         long frameNs = context.computeOnClient(Minecraft::getFrameTimeNs);
         line(scene + ": fps=" + fps + " lastFrameMs=" + String.format("%.2f", frameNs / 1e6));
+    }
+
+    /**
+     * Compatibility center: the start-up scan must classify the gametest mod (RawGlQuads calls GL11 directly) as raw GL;
+     * screenshots of the status screen and of the crash-recovery screen (synthetic recovery); power mode FPS cap.
+     */
+    private void compatCenterScenario(ClientGameTestContext context) {
+        dev.metallium.compat.ModReport self = dev.metallium.compat.ModScan.report("metallium-gametest");
+        line("compat: scan " + dev.metallium.compat.ModScan.summary() + "; gametest mod rawGl=" + (self != null && self.rawGl())
+                + " classes=" + (self == null ? "-" : self.glClasses()) + " functions=" + (self == null ? "-" : self.functions().size()));
+        if (self == null || !self.glClasses().contains("dev.metallium.gametest.gl.RawGlQuads")) {
+            failures.add("compat: scan did not find RawGlQuads as raw GL: " + self);
+        }
+        for (String row : dev.metallium.compat.CompatStatus.text().split("\n")) {
+            line("compat-status: " + row);
+        }
+        if (net.fabricmc.loader.api.FabricLoader.getInstance().isModLoaded("sodium")) {
+            sodiumMetalliumTab(context);
+        } else {
+            // Vanilla Video Settings: Metallium section (power mode + status button) at the end of the list.
+            context.runOnClient(client -> client.gui.setScreen(
+                    new net.minecraft.client.gui.screens.options.VideoSettingsScreen(null, client, client.options)));
+            context.waitTicks(5);
+            context.runOnClient(client -> client.gui.screen().mouseScrolled(client.gui.screen().width / 2.0,
+                    client.gui.screen().height / 2.0, 0, -1000));
+            context.waitTicks(5);
+            context.takeScreenshot("metallium-vanilla-video-settings");
+        }
+        context.runOnClient(client -> client.gui.setScreen(new dev.metallium.screen.MetalliumStatusScreen(null)));
+        context.waitTicks(10);
+        context.takeScreenshot("metallium-status-screen");
+        context.runOnClient(client -> client.gui.setScreen(new dev.metallium.screen.CrashRecoveryScreen(null,
+                new dev.metallium.compat.CrashGuard.Recovery(java.util.List.of(new dev.metallium.compat.CrashGuard.RoutedMod(
+                        "metallium-gametest", "Metallium client game tests", java.util.List.of("dev.metallium.gametest.gl"), null)),
+                        true, false, "crash-reports/crash-example.txt (synthetic, game test)"))));
+        context.waitTicks(10);
+        context.takeScreenshot("metallium-crash-recovery-screen");
+        context.runOnClient(client -> client.gui.setScreen(null));
+        context.waitTicks(5);
+
+        // Power mode: Low Power must cap the frame rate live; Performance must lift the cap again.
+        dev.metallium.power.PowerMode before = dev.metallium.power.PowerManager.mode();
+        line("compat: " + dev.metallium.power.PowerManager.statusLine());
+        try {
+            dev.metallium.power.PowerManager.setMode(dev.metallium.power.PowerMode.LOW_POWER);
+            context.waitTicks(60);
+            int low = context.computeOnClient(Minecraft::getFps);
+            dev.metallium.power.PowerManager.setMode(dev.metallium.power.PowerMode.PERFORMANCE);
+            context.waitTicks(60);
+            int perf = context.computeOnClient(Minecraft::getFps);
+            line("compat: power fps Low Power=" + low + " (cap " + dev.metallium.power.PowerManager.fpsCap(
+                    dev.metallium.power.PowerMode.LOW_POWER, dev.metallium.MetalliumConfig.INSTANCE.batteryFpsLimit) + "), Performance=" + perf);
+            if (low > dev.metallium.power.PowerManager.LOW_POWER_FPS + 5) {
+                failures.add("power: Low Power did not cap the frame rate (fps " + low + ")");
+            }
+        } finally {
+            dev.metallium.power.PowerManager.setMode(before);
+        }
+    }
+
+    /** -PcrashRecovery: a seeded crash in a routed mod must give OpenGL (safe mode) and the recovery screen. */
+    private void crashRecoveryRun(ClientGameTestContext context, String backend) {
+        try {
+            dev.metallium.compat.CrashGuard.Recovery recovery = dev.metallium.compat.CrashGuard.recovery();
+            line("crash recovery: suspects=" + recovery.suspects().stream().map(dev.metallium.compat.CrashGuard.RoutedMod::id).toList()
+                    + " metallium-gl=" + recovery.metalliumGl() + " evidence=" + recovery.evidence());
+            String screen = context.computeOnClient(client -> String.valueOf(client.gui.screen()));
+            line("crash recovery: screen=" + screen);
+            context.takeScreenshot("metallium-crash-recovery-real");
+            if (!backend.startsWith("OpenGL")) failures.add("crash recovery: expected OpenGL safe mode, got " + backend);
+            if (!screen.contains("CrashRecoveryScreen")) failures.add("crash recovery: recovery screen not shown");
+            if (recovery.suspects().stream().noneMatch(m -> m.id().equals("metallium-gametest"))) failures.add("crash recovery: suspect missing");
+            // "Use OpenGL for this session" -> title screen
+            context.runOnClient(client -> client.gui.screen().onClose());
+            context.waitTicks(10);
+            String after = context.computeOnClient(client -> String.valueOf(client.gui.screen()));
+            line("crash recovery: after 'Use OpenGL for this session': " + after);
+            if (!after.contains("TitleScreen")) failures.add("crash recovery: did not continue to the title screen");
+            line(failures.isEmpty() ? "result: PASS" : "result: FAIL " + failures);
+        } finally {
+            writeReport();
+        }
+        if (!failures.isEmpty()) throw new AssertionError(String.join("; ", failures));
+    }
+
+    /** Screenshots of the Metallium tab's pages in Sodium's video settings (via reflection; Sodium is optional). */
+    private void sodiumMetalliumTab(ClientGameTestContext context) {
+        List<Object> pages = context.computeOnClient(client -> {
+            try {
+                Class<?> manager = Class.forName("net.caffeinemc.mods.sodium.client.config.ConfigManager");
+                Object config = manager.getField("CONFIG").get(null);
+                for (Object mod : (List<?>) config.getClass().getMethod("getModOptions").invoke(config)) {
+                    if ("metallium".equals(mod.getClass().getMethod("configId").invoke(mod))) {
+                        return new ArrayList<Object>((List<?>) mod.getClass().getMethod("pages").invoke(mod));
+                    }
+                }
+                return List.<Object>of();
+            } catch (ReflectiveOperationException e) {
+                line("sodium tab: unavailable: " + e);
+                return List.<Object>of();
+            }
+        });
+        line("sodium tab: metallium pages=" + pages.size());
+        if (pages.size() < 2) failures.add("sodium tab: expected General + Power pages, got " + pages.size());
+        for (int i = 0; i < pages.size(); i++) {
+            Object page = pages.get(i);
+            boolean opened = context.computeOnClient(client -> {
+                try {
+                    Class<?> screen = Class.forName("net.caffeinemc.mods.sodium.client.gui.VideoSettingsScreen");
+                    Class<?> optionPage = Class.forName("net.caffeinemc.mods.sodium.client.config.structure.OptionPage");
+                    if (!optionPage.isInstance(page)) return false;
+                    client.gui.setScreen((net.minecraft.client.gui.screens.Screen) screen.getMethod("createScreen",
+                            net.minecraft.client.gui.screens.Screen.class, optionPage).invoke(null, null, page));
+                    return true;
+                } catch (ReflectiveOperationException e) {
+                    line("sodium tab: could not open page: " + e);
+                    return false;
+                }
+            });
+            if (opened) {
+                context.waitTicks(10);
+                context.takeScreenshot("metallium-sodium-tab-" + i);
+            }
+        }
+        context.runOnClient(client -> client.gui.setScreen(null));
+    }
+
+    /** Bench add-on (-Dmetallium.bench.power=true): 10 s each in Performance and Low Power, same scene. */
+    private void powerBench(ClientGameTestContext context) {
+        dev.metallium.power.PowerMode before = dev.metallium.power.PowerManager.mode();
+        int seconds = Integer.getInteger("metallium.bench.powerSeconds", 10);
+        try {
+            for (dev.metallium.power.PowerMode mode : new dev.metallium.power.PowerMode[] {
+                    dev.metallium.power.PowerMode.PERFORMANCE, dev.metallium.power.PowerMode.LOW_POWER}) {
+                dev.metallium.power.PowerManager.setMode(mode);
+                context.waitTicks(40);
+                long start = System.nanoTime();
+                startRecording();
+                while (System.nanoTime() - start < seconds * 1_000_000_000L) {
+                    context.waitTicks(20);
+                }
+                List<Double> frames = stopRecording();
+                double elapsed = (System.nanoTime() - start) / 1e9;
+                line(String.format("bench-power: mode=%s frames=%d seconds=%.1f avg_fps=%.1f p50_ms=%.2f",
+                        mode, frames.size(), elapsed, frames.size() / elapsed, frames.isEmpty() ? 0 : pct(frames, 0.5)));
+            }
+        } finally {
+            dev.metallium.power.PowerManager.setMode(before);
+        }
     }
 
     private void line(String text) {
