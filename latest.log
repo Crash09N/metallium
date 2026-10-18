@@ -1,0 +1,450 @@
+[17:14:35] [main/INFO] (FabricLoader/GameProvider) Loading Minecraft 26.3 with Fabric Loader 0.19.5
+[17:14:35] [main/INFO] (FabricLoader/Mappings) Mappings not present!
+[17:14:35] [main/INFO] (FabricLoader) Loading 59 mods:
+	- fabric-advancement-api-v1 1.0.1+38c7a2d55d
+	- fabric-api 0.163.0+26.3
+	- fabric-api-base 2.0.6+fcdff87f5d
+	- fabric-api-lookup-api-v1 2.0.24+3434d6d95d
+	- fabric-biome-api-v1 20.1.0+c6aa69a85d
+	- fabric-block-api-v1 3.1.0+0ae6f9115d
+	- fabric-block-getter-api-v2 2.0.9+3434d6d95d
+	- fabric-client-gametest-api-v1 6.0.9+4be74c3f5d
+	- fabric-command-api-v2 3.1.2+fcdff87f5d
+	- fabric-content-registries-v0 15.0.5+74ed1ea55d
+	- fabric-convention-tags-v2 4.10.3+6b5b47fd5d
+	- fabric-crash-report-info-v1 1.0.7+fcdff87f5d
+	- fabric-creative-tab-api-v1 5.0.22+fcdff87f5d
+	- fabric-data-attachment-api-v1 2.2.32+b9b88df45d
+	- fabric-data-generation-api-v1 27.4.0+e985c3605d
+	- fabric-debug-api-v1 1.0.5+5af7744b5d
+	- fabric-dimensions-v1 5.1.20+5af7744b5d
+	- fabric-entity-events-v1 6.0.4+3434d6d95d
+	- fabric-events-interaction-v0 5.3.8+b9b88df45d
+	- fabric-game-rule-api-v1 4.0.10+3434d6d95d
+	- fabric-gametest-api-v1 4.0.34+3434d6d95d
+	- fabric-item-api-v1 14.7.1+5af7744b5d
+	- fabric-key-mapping-api-v1 2.0.8+3434d6d95d
+	- fabric-lifecycle-events-v1 4.1.9+ffef5f675d
+	- fabric-loot-api-v3 4.0.9+4068fd645d
+	- fabric-menu-api-v1 2.0.29+ed66f0a35d
+	- fabric-message-api-v1 7.0.10+3434d6d95d
+	- fabric-model-loading-api-v1 8.0.36+fcdff87f5d
+	- fabric-networking-api-v1 6.3.10+5c1fee4d5d
+	- fabric-object-builder-api-v1 24.1.11+e2f63d3e5d
+	- fabric-particles-v1 5.0.26+3434d6d95d
+	- fabric-permission-api-v1 1.0.8+fcdff87f5d
+	- fabric-recipe-api-v1 10.0.10+b9b88df45d
+	- fabric-registry-sync-v0 8.0.3+1ca9f6365d
+	- fabric-renderer-api-v1 17.0.16+79385d0b5d
+	- fabric-renderer-indigo 9.1.24+b9d63e335d
+	- fabric-rendering-fluids-v1 6.0.6+3434d6d95d
+	- fabric-rendering-v1 27.1.0+5af7744b5d
+	- fabric-resource-conditions-api-v1 6.2.0+0d124ae85d
+	- fabric-resource-loader-v0 3.3.27+4fc5413f5d
+	- fabric-resource-loader-v1 3.1.0+5af7744b5d
+	- fabric-screen-api-v1 5.2.4+48607d035d
+	- fabric-serialization-api-v1 2.0.7+74ed1ea55d
+	- fabric-sound-api-v1 2.0.7+3434d6d95d
+	- fabric-tag-api-v1 2.1.11+fcdff87f5d
+	- fabric-transfer-api-v1 8.0.25+fcdff87f5d
+	- fabric-transitive-access-wideners-v1 8.1.17+e2f63d3e5d
+	- fabricloader 0.19.5
+	- iris 1.11.6+mc26.3
+	   |-- io_github_douira_glsl-transformer 3.0.0-pre3
+	   |-- org_anarres_jcpp 1.4.14
+	   \-- org_antlr_antlr4-runtime 4.13.1
+	- java 25
+	- metallium 0.1.0-alpha.1
+	- metallium-gametest 1.0.0
+	- metallium-iris 0.1.0-alpha.1
+	- minecraft 26.3
+	- mixinextras 0.5.5
+	- sodium 0.9.2+mc26.3
+[17:14:35] [main/INFO] (FabricLoader/Mixin) SpongePowered MIXIN Subsystem Version=0.8.7 Source=file:/Users/runner/.gradle/caches/modules-2/files-2.1/net.fabricmc/sponge-mixin/0.17.4+mixin.0.8.7/5f66cc9f59b8efaa942155a3d5a30599bf6640dd/sponge-mixin-0.17.4+mixin.0.8.7.jar Service=Knot/Fabric Env=CLIENT
+[17:14:35] [main/WARN] (FabricLoader/Mixin) Reference map 'iris.refmap.json' for mixins.iris.json could not be read. If this is a development environment you can ignore this message
+[17:14:35] [main/WARN] (FabricLoader/Mixin) Reference map 'iris-fabric.refmap.json' for mixins.iris.fabric.json could not be read. If this is a development environment you can ignore this message
+[17:14:35] [main/WARN] (FabricLoader/Mixin) Reference map 'iris.refmap.json' for mixins.iris.vertexformat.json could not be read. If this is a development environment you can ignore this message
+[17:14:35] [main/WARN] (FabricLoader/Mixin) Reference map 'iris.refmap.json' for mixins.iris.bettermipmaps.json could not be read. If this is a development environment you can ignore this message
+[17:14:35] [main/WARN] (FabricLoader/Mixin) Reference map 'iris.refmap.json' for mixins.iris.compat.sodium.json could not be read. If this is a development environment you can ignore this message
+[17:14:35] [main/WARN] (FabricLoader/Mixin) Reference map 'iris.refmap.json' for mixins.iris.fixes.maxfpscrash.json could not be read. If this is a development environment you can ignore this message
+[17:14:35] [main/INFO] (Sodium) Loaded configuration file for Sodium: 37 options available, 1 override(s) found
+[17:14:35] [main/WARN] (FabricLoader/Mixin) Error loading class: com/seibel/distanthorizons/common/wrappers/minecraft/MinecraftRenderWrapper (java.lang.ClassNotFoundException: com/seibel/distanthorizons/common/wrappers/minecraft/MinecraftRenderWrapper)
+[17:14:35] [main/WARN] (FabricLoader/Mixin) Error loading class: me/cortex/voxy/client/VoxyClient (java.lang.ClassNotFoundException: me/cortex/voxy/client/VoxyClient)
+[17:14:36] [main/WARN] (Sodium) Force-disabling mixin 'features.render.world.sky.LevelRendererMixin' as rule 'mixin.features.render.world.sky' (added by mods [iris]) disables it and children
+[17:14:36] [main/INFO] (Sodium-GraphicsAdapterProbe) Searching for graphics cards...
+[17:14:36] [main/INFO] (FabricLoader/MixinExtras|Service) Initializing MixinExtras via com.llamalad7.mixinextras.service.MixinExtrasServiceImpl(version=0.5.5).
+[17:14:37] [Datafixer Bootstrap #0/INFO] (Minecraft) 307 Datafixer optimizations took 328 milliseconds
+[17:14:41] [Render thread/INFO] (Minecraft) Environment: Environment[discoveryUrl=https://discovery.minecraftservices.com/minecraft/client, name=PROD]
+[17:14:41] [Render thread/INFO] (Minecraft) Setting user: Player0
+[17:14:42] [Render thread/INFO] (metallium) [metallium] Metal backend enabled (Apple Silicon macOS)
+[17:14:42] [Metallium power monitor/INFO] (metallium) [metallium] power: Low Power Mode off, AC Power, thermal nominal
+[17:14:42] [Render thread/INFO] (metallium) [metallium] mod scan: 1 mods (0 from cache) in 22 ms, 1 call OpenGL directly
+[17:14:42] [Render thread/INFO] (metallium) [metallium]   metallium-gametest: 1 raw-GL classes, 0 classes use Minecraft's OpenGL backend [GL33C.glAttachShader, GL33C.glBindAttribLocation, GL33C.glBindVertexArray, GL33C.glCompileShader, GL33C.glCreateProgram, GL33C.glCreateShader, GL33C.glDeleteShader, GL33C.glGenVertexArrays, GL33C.glGetError, GL33C.glGetProgramInfoLog, GL33C.glGetProgrami, GL33C.glGetShaderInfoLog, GL33C.glGetShaderi, GL33C.glGetUniformLocation, GL33C.glLinkProgram, GL33C.glShaderSource]
+[17:14:42] [Render thread/INFO] (metallium) [metallium] metallium-gametest: NEEDS_METALLIUM_GL (calls OpenGL directly; install metallium-gl)
+[17:14:42] [Render thread/INFO] (Indigo) [Indigo] Different rendering plugin detected; not applying Indigo.
+[17:14:42] [Render thread/INFO] (metallium-iris) [metallium-iris] Iris adapter loaded (work in progress)
+[17:14:42] [Render thread/ERROR] (Minecraft) Illegal option value 0 for Anisotropic Filtering
+[17:14:42] [Render thread/INFO] (Sodium) Setting exclusive fullscreen to true by default, as the user is not on Windows and the language cannot be guessed.
+[17:14:42] [Render thread/INFO] (Minecraft) Backend library: LWJGL version 3.4.3-snapshot
+[17:14:42] [Render thread/INFO] (Minecraft) SDL [SYSTEM]: App name: Minecraft
+[17:14:42] [Render thread/INFO] (Minecraft) SDL [SYSTEM]: App version: 26.3
+[17:14:42] [Render thread/INFO] (Minecraft) SDL [SYSTEM]: App ID: com.mojang.minecraft
+[17:14:42] [Render thread/INFO] (Minecraft) SDL [SYSTEM]: SDL revision: SDL-3.4.14-62f10da
+[17:14:42] [Download-2/ERROR] (Minecraft) Failed to fetch user properties
+com.mojang.authlib.exceptions.InvalidCredentialsException: Status: 401
+	at knot//com.mojang.authlib.exceptions.MinecraftClientHttpException.toAuthenticationException(MinecraftClientHttpException.java:70)
+	at knot//com.mojang.authlib.services.MinecraftServicesUserApiService.fetchProperties(MinecraftServicesUserApiService.java:168)
+	at knot//net.minecraft.client.Minecraft.lambda$new$1(Minecraft.java:451)
+	at java.base/java.util.concurrent.CompletableFuture$AsyncSupply.run(CompletableFuture.java:1789)
+	at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1090)
+	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:614)
+	at java.base/java.lang.Thread.run(Thread.java:1474)
+Caused by: MinecraftClientHttpException[type=HTTP_ERROR, status=401, response=ErrorResponse[path=/player/attributes, error=null, errorMessage=null, details=null]]
+	at knot//com.mojang.authlib.minecraft.client.MinecraftClient.buildHttpException(MinecraftClient.java:170)
+	at knot//com.mojang.authlib.minecraft.client.MinecraftClient.readServiceResponse(MinecraftClient.java:147)
+	at knot//com.mojang.authlib.minecraft.client.MinecraftClient.getWithEtag(MinecraftClient.java:81)
+	at knot//com.mojang.authlib.minecraft.client.MinecraftClient.get(MinecraftClient.java:65)
+	at knot//com.mojang.authlib.services.MinecraftServicesUserApiService.fetchProperties(MinecraftServicesUserApiService.java:118)
+	... 5 more
+[17:14:42] [ForkJoinPool.commonPool-worker-1/WARN] (Iris) [Iris Update Check] This version doesn't have an update index, skipping.
+[17:14:43] [Render thread/WARN] (Minecraft) Device [Apple Paravirtual device] supports all extensions from FeatureSet [Vulkan Portability Subset], making required
+[17:14:43] [Render thread/INFO] (metallium) Metal device: Apple Paravirtual device
+[17:14:43] [Render thread/INFO] (metallium) [metallium] Shader cache /Users/runner/work/metallium/metallium/build/run/metallium-shader-cache/env-612bb0ce3dca3d2f (0 of 1024 MiB): binary archive new, 0 recorded pipeline variants
+[17:14:43] [Render thread/INFO] (Iris) DSA support not detected.
+[17:14:43] [Render thread/INFO] (Iris) Shaders are disabled because no valid shaderpack is selected
+[17:14:43] [Render thread/INFO] (Minecraft) Using graphics backend Metal, using drivers: macOS 15.7.9
+[17:14:43] [Render thread/INFO] (Minecraft) Using graphics device: Apple Paravirtual device (Apple)
+[17:14:43] [Render thread/INFO] (Minecraft) Using graphics device extensions: 
+[17:14:43] [Render thread/INFO] (Minecraft) Created window using SDL video driver: cocoa
+[17:14:44] [Render thread/INFO] (Iris) Hardware information:
+[17:14:44] [Render thread/INFO] (Iris) CPU: 3x Apple M1 (Virtual)
+[17:14:44] [Render thread/INFO] (Iris) GPU: Apple Paravirtual device (Supports OpenGL macOS 15.7.9)
+[17:14:44] [Render thread/INFO] (Iris) OS: Mac OS X (15.7.9)
+[17:14:44] [Download-1/INFO] (Minecraft) Could not authorize you against Realms server: java.lang.RuntimeException: Failed to parse into SignedJWT: FabricMC
+[17:14:44] [Download-1/ERROR] (Minecraft) Failed to fetch Realms feature flags
+com.mojang.realmsclient.exception.RealmsServiceException: Realms authentication error with message 'java.lang.RuntimeException: Failed to parse into SignedJWT: FabricMC'
+	at knot//com.mojang.realmsclient.client.RealmsClient.execute(RealmsClient.java:625)
+	at knot//com.mojang.realmsclient.client.RealmsClient.fetchFeatureFlags(RealmsClient.java:204)
+	at java.base/java.util.concurrent.CompletableFuture$AsyncSupply.run(CompletableFuture.java:1789)
+	at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1090)
+	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:614)
+	at java.base/java.lang.Thread.run(Thread.java:1474)
+[17:14:45] [Render thread/INFO] (Minecraft) Reloading ResourceManager: vanilla, vanilla, fabric-advancement-api-v1, fabric-api, fabric-api-base, fabric-api-lookup-api-v1, fabric-biome-api-v1, fabric-block-api-v1, fabric-block-getter-api-v2, fabric-client-gametest-api-v1, fabric-command-api-v2, fabric-content-registries-v0, fabric-convention-tags-v2, fabric-crash-report-info-v1, fabric-creative-tab-api-v1, fabric-data-attachment-api-v1, fabric-data-generation-api-v1, fabric-debug-api-v1, fabric-dimensions-v1, fabric-entity-events-v1, fabric-events-interaction-v0, fabric-game-rule-api-v1, fabric-gametest-api-v1, fabric-item-api-v1, fabric-key-mapping-api-v1, fabric-lifecycle-events-v1, fabric-loot-api-v3, fabric-menu-api-v1, fabric-message-api-v1, fabric-model-loading-api-v1, fabric-networking-api-v1, fabric-object-builder-api-v1, fabric-particles-v1, fabric-permission-api-v1, fabric-recipe-api-v1, fabric-registry-sync-v0, fabric-renderer-api-v1, fabric-renderer-indigo, fabric-rendering-fluids-v1, fabric-rendering-v1, fabric-resource-conditions-api-v1, fabric-resource-loader-v0, fabric-resource-loader-v1, fabric-screen-api-v1, fabric-serialization-api-v1, fabric-sound-api-v1, fabric-tag-api-v1, fabric-transfer-api-v1, fabric-transitive-access-wideners-v1, fabricloader, iris, metallium, sodium
+[17:14:45] [Render thread/INFO] (metallium) [metallium] power mode AUTOMATIC → PERFORMANCE (FPS cap 0)
+[17:14:45] [Worker-Main-1/INFO] (Minecraft) Found unifont_all_no_pua-17.0.01.hex, loading
+[17:14:45] [Worker-Main-2/INFO] (Minecraft) Found unifont_pua-17.0.01.hex, loading
+[17:14:45] [Worker-Main-1/INFO] (Minecraft) Found unifont_jp_patch-17.0.01.hex, loading
+[17:14:53] [Render thread/INFO] (Minecraft) OpenAL initialized on device Apple Virtual Sound Device
+[17:14:53] [Render thread/INFO] (Minecraft) Sound engine started
+[17:14:53] [Render thread/INFO] (Minecraft) Created: 512x256x0 minecraft:textures/atlas/particles.png-atlas
+[17:14:53] [Render thread/INFO] (Minecraft) Created: 256x128x0 minecraft:textures/atlas/celestials.png-atlas
+[17:14:53] [Render thread/INFO] (Minecraft) Created: 128x128x0 minecraft:textures/atlas/decorated_pot.png-atlas
+[17:14:53] [Render thread/INFO] (Minecraft) Created: 512x256x0 minecraft:textures/atlas/paintings.png-atlas
+[17:14:53] [Render thread/INFO] (Minecraft) Created: 1024x512x0 minecraft:textures/atlas/shield_patterns.png-atlas
+[17:14:53] [Render thread/INFO] (Minecraft) Created: 1024x512x0 minecraft:textures/atlas/banner_patterns.png-atlas
+[17:14:53] [Render thread/INFO] (Minecraft) Created: 2048x2048x4 minecraft:textures/atlas/blocks.png-atlas
+[17:14:53] [Render thread/INFO] (Minecraft) Created: 1024x512x0 minecraft:textures/atlas/items.png-atlas
+[17:14:53] [Render thread/INFO] (Minecraft) Created: 1024x1024x0 minecraft:textures/atlas/gui.png-atlas
+[17:14:53] [Render thread/INFO] (Minecraft) Created: 128x64x0 minecraft:textures/atlas/map_decorations.png-atlas
+[17:14:53] [Render thread/INFO] (Minecraft) Created: 512x512x0 minecraft:textures/atlas/chest.png-atlas
+[17:14:53] [Render thread/INFO] (Minecraft) Created: 512x512x0 minecraft:textures/atlas/shulker_boxes.png-atlas
+[17:14:54] [Render thread/INFO] (Iris) Creating pipeline for dimension minecraft:overworld
+[17:14:54] [Download-1/INFO] (Minecraft) Could not authorize you against Realms server: java.lang.RuntimeException: Failed to parse into SignedJWT: FabricMC
+[17:14:54] [Download-1/ERROR] (Minecraft) Couldn't connect to realms
+com.mojang.realmsclient.exception.RealmsServiceException: Realms authentication error with message 'java.lang.RuntimeException: Failed to parse into SignedJWT: FabricMC'
+	at knot//com.mojang.realmsclient.client.RealmsClient.execute(RealmsClient.java:625)
+	at knot//com.mojang.realmsclient.client.RealmsClient.clientCompatible(RealmsClient.java:354)
+	at knot//com.mojang.realmsclient.RealmsAvailability.lambda$check$0(RealmsAvailability.java:48)
+	at java.base/java.util.concurrent.CompletableFuture$AsyncSupply.run(CompletableFuture.java:1789)
+	at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1090)
+	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:614)
+	at java.base/java.lang.Thread.run(Thread.java:1474)
+[17:14:57] [Test thread/INFO] (Minecraft) [STDOUT]: [metallium-gametest] backend: Metal | Apple Paravirtual device | macOS 15.7.9
+[17:14:57] [Test thread/INFO] (Minecraft) [STDOUT]: [metallium-gametest] timing: startup-to-title ms=22720
+[17:14:57] [Test thread/INFO] (Minecraft) [STDOUT]: [metallium-gametest] shader work until title: glsl=0 (0 ms, 0 cached) spirv->msl=215 (167 ms, 175 cached) mslLibraries=215 (10431 ms, 0 functions from archive) pso=197 (876 ms) renderThreadPso=2 (4 ms) archive hit/miss=67/130 prewarmedVariants=0
+[17:14:57] [Test thread/INFO] (Minecraft) [STDOUT]: [metallium-gametest] sodium loaded: true
+[17:14:57] [Test thread/INFO] (Minecraft) [STDOUT]: [metallium-gametest] iris loaded: true, adapter: true
+[17:14:57] [Test thread/INFO] (Minecraft) [STDOUT]: [metallium-gametest] distanthorizons loaded: false
+[17:14:57] [Test thread/INFO] (Minecraft) [STDOUT]: [metallium-gametest] voxy loaded: false
+[17:14:57] [Test thread/INFO] (Minecraft) [STDOUT]: [metallium-gametest] reglass loaded: false
+[17:14:57] [Test thread/INFO] (Minecraft) [STDOUT]: [metallium-gametest] cullleaves loaded: false
+[17:14:57] [Test thread/INFO] (Minecraft) [STDOUT]: [metallium-gametest] moreculling loaded: false
+[17:14:57] [Render thread/INFO] (Minecraft) Resizing Dynamic Transforms UBO, capacity limit of 2 reached during a single frame. New capacity will be 4.
+[17:14:57] [Test thread/INFO] (Minecraft) [STDOUT]: [metallium-gametest] graphicsApi vanilla caption DEFAULT: Metal (via Metallium)
+[17:14:57] [Test thread/INFO] (Minecraft) [STDOUT]: [metallium-gametest] graphicsApi vanilla caption OPENGL: Prefer OpenGL
+[17:14:57] [Test thread/INFO] (Minecraft) [STDOUT]: [metallium-gametest] graphicsApi vanilla caption VULKAN: Prefer Vulkan (Experimental)
+[17:14:57] [Test thread/INFO] (Minecraft) [STDOUT]: [metallium-gametest] graphicsApi sodium option: DEFAULT=Metal (via Metallium);OPENGL=Prefer OpenGL;VULKAN=Prefer Vulkan;tooltip=Renders with Apple's Metal through Metallium and falls back to OpenGL if Metal is unavailable. Choose Prefer OpenGL to use vanilla's OpenGL renderer.
+[17:15:00] [Worker-Main-2/INFO] (Minecraft) Loaded 1866 advancements
+[17:15:00] [Render thread/INFO] (fabric-client-gametest-api-v1) World loading finished: null screen: net.minecraft.client.gui.screens.GenericMessageScreen@4620b57d
+[17:15:00] [Render thread/INFO] (BiomeModificationImpl) Applied 0 biome modifications to 0 of 67 new biomes in 886.1 μs
+[17:15:00] [Server thread/INFO] (Minecraft) Starting integrated minecraft server version 26.3
+[17:15:00] [Server thread/INFO] (Minecraft) Generating keypair
+[17:15:01] [Server thread/INFO] (Minecraft) Selecting global world spawn...
+[17:15:01] [Server thread/INFO] (Minecraft) Loading 0 persistent chunks...
+[17:15:01] [Server thread/INFO] (Minecraft) Preparing spawn area: 16%
+[17:15:01] [Server thread/INFO] (Minecraft) Saving chunks for level 'ServerLevel[New World]'/minecraft:overworld
+[17:15:01] [Server thread/INFO] (Minecraft) Saving chunks for level 'ServerLevel[New World]'/minecraft:the_nether
+[17:15:01] [Server thread/INFO] (Minecraft) Saving chunks for level 'ServerLevel[New World]'/minecraft:the_end
+[17:15:01] [Render thread/INFO] (fabric-client-gametest-api-v1) World loading finished: null screen: net.minecraft.client.gui.screens.LevelLoadingScreen@30758338
+[17:15:01] [Render thread/INFO] (fabric-client-gametest-api-v1) World loading finished: null screen: net.minecraft.client.gui.screens.LevelLoadingScreen@30758338
+[17:15:01] [Render thread/INFO] (fabric-client-gametest-api-v1) World loading finished: null screen: net.minecraft.client.gui.screens.LevelLoadingScreen@30758338
+[17:15:01] [Render thread/INFO] (fabric-client-gametest-api-v1) World loading finished: null screen: net.minecraft.client.gui.screens.LevelLoadingScreen@30758338
+[17:15:01] [Render thread/INFO] (fabric-client-gametest-api-v1) World loading finished: null screen: net.minecraft.client.gui.screens.LevelLoadingScreen@30758338
+[17:15:01] [Render thread/INFO] (fabric-client-gametest-api-v1) World loading finished: null screen: net.minecraft.client.gui.screens.LevelLoadingScreen@30758338
+[17:15:01] [Server thread/INFO] (Minecraft) Loading 48 chunks for player spawn...
+[17:15:01] [Server thread/INFO] (Minecraft) Preparing spawn area: 16%
+[17:15:01] [Render thread/INFO] (fabric-client-gametest-api-v1) World loading finished: null screen: net.minecraft.client.gui.screens.LevelLoadingScreen@30758338
+[17:15:02] [Render thread/INFO] (fabric-client-gametest-api-v1) World loading finished: null screen: net.minecraft.client.gui.screens.LevelLoadingScreen@30758338
+[17:15:02] [Render thread/INFO] (fabric-client-gametest-api-v1) World loading finished: null screen: net.minecraft.client.gui.screens.LevelLoadingScreen@30758338
+[17:15:02] [Render thread/INFO] (fabric-client-gametest-api-v1) World loading finished: null screen: net.minecraft.client.gui.screens.LevelLoadingScreen@30758338
+[17:15:02] [Server thread/INFO] (Minecraft) Preparing spawn area: 16%
+[17:15:02] [Render thread/INFO] (fabric-client-gametest-api-v1) World loading finished: null screen: net.minecraft.client.gui.screens.LevelLoadingScreen@30758338
+[17:15:02] [Render thread/INFO] (fabric-client-gametest-api-v1) World loading finished: null screen: net.minecraft.client.gui.screens.LevelLoadingScreen@30758338
+[17:15:02] [Render thread/INFO] (fabric-client-gametest-api-v1) World loading finished: null screen: net.minecraft.client.gui.screens.LevelLoadingScreen@30758338
+[17:15:02] [Render thread/INFO] (fabric-client-gametest-api-v1) World loading finished: null screen: net.minecraft.client.gui.screens.LevelLoadingScreen@30758338
+[17:15:02] [Render thread/INFO] (fabric-client-gametest-api-v1) World loading finished: null screen: net.minecraft.client.gui.screens.LevelLoadingScreen@30758338
+[17:15:02] [Server thread/INFO] (Minecraft) Time elapsed: 1277 ms
+[17:15:02] [Render thread/INFO] (fabric-client-gametest-api-v1) World loading finished: null screen: net.minecraft.client.gui.screens.LevelLoadingScreen@30758338
+[17:15:02] [Server thread/INFO] (Minecraft) Player0[local:E:340bcf62] logged in with entity id 1 at (0.5, -60.0, 0.5)
+[17:15:02] [Server thread/INFO] (Minecraft) System chat: Player0 joined the game
+[17:15:02] [Server thread/INFO] (Minecraft) Changing view distance to 5, from 10
+[17:15:02] [Server thread/INFO] (Minecraft) Changing simulation distance to 12, from 0
+[17:15:02] [Render thread/INFO] (fabric-client-gametest-api-v1) World loading finished: null screen: net.minecraft.client.gui.screens.LevelLoadingScreen@30758338
+[17:15:02] [Render thread/INFO] (ChunkBuilder) Started 1 worker threads
+[17:15:02] [Render thread/INFO] (Minecraft) Loaded 2 advancements
+[17:15:02] [Render thread/INFO] (fabric-client-gametest-api-v1) World loading finished: ClientLevel screen: net.minecraft.client.gui.screens.LevelLoadingScreen@30758338
+[17:15:02] [Render thread/INFO] (ChunkBuilder) Stopping worker threads
+[17:15:02] [Render thread/INFO] (ChunkBuilder) Started 1 worker threads
+[17:15:02] [Render thread/WARN] (Minecraft) Requested post effect does not exist: minecraft:end_of_frame
+[17:15:02] [Render thread/INFO] (fabric-client-gametest-api-v1) World loading finished: ClientLevel screen: net.minecraft.client.gui.screens.LevelLoadingScreen@30758338
+[17:15:03] [Render thread/INFO] (Minecraft) Resizing Dynamic Transforms UBO, capacity limit of 4 reached during a single frame. New capacity will be 8.
+[17:15:03] [Render thread/INFO] (fabric-client-gametest-api-v1) World loading finished: ClientLevel screen: net.minecraft.client.gui.screens.LevelLoadingScreen@30758338
+[17:15:03] [Render thread/INFO] (Minecraft) Resizing Dynamic Transforms UBO, capacity limit of 8 reached during a single frame. New capacity will be 16.
+[17:15:03] [Render thread/INFO] (fabric-client-gametest-api-v1) World loading finished: ClientLevel screen: net.minecraft.client.gui.screens.LevelLoadingScreen@30758338
+[17:15:03] [Render thread/INFO] (fabric-client-gametest-api-v1) World loading finished: ClientLevel screen: net.minecraft.client.gui.screens.LevelLoadingScreen@30758338
+[17:15:03] [Render thread/INFO] (fabric-client-gametest-api-v1) World loading finished: ClientLevel screen: net.minecraft.client.gui.screens.LevelLoadingScreen@30758338
+[17:15:03] [Render thread/INFO] (fabric-client-gametest-api-v1) World loading finished: ClientLevel screen: net.minecraft.client.gui.screens.LevelLoadingScreen@30758338
+[17:15:03] [Render thread/INFO] (fabric-client-gametest-api-v1) World loading finished: ClientLevel screen: net.minecraft.client.gui.screens.LevelLoadingScreen@30758338
+[17:15:03] [Render thread/INFO] (fabric-client-gametest-api-v1) World loading finished: ClientLevel screen: net.minecraft.client.gui.screens.LevelLoadingScreen@30758338
+[17:15:03] [Render thread/INFO] (fabric-client-gametest-api-v1) World loading finished: ClientLevel screen: net.minecraft.client.gui.screens.LevelLoadingScreen@30758338
+[17:15:03] [Render thread/INFO] (fabric-client-gametest-api-v1) World loading finished: ClientLevel screen: net.minecraft.client.gui.screens.LevelLoadingScreen@30758338
+[17:15:03] [Render thread/INFO] (fabric-client-gametest-api-v1) World loading finished: ClientLevel screen: net.minecraft.client.gui.screens.LevelLoadingScreen@30758338
+[17:15:03] [Render thread/INFO] (fabric-client-gametest-api-v1) World loading finished: ClientLevel screen: net.minecraft.client.gui.screens.LevelLoadingScreen@30758338
+[17:15:03] [Render thread/INFO] (fabric-client-gametest-api-v1) World loading finished: ClientLevel screen: net.minecraft.client.gui.screens.LevelLoadingScreen@30758338
+[17:15:03] [Render thread/INFO] (fabric-client-gametest-api-v1) World loading finished: ClientLevel screen: net.minecraft.client.gui.screens.LevelLoadingScreen@30758338
+[17:15:03] [Render thread/INFO] (fabric-client-gametest-api-v1) World loading finished: ClientLevel screen: net.minecraft.client.gui.screens.LevelLoadingScreen@30758338
+[17:15:04] [Render thread/INFO] (fabric-client-gametest-api-v1) World loading finished: ClientLevel screen: net.minecraft.client.gui.screens.LevelLoadingScreen@30758338
+[17:15:04] [Render thread/INFO] (fabric-client-gametest-api-v1) World loading finished: ClientLevel screen: null
+[17:15:07] [Test thread/INFO] (Minecraft) [STDOUT]: [metallium-gametest] timing: first world join (create + chunks rendered) ms=8184
+[17:15:07] [Test thread/INFO] (Minecraft) [STDOUT]: [metallium-gametest] shader work during join: glsl=0 (0 ms, 0 cached) spirv->msl=2 (4 ms, 0 cached) mslLibraries=2 (151 ms, 0 functions from archive) pso=2 (13 ms) renderThreadPso=1 (3 ms) archive hit/miss=0/2 prewarmedVariants=0
+[17:15:17] [Render thread/INFO] (Minecraft) Resizing Dynamic Transforms UBO, capacity limit of 16 reached during a single frame. New capacity will be 32.
+[17:15:17] [Test thread/INFO] (Minecraft) [STDOUT]: [metallium-gametest] flat world: terrain coverage=0.02
+[17:15:17] [Test thread/INFO] (Minecraft) [STDOUT]: [metallium-gametest] flat world: sodium C: 41/2616 (F) D: 5 | [Pools: Geometry 3/31 MiB, Index 0/16 MiB, Misc 0 MiB, 2 buffers, Transfer Queue: Mapped (30/30 MiB), Chunk Builder: Schd=00 | Busy=00 (0000%) | Total=01, Tasks: N0=000 | N1=000 | Def=000, Recv=000, Duration: Mesh s=37.59,y=0, Sort -, Upload s=0.00,y=0, Size: LOW=-, UNDERGROUND=-, WATER_LEVEL=40960, SURFACE=-, HIGH=-, TS (N0,S) NL=00 TrN=00 TrS=G000/D000, N=00000 SNR=00000 STA=00000 DYN=00000 (DIR=00), QD: put 024/del 000 AC: Idle (avg 0.4ms)]
+[17:15:22] [Test thread/INFO] (Minecraft) [STDOUT]: [metallium-gametest] flat world: fps=60 lastFrameMs=16.18
+[17:15:22] [Test thread/INFO] (Minecraft) [STDOUT]: [metallium-gametest] compat: scan 1 scanned, 0 cached, 22 ms; gametest mod rawGl=true classes=[dev.metallium.gametest.gl.RawGlQuads] functions=16
+[17:15:22] [Test thread/INFO] (Minecraft) [STDOUT]: [metallium-gametest] compat-status: == Engine ==
+[17:15:22] [Test thread/INFO] (Minecraft) [STDOUT]: [metallium-gametest] compat-status: Metallium 0.1.0-alpha.1: Metal active · Metal · MSL 4.0
+[17:15:22] [Test thread/INFO] (Minecraft) [STDOUT]: [metallium-gametest] compat-status: Graphics Engine setting: METAL
+[17:15:22] [Test thread/INFO] (Minecraft) [STDOUT]: [metallium-gametest] compat-status: Power: Automatic → Performance (no FPS cap)
+[17:15:22] [Test thread/INFO] (Minecraft) [STDOUT]: [metallium-gametest] compat-status:     macOS Low Power Mode off · AC Power · thermal nominal
+[17:15:22] [Test thread/INFO] (Minecraft) [STDOUT]: [metallium-gametest] compat-status: 
+[17:15:22] [Test thread/INFO] (Minecraft) [STDOUT]: [metallium-gametest] compat-status: == Key mods ==
+[17:15:22] [Test thread/INFO] (Minecraft) [STDOUT]: [metallium-gametest] compat-status: Sodium 0.9.2+mc26.3: on Metal (Metallium's Sodium draw backend)
+[17:15:22] [Test thread/INFO] (Minecraft) [STDOUT]: [metallium-gametest] compat-status: Iris 1.11.6+mc26.3: on Metal via the Metallium Iris adapter
+[17:15:22] [Test thread/INFO] (Minecraft) [STDOUT]: [metallium-gametest] compat-status: metallium-gl: not installed · automatic routing on
+[17:15:22] [Test thread/INFO] (Minecraft) [STDOUT]: [metallium-gametest] compat-status: 
+[17:15:22] [Test thread/INFO] (Minecraft) [STDOUT]: [metallium-gametest] compat-status: == Mods (1 scanned, 0 cached, 22 ms) ==
+[17:15:22] [Test thread/INFO] (Minecraft) [STDOUT]: [metallium-gametest] compat-status: Metallium client game tests (metallium-gametest): calls OpenGL directly: will not render on Metal
+[17:15:22] [Test thread/INFO] (Minecraft) [STDOUT]: [metallium-gametest] compat-status:     calls OpenGL directly; install metallium-gl
+[17:15:22] [Test thread/INFO] (Minecraft) [STDOUT]: [metallium-gametest] compat-status:     1 classes call OpenGL: GL33C.glAttachShader, GL33C.glBindAttribLocation, GL33C.glBindVertexArray, GL33C.glCompileShader, GL33C.glCreateProgram, GL33C.glCreateShader, GL33C.glDeleteShader, GL33C.glGenVertexArrays, GL33C.glGetError, GL33C.glGetProgramInfoLog, GL33C.glGetProgrami, GL33C.glGetShaderInfoLog, GL33C.glGetShaderi, GL33C.glGetUniformLocation, GL33C.glLinkProgram, GL33C.glShaderSource
+[17:15:22] [Test thread/INFO] (Minecraft) [STDOUT]: [metallium-gametest] compat-status: 
+[17:15:22] [Test thread/INFO] (Minecraft) [STDOUT]: [metallium-gametest] compat-status: == Adapters ==
+[17:15:22] [Test thread/INFO] (Minecraft) [STDOUT]: [metallium-gametest] compat-status: Iris via Metallium adapter: shaders off
+[17:15:22] [Test thread/INFO] (Minecraft) [STDOUT]: [metallium-gametest] sodium tab: metallium pages=2
+[17:15:22] [Server thread/INFO] (Minecraft) Saving and pausing game...
+[17:15:22] [Server thread/INFO] (Minecraft) Saving chunks for level 'ServerLevel[New World]'/minecraft:overworld
+[17:15:22] [Server thread/INFO] (Minecraft) Saving chunks for level 'ServerLevel[New World]'/minecraft:the_nether
+[17:15:22] [Server thread/INFO] (Minecraft) Saving chunks for level 'ServerLevel[New World]'/minecraft:the_end
+[17:15:25] [Test thread/INFO] (Minecraft) [STDOUT]: [metallium-gametest] compat: Power: Automatic → Performance (no FPS cap) · macOS Low Power Mode off · AC Power · thermal nominal
+[17:15:25] [Render thread/INFO] (metallium) [metallium] power mode LOW_POWER → LOW_POWER (FPS cap 30)
+[17:15:26] [Server thread/WARN] (Minecraft) Can't keep up! Is the server overloaded? Running 2043ms or 40 ticks behind
+[17:15:32] [Render thread/INFO] (metallium) [metallium] power mode PERFORMANCE → PERFORMANCE (FPS cap 0)
+[17:15:35] [Test thread/INFO] (Minecraft) [STDOUT]: [metallium-gametest] compat: power fps Low Power=7 (cap 30), Performance=54
+[17:15:36] [Test thread/INFO] (Minecraft) [STDOUT]: [metallium-gametest] flat world (no chunk fade): terrain coverage=0.02
+[17:15:36] [Test thread/INFO] (Minecraft) [STDOUT]: [metallium-gametest] shader work during first 29 s of play: glsl=0 (0 ms, 0 cached) spirv->msl=0 (0 ms, 0 cached) mslLibraries=0 (0 ms, 0 functions from archive) pso=0 (0 ms) renderThreadPso=0 (0 ms) archive hit/miss=0/0 prewarmedVariants=0
+[17:15:36] [Server thread/INFO] (Minecraft) System chat: Set minecraft:overworld to 6000 tick(s)
+[17:15:36] [Server thread/INFO] (Minecraft) System chat: Game rule advance_time is already set to false
+[17:15:36] [Server thread/INFO] (Minecraft) System chat: Set the weather to clear
+[17:15:36] [Server thread/INFO] (Minecraft) System chat: Set Player0's game mode to Spectator Mode
+[17:15:36] [Server thread/INFO] (Minecraft) System chat: Summoned new Pig
+[17:15:36] [Server thread/INFO] (Minecraft) System chat: Summoned new Sheep
+[17:15:36] [Render thread/INFO] (Minecraft) [System] [CHAT] Your game mode has been updated to Spectator Mode
+[17:15:38] [Render thread/INFO] (Iris) Destroying pipeline minecraft:overworld
+[17:15:38] [Render thread/INFO] (metallium-iris) [metallium-iris] GlStateManager: 85 methods answer without GL when Metal is active
+[17:15:38] [Render thread/INFO] (Iris) Profile: Custom (+0 options changed by user)
+[17:15:38] [Render thread/INFO] (Iris) Using shaderpack: metallium-testpack
+[17:15:38] [Render thread/INFO] (Iris) Creating pipeline for dimension minecraft:overworld
+[17:15:39] [Render thread/INFO] (metallium-iris) [metallium-iris] Metal shader pipeline: 1 fullscreen passes + final
+[17:15:39] [Render thread/INFO] (Minecraft) [System] [CHAT] [Metallium] Metal shader pipeline: 1 fullscreen passes + final
+[17:15:39] [Test thread/INFO] (Minecraft) [STDOUT]: [metallium-gametest] iris test pack: pipeline=dev.metallium.iris.post.MetalPostPipeline
+[17:15:42] [Test thread/INFO] (Minecraft) [STDOUT]: [metallium-gametest] iris test pack: inverted-pixel fraction=0.99, unchanged-pixel fraction=0.00
+[17:15:42] [Render thread/INFO] (Iris) Destroying pipeline minecraft:overworld
+[17:15:42] [Render thread/INFO] (Iris) Profile: Custom (+0 options changed by user)
+[17:15:42] [Render thread/INFO] (Iris) Using shaderpack: metallium-gbufferpack
+[17:15:42] [Render thread/INFO] (Iris) Creating pipeline for dimension minecraft:overworld
+[17:15:42] [Render thread/INFO] (metallium-iris) [metallium-iris] Metal shader pipeline: gbuffers (colortex0,1) + 1 fullscreen passes
+[17:15:42] [Render thread/INFO] (Minecraft) [System] [CHAT] [Metallium] Metal shader pipeline: gbuffers (colortex0,1) + 1 fullscreen passes
+[17:15:42] [Test thread/INFO] (Minecraft) [STDOUT]: [metallium-gametest] iris gbuffers test pack: pipeline=dev.metallium.iris.post.MetalPostPipeline
+[17:15:42] [Render thread/INFO] (ChunkBuilder) Stopping worker threads
+[17:15:42] [Render thread/INFO] (ChunkBuilder) Started 1 worker threads
+[17:15:42] [Render thread/INFO] (metallium-iris) [metallium-iris] minecraft:pipeline/sky has no gbuffers program; its vanilla shader writes colortex0
+[17:15:42] [Render thread/INFO] (metallium-iris) [metallium-iris] minecraft:pipeline/celestial has no gbuffers program; its vanilla shader writes colortex0
+[17:15:42] [Render thread/INFO] (ChunkBuilder) Stopping worker threads
+[17:15:42] [Render thread/INFO] (ChunkBuilder) Started 1 worker threads
+[17:15:42] [Render thread/INFO] (metallium-iris) [metallium-iris] gbuffers program gbuffers_terrain replaces sodium:pipeline/solid_terrain (SODIUM_TERRAIN_SOLID)
+[17:15:42] [Render thread/INFO] (metallium-iris) [metallium-iris] minecraft:pipeline/item_cutout has no gbuffers program; its vanilla shader writes colortex0
+[17:15:42] [Render thread/INFO] (metallium-iris) [metallium-iris] minecraft:pipeline/entity_cutout has no gbuffers program; its vanilla shader writes colortex0
+[17:15:42] [Render thread/INFO] (metallium-iris) [metallium-iris] minecraft:pipeline/entity_shadow has no gbuffers program; its vanilla shader writes colortex0
+[17:15:43] [Render thread/INFO] (metallium-iris) [metallium-iris] minecraft:pipeline/opaque_particle has no gbuffers program; its vanilla shader writes colortex0
+[17:15:50] [Server thread/WARN] (Minecraft) Can't keep up! Is the server overloaded? Running 8278ms or 165 ticks behind
+[17:15:53] [Test thread/INFO] (Minecraft) [STDOUT]: [metallium-gametest] iris gbuffers test pack: magenta (gbuffer marker) fraction terrain band=0.00, sky band=0.00
+[17:15:53] [Render thread/INFO] (Iris) Destroying pipeline minecraft:overworld
+[17:15:53] [Render thread/INFO] (metallium-iris) [metallium-iris] gbuffers programs used on Metal: [gbuffers_terrain]
+[17:15:53] [Render thread/INFO] (Iris) Profile: Custom (+0 options changed by user)
+[17:15:53] [Render thread/INFO] (Iris) Using shaderpack: metallium-shadowpack
+[17:15:53] [Render thread/INFO] (Iris) Creating pipeline for dimension minecraft:overworld
+[17:15:53] [Render thread/INFO] (metallium-iris) [metallium-iris] Metal shader pipeline: shadow 2048px (shadowcolor0) + gbuffers (colortex0) + 1 fullscreen passes
+[17:15:53] [Render thread/INFO] (Minecraft) [System] [CHAT] [Metallium] Metal shader pipeline: shadow 2048px (shadowcolor0) + gbuffers (colortex0) + 1 fullscreen passes
+[17:15:53] [Test thread/INFO] (Minecraft) [STDOUT]: [metallium-gametest] iris shadow test pack: pipeline=dev.metallium.iris.post.MetalPostPipeline
+[17:15:53] [Render thread/INFO] (ChunkBuilder) Stopping worker threads
+[17:15:53] [Render thread/INFO] (ChunkBuilder) Started 1 worker threads
+[17:15:53] [Render thread/INFO] (metallium-iris) [metallium-iris] minecraft:pipeline/sky has no gbuffers program; its vanilla shader writes colortex0
+[17:15:53] [Render thread/INFO] (metallium-iris) [metallium-iris] minecraft:pipeline/celestial has no gbuffers program; its vanilla shader writes colortex0
+[17:15:54] [Render thread/INFO] (ChunkBuilder) Stopping worker threads
+[17:15:54] [Render thread/INFO] (ChunkBuilder) Started 1 worker threads
+[17:15:54] [Render thread/INFO] (metallium-iris) [metallium-iris] gbuffers program shadow replaces sodium:pipeline/solid_terrain (SHADOW_SODIUM_TERRAIN_SOLID)
+[17:15:54] [Render thread/INFO] (metallium-iris) [metallium-iris] gbuffers program shadow replaces minecraft:pipeline/item_cutout (SHADOW_ENTITIES_CUTOUT)
+[17:15:54] [Render thread/INFO] (metallium-iris) [metallium-iris] minecraft:pipeline/entity_shadow has no shadow program; its vanilla shader writes shadow depth only
+[17:15:54] [Render thread/INFO] (metallium-iris) [metallium-iris] gbuffers program gbuffers_terrain replaces sodium:pipeline/solid_terrain (SODIUM_TERRAIN_SOLID)
+[17:15:54] [Render thread/INFO] (metallium-iris) [metallium-iris] minecraft:pipeline/item_cutout has no gbuffers program; its vanilla shader writes colortex0
+[17:15:54] [Render thread/INFO] (metallium-iris) [metallium-iris] minecraft:pipeline/entity_shadow has no gbuffers program; its vanilla shader writes colortex0
+[17:15:54] [Render thread/INFO] (metallium-iris) [metallium-iris] gbuffers program shadow replaces minecraft:pipeline/entity_cutout (SHADOW_ENTITIES_CUTOUT)
+[17:15:54] [Render thread/INFO] (metallium-iris) [metallium-iris] minecraft:pipeline/entity_cutout has no gbuffers program; its vanilla shader writes colortex0
+[17:16:06] [Server thread/INFO] (Minecraft) System chat: Successfully filled 63 block(s)
+[17:16:13] [Server thread/INFO] (Minecraft) System chat: Successfully filled 63 block(s)
+[17:16:13] [Test thread/INFO] (Minecraft) [STDOUT]: [metallium-gametest] iris shadow test pack: magenta (in shadow) fraction under the platform=0.07, same area without platform=0.07, far ground=0.00
+[17:16:13] [Render thread/INFO] (Iris) Destroying pipeline minecraft:overworld
+[17:16:13] [Render thread/INFO] (metallium-iris) [metallium-iris] gbuffers programs used on Metal: [gbuffers_terrain, shadow]
+[17:16:13] [Render thread/INFO] (Iris) Profile: Custom (+0 options changed by user)
+[17:16:13] [Render thread/INFO] (Iris) Using shaderpack: metallium-computepack
+[17:16:13] [Render thread/INFO] (Iris) Creating pipeline for dimension minecraft:overworld
+[17:16:13] [Render thread/INFO] (metallium-iris) [metallium-iris] custom image counterImg (TEXTURE_2D, sampler counterSampler): R32_UINT 4x4x1
+[17:16:13] [Render thread/INFO] (metallium-iris) [metallium-iris] custom image volumeImg (TEXTURE_3D, sampler volumeSampler): RGBA8_UNORM 4x4x4
+[17:16:14] [Render thread/INFO] (metallium-iris) [metallium-iris] Metal shader pipeline: 4 fullscreen passes + 3 compute + SSBOs + custom images
+[17:16:14] [Render thread/INFO] (Minecraft) [System] [CHAT] [Metallium] Metal shader pipeline: 4 fullscreen passes + 3 compute + SSBOs + custom images
+[17:16:14] [Test thread/INFO] (Minecraft) [STDOUT]: [metallium-gametest] iris compute test pack: pipeline=dev.metallium.iris.post.MetalPostPipeline
+[17:16:14] [Render thread/INFO] (ChunkBuilder) Stopping worker threads
+[17:16:14] [Render thread/INFO] (ChunkBuilder) Started 1 worker threads
+[17:16:21] [Test thread/INFO] (Minecraft) [STDOUT]: [metallium-gametest] iris compute test pack: compute verdict green=1.00, fragment SSBO/3D-image reads green=1.00, fragment image stores green=1.00, mipmap band green=1.00, magenta left half=1.00, right half=0.00
+[17:16:21] [Render thread/INFO] (Iris) Destroying pipeline minecraft:overworld
+[17:16:21] [Render thread/INFO] (Iris) Shaders are disabled because enableShaders is set to false in iris.properties
+[17:16:21] [Render thread/INFO] (Iris) Creating pipeline for dimension minecraft:overworld
+[17:16:21] [Test thread/INFO] (Minecraft) [STDOUT]: [metallium-gametest] iris shaders off: pipeline=net.irisshaders.iris.pipeline.VanillaRenderingPipeline
+[17:16:26] [Server thread/WARN] (Minecraft) Can't keep up! Is the server overloaded? Running 21380ms or 427 ticks behind
+[17:16:27] [Test thread/INFO] (Minecraft) [STDOUT]: [metallium-gametest] iris shaders off again: match with first shaders-off screenshot=0.99
+[17:16:27] [Server thread/INFO] (Minecraft) Player0 lost connection: Disconnected
+[17:16:27] [Server thread/INFO] (Minecraft) System chat: Player0 left the game
+[17:16:27] [Server thread/INFO] (Minecraft) Stopping singleplayer server as player logged out
+[17:16:27] [Server thread/INFO] (Minecraft) Stopping server
+[17:16:27] [Server thread/INFO] (Minecraft) Saving players
+[17:16:27] [Server thread/INFO] (Minecraft) Saving worlds
+[17:16:27] [Server thread/INFO] (Minecraft) Saving chunks for level 'ServerLevel[New World]'/minecraft:overworld
+[17:16:27] [Server thread/INFO] (Minecraft) Saving chunks for level 'ServerLevel[New World]'/minecraft:the_nether
+[17:16:27] [Server thread/INFO] (Minecraft) Saving chunks for level 'ServerLevel[New World]'/minecraft:the_end
+[17:16:27] [Render thread/INFO] (ChunkBuilder) Stopping worker threads
+[17:16:28] [Worker-Main-2/INFO] (Minecraft) Loaded 1866 advancements
+[17:16:28] [Render thread/INFO] (fabric-client-gametest-api-v1) World loading finished: null screen: net.minecraft.client.gui.screens.GenericMessageScreen@3217d5e8
+[17:16:28] [Render thread/INFO] (BiomeModificationImpl) Applied 0 biome modifications to 0 of 67 new biomes in 168.0 μs
+[17:16:28] [Server thread/INFO] (Minecraft) Starting integrated minecraft server version 26.3
+[17:16:28] [Server thread/INFO] (Minecraft) Generating keypair
+[17:16:28] [Server thread/INFO] (Minecraft) Selecting global world spawn...
+[17:16:31] [Server thread/INFO] (Minecraft) Loading 0 persistent chunks...
+[17:16:31] [Server thread/INFO] (Minecraft) Preparing spawn area: 16%
+[17:16:31] [Server thread/INFO] (Minecraft) Saving chunks for level 'ServerLevel[New World]'/minecraft:overworld
+[17:16:31] [Server thread/INFO] (Minecraft) Saving chunks for level 'ServerLevel[New World]'/minecraft:the_nether
+[17:16:31] [Server thread/INFO] (Minecraft) Saving chunks for level 'ServerLevel[New World]'/minecraft:the_end
+[17:16:31] [Render thread/INFO] (fabric-client-gametest-api-v1) World loading finished: null screen: net.minecraft.client.gui.screens.LevelLoadingScreen@2b2efd5a
+[17:16:31] [Render thread/INFO] (fabric-client-gametest-api-v1) World loading finished: null screen: net.minecraft.client.gui.screens.LevelLoadingScreen@2b2efd5a
+[17:16:31] [Render thread/INFO] (fabric-client-gametest-api-v1) World loading finished: null screen: net.minecraft.client.gui.screens.LevelLoadingScreen@2b2efd5a
+[17:16:31] [Server thread/INFO] (Minecraft) Loading 48 chunks for player spawn...
+[17:16:31] [Server thread/INFO] (Minecraft) Preparing spawn area: 16%
+[17:16:31] [Render thread/INFO] (fabric-client-gametest-api-v1) World loading finished: null screen: net.minecraft.client.gui.screens.LevelLoadingScreen@2b2efd5a
+[17:16:31] [Server thread/INFO] (Minecraft) Preparing spawn area: 16%
+[17:16:31] [Render thread/INFO] (fabric-client-gametest-api-v1) World loading finished: null screen: net.minecraft.client.gui.screens.LevelLoadingScreen@2b2efd5a
+[17:16:31] [Server thread/INFO] (Minecraft) Preparing spawn area: 16%
+[17:16:31] [Render thread/INFO] (fabric-client-gametest-api-v1) World loading finished: null screen: net.minecraft.client.gui.screens.LevelLoadingScreen@2b2efd5a
+[17:16:31] [Server thread/INFO] (Minecraft) Preparing spawn area: 16%
+[17:16:31] [Render thread/INFO] (fabric-client-gametest-api-v1) World loading finished: null screen: net.minecraft.client.gui.screens.LevelLoadingScreen@2b2efd5a
+[17:16:31] [Server thread/INFO] (Minecraft) Preparing spawn area: 16%
+[17:16:32] [Render thread/INFO] (fabric-client-gametest-api-v1) World loading finished: null screen: net.minecraft.client.gui.screens.LevelLoadingScreen@2b2efd5a
+[17:16:32] [Server thread/INFO] (Minecraft) Preparing spawn area: 16%
+[17:16:32] [Render thread/INFO] (fabric-client-gametest-api-v1) World loading finished: null screen: net.minecraft.client.gui.screens.LevelLoadingScreen@2b2efd5a
+[17:16:32] [Render thread/INFO] (fabric-client-gametest-api-v1) World loading finished: null screen: net.minecraft.client.gui.screens.LevelLoadingScreen@2b2efd5a
+[17:16:32] [Render thread/INFO] (fabric-client-gametest-api-v1) World loading finished: null screen: net.minecraft.client.gui.screens.LevelLoadingScreen@2b2efd5a
+[17:16:32] [Render thread/INFO] (fabric-client-gametest-api-v1) World loading finished: null screen: net.minecraft.client.gui.screens.LevelLoadingScreen@2b2efd5a
+[17:16:32] [Render thread/INFO] (fabric-client-gametest-api-v1) World loading finished: null screen: net.minecraft.client.gui.screens.LevelLoadingScreen@2b2efd5a
+[17:16:32] [Render thread/INFO] (fabric-client-gametest-api-v1) World loading finished: null screen: net.minecraft.client.gui.screens.LevelLoadingScreen@2b2efd5a
+[17:16:32] [Render thread/INFO] (fabric-client-gametest-api-v1) World loading finished: null screen: net.minecraft.client.gui.screens.LevelLoadingScreen@2b2efd5a
+[17:16:32] [Server thread/INFO] (Minecraft) Preparing spawn area: 30%
+[17:16:32] [Render thread/INFO] (fabric-client-gametest-api-v1) World loading finished: null screen: net.minecraft.client.gui.screens.LevelLoadingScreen@2b2efd5a
+[17:16:32] [Render thread/INFO] (fabric-client-gametest-api-v1) World loading finished: null screen: net.minecraft.client.gui.screens.LevelLoadingScreen@2b2efd5a
+[17:16:32] [Render thread/INFO] (fabric-client-gametest-api-v1) World loading finished: null screen: net.minecraft.client.gui.screens.LevelLoadingScreen@2b2efd5a
+[17:16:32] [Render thread/INFO] (fabric-client-gametest-api-v1) World loading finished: null screen: net.minecraft.client.gui.screens.LevelLoadingScreen@2b2efd5a
+[17:16:33] [Render thread/INFO] (fabric-client-gametest-api-v1) World loading finished: null screen: net.minecraft.client.gui.screens.LevelLoadingScreen@2b2efd5a
+[17:16:33] [Server thread/INFO] (Minecraft) Preparing spawn area: 49%
+[17:16:33] [Render thread/INFO] (fabric-client-gametest-api-v1) World loading finished: null screen: net.minecraft.client.gui.screens.LevelLoadingScreen@2b2efd5a
+[17:16:33] [Render thread/INFO] (fabric-client-gametest-api-v1) World loading finished: null screen: net.minecraft.client.gui.screens.LevelLoadingScreen@2b2efd5a
+[17:16:33] [Render thread/INFO] (fabric-client-gametest-api-v1) World loading finished: null screen: net.minecraft.client.gui.screens.LevelLoadingScreen@2b2efd5a
+[17:16:33] [Render thread/INFO] (fabric-client-gametest-api-v1) World loading finished: null screen: net.minecraft.client.gui.screens.LevelLoadingScreen@2b2efd5a
+[17:16:33] [Server thread/INFO] (Minecraft) Preparing spawn area: 82%
+[17:16:33] [Render thread/INFO] (fabric-client-gametest-api-v1) World loading finished: null screen: net.minecraft.client.gui.screens.LevelLoadingScreen@2b2efd5a
+[17:16:33] [Server thread/INFO] (Minecraft) Time elapsed: 4705 ms
+[17:16:33] [Render thread/INFO] (fabric-client-gametest-api-v1) World loading finished: null screen: net.minecraft.client.gui.screens.LevelLoadingScreen@2b2efd5a
+[17:16:33] [Server thread/INFO] (Minecraft) Player0[local:E:b2b6c6f2] logged in with entity id 25 at (243.5, 73.0, 106.5)
+[17:16:33] [Server thread/INFO] (Minecraft) System chat: Player0 joined the game
+[17:16:33] [Render thread/INFO] (ChunkBuilder) Started 1 worker threads
+[17:16:33] [Render thread/INFO] (ChunkBuilder) Stopping worker threads
+[17:16:33] [Server thread/INFO] (Minecraft) Changing view distance to 5, from 10
+[17:16:33] [Server thread/INFO] (Minecraft) Changing simulation distance to 12, from 0
+[17:16:33] [Render thread/INFO] (ChunkBuilder) Started 1 worker threads
+[17:16:33] [Render thread/INFO] (Minecraft) Loaded 2 advancements
+[17:16:33] [Render thread/INFO] (fabric-client-gametest-api-v1) World loading finished: ClientLevel screen: net.minecraft.client.gui.screens.LevelLoadingScreen@2b2efd5a
+[17:16:34] [Render thread/INFO] (fabric-client-gametest-api-v1) World loading finished: ClientLevel screen: net.minecraft.client.gui.screens.LevelLoadingScreen@2b2efd5a
+[17:16:34] [Render thread/INFO] (fabric-client-gametest-api-v1) World loading finished: ClientLevel screen: net.minecraft.client.gui.screens.LevelLoadingScreen@2b2efd5a
+[17:16:34] [Render thread/INFO] (fabric-client-gametest-api-v1) World loading finished: ClientLevel screen: net.minecraft.client.gui.screens.LevelLoadingScreen@2b2efd5a
+[17:16:34] [Render thread/INFO] (fabric-client-gametest-api-v1) World loading finished: ClientLevel screen: net.minecraft.client.gui.screens.LevelLoadingScreen@2b2efd5a
+[17:16:34] [Render thread/INFO] (fabric-client-gametest-api-v1) World loading finished: ClientLevel screen: net.minecraft.client.gui.screens.LevelLoadingScreen@2b2efd5a
+[17:16:34] [Render thread/INFO] (fabric-client-gametest-api-v1) World loading finished: ClientLevel screen: net.minecraft.client.gui.screens.LevelLoadingScreen@2b2efd5a
+[17:16:34] [Render thread/INFO] (fabric-client-gametest-api-v1) World loading finished: ClientLevel screen: net.minecraft.client.gui.screens.LevelLoadingScreen@2b2efd5a
+[17:16:34] [Render thread/INFO] (fabric-client-gametest-api-v1) World loading finished: ClientLevel screen: net.minecraft.client.gui.screens.LevelLoadingScreen@2b2efd5a
+[17:16:34] [Render thread/INFO] (fabric-client-gametest-api-v1) World loading finished: ClientLevel screen: net.minecraft.client.gui.screens.LevelLoadingScreen@2b2efd5a
+[17:16:34] [Render thread/INFO] (fabric-client-gametest-api-v1) World loading finished: ClientLevel screen: null
+[17:16:35] [Server thread/WARN] (Minecraft) Can't keep up! Is the server overloaded? Running 2037ms or 40 ticks behind
+[17:17:06] [Test thread/INFO] (Minecraft) [STDOUT]: [metallium-gametest] natural world: terrain coverage=0.02
+[17:17:06] [Test thread/INFO] (Minecraft) [STDOUT]: [metallium-gametest] natural world: sodium C: 75/2616 (F) D: 5 | [Pools: Geometry 32/184 MiB, Index 0/16 MiB, Misc 0 MiB, 2 buffers, Transfer Queue: Mapped (30/30 MiB), Chunk Builder: Schd=00 | Busy=00 (0000%) | Total=01, Tasks: N0=000 | N1=000 | Def=000, Recv=000, Duration: Mesh s=19.32,y=1178787, Sort -, Upload s=0.76,y=51656, Size: LOW=-, UNDERGROUND=84394, WATER_LEVEL=78854, SURFACE=237509, HIGH=0, TS (N0,S) NL=06 TrN=00 TrS=G000/D000, N=00067 SNR=00013 STA=00000 DYN=00024 (DIR=00), QD: put 048/del 000 AC: Done (avg 0.2ms)]
+[17:17:10] [Server thread/WARN] (Minecraft) Can't keep up! Is the server overloaded? Running 19945ms or 398 ticks behind
+[17:17:18] [Test thread/INFO] (Minecraft) [STDOUT]: [metallium-gametest] natural world: fps=9 lastFrameMs=2.78
+[17:17:18] [Test thread/INFO] (Minecraft) [STDOUT]: [metallium-gametest] sodium draw backend label: metal_multidraw (sodium, via Metallium)
+[17:17:21] [Server thread/INFO] (Minecraft) Player0 lost connection: Disconnected
+[17:17:21] [Server thread/INFO] (Minecraft) System chat: Player0 left the game
+[17:17:21] [Server thread/INFO] (Minecraft) Stopping singleplayer server as player logged out
+[17:17:21] [Server thread/INFO] (Minecraft) Stopping server
+[17:17:21] [Server thread/INFO] (Minecraft) Saving players
+[17:17:21] [Server thread/INFO] (Minecraft) Saving worlds
+[17:17:21] [Server thread/INFO] (Minecraft) Saving chunks for level 'ServerLevel[New World]'/minecraft:overworld
+[17:17:22] [Server thread/INFO] (Minecraft) Saving chunks for level 'ServerLevel[New World]'/minecraft:the_nether
+[17:17:22] [Server thread/INFO] (Minecraft) Saving chunks for level 'ServerLevel[New World]'/minecraft:the_end
+[17:17:22] [Render thread/INFO] (ChunkBuilder) Stopping worker threads
+[17:17:22] [Test thread/INFO] (Minecraft) [STDOUT]: [metallium-gametest] WARNING (virtual GPU, not failing): flat world looks empty (terrain coverage 0.02); gbuffers -> composite data flow not visible (terrain 0.00, sky 0.00); shadow pass -> composite shadow test not visible (shadowed 0.07, open 0.07, far 0.00); natural world looks empty (terrain coverage 0.02)
+[17:17:22] [Test thread/INFO] (Minecraft) [STDOUT]: [metallium-gametest] result: PASS
+[17:17:22] [Render thread/INFO] (Minecraft) Stopping!
