@@ -80,7 +80,7 @@ final class GbufferState implements AutoCloseable {
     private final MetalPostPipeline owner;
     private final ProgramSet programSet;
     private final ProgramFallbackResolver resolver;
-    /** colortex index of each colour attachment of a captured pass (always starts with colortex0). */
+    /** colortex index of each colour attachment of a captured pass (colortex0 first unless 8 other buffers are written). */
     private final int[] attachments;
     private final List<GpuFormat> attachmentFormats = new ArrayList<>();
     /** Stage 4: shadowcolor index of each colour attachment of a captured shadow pass (always starts with shadowcolor0). */
@@ -112,20 +112,33 @@ final class GbufferState implements AutoCloseable {
     private final GpuTexture defaultSpecular;
     private final GpuTextureView defaultSpecularView;
 
+    private static final java.util.regex.Pattern FRAGMENT_OUTPUT = java.util.regex.Pattern.compile("\\bgl_Frag(Data|Color)\\b|\\bout\\s+\\w+\\s+\\w+");
+
     GbufferState(final MetalPostPipeline owner, final ProgramSet programSet) {
         this.owner = owner;
         this.programSet = programSet;
         this.resolver = new ProgramFallbackResolver(programSet);
         TreeSet<Integer> used = new TreeSet<>();
-        used.add(0);
         for (ProgramId id : ProgramId.values()) {
             if (id.getGroup() == ProgramGroup.Gbuffers) {
                 programSet.get(id).ifPresent(source -> {
+                    // A program without any fragment output (Bliss's gbuffers_skybasic: "discard;") writes nothing,
+                    // even though its draw buffers default to colortex0.
+                    if (source.getFragmentSource().map(text -> !FRAGMENT_OUTPUT.matcher(text).find()).orElse(false)) {
+                        return;
+                    }
                     for (int buffer : source.getDirectives().getDrawBuffers()) {
                         used.add(buffer);
                     }
                 });
             }
+        }
+        // colortex0 is the target of vanilla shaders without a pack program. When the pack's own programs never write it
+        // and need all 8 Metal attachments (Bliss: colortex1,2,7,8,9,11,14,15), it is left out instead of a pack buffer.
+        if (!used.contains(0) && used.size() < ColorTargetState.MAX_COLOR_TARGETS) {
+            used.add(0);
+        } else if (!used.contains(0)) {
+            MetalliumIris.LOGGER.info("[metallium-iris] gbuffers write {} buffers but not colortex0; vanilla shaders without a pack program draw nothing", used.size());
         }
         List<Integer> list = new ArrayList<>(used);
         if (list.size() > ColorTargetState.MAX_COLOR_TARGETS) {
@@ -422,7 +435,8 @@ final class GbufferState implements AutoCloseable {
         for (int i = 0; i < attachments.length; i++) {
             GpuFormat format = attachmentFormats.get(i);
             boolean integer = GbufferProgram.isInteger(format);
-            states[i] = i == 0
+            // attachments[0] is colortex0 unless the pack's programs need all 8 attachments for other buffers.
+            states[i] = i == 0 && attachments[0] == 0
                     ? new ColorTargetState(integer ? Optional.empty() : base.blendFunction(), format, base.writeMask() & ColorTargetState.WRITE_ALL)
                     : new ColorTargetState(Optional.empty(), format, ColorTargetState.WRITE_NONE);
         }

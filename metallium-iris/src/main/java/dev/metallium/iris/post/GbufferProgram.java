@@ -140,6 +140,27 @@ final class GbufferProgram implements AutoCloseable {
         return new com.mojang.renderpearl.api.pipeline.DepthStencilState(flipped, state.writeDepth(), state.depthBiasScaleFactor(), state.depthBiasConstant());
     }
 
+    private static final java.util.regex.Pattern OUTPUT_DECLARATION =
+            java.util.regex.Pattern.compile("layout\\s*\\(\\s*location\\s*=\\s*(\\d+)\\s*\\)\\s*out\\s+(\\w+\\s+\\w+\\s*;)");
+
+    /**
+     * Fragment outputs whose colortex is not an attachment of the captured pass (more than 8 buffers in the pack's
+     * gbuffers) become plain globals: Metal has colour locations 0-7 only, so they cannot be parked past the last
+     * attachment like the others.
+     */
+    static String withoutUnmappedOutputs(final String fragment, final int[] drawBuffers, final int[] attachments) {
+        java.util.regex.Matcher m = OUTPUT_DECLARATION.matcher(fragment);
+        StringBuilder out = new StringBuilder();
+        while (m.find()) {
+            int location = Integer.parseInt(m.group(1));
+            boolean mapped = location < drawBuffers.length && indexOf(attachments, drawBuffers[location]) >= 0;
+            boolean fits = mapped || attachments.length + location < ColorTargetState.MAX_COLOR_TARGETS;
+            m.appendReplacement(out, java.util.regex.Matcher.quoteReplacement(fits ? m.group() : m.group(2)));
+        }
+        m.appendTail(out);
+        return out.toString();
+    }
+
     static GbufferProgram compile(final Spec spec, final StorageBindings.@Nullable Validator validator) throws Exception {
         StorageBindings storage = new StorageBindings();
         Set<String> available = new LinkedHashSet<>();
@@ -150,7 +171,7 @@ final class GbufferProgram implements AutoCloseable {
         }
         Map<Stage, String> sources = new EnumMap<>(Stage.class);
         sources.put(Stage.VERTEX, defaultMissingInputs(SODIUM_PUSH_CONSTANTS.matcher(spec.vertex).replaceAll("layout(push_constant) uniform iris_SodiumPushConstants"), available));
-        sources.put(Stage.FRAGMENT, spec.fragment);
+        sources.put(Stage.FRAGMENT, withoutUnmappedOutputs(spec.fragment, spec.drawBuffers, spec.attachments));
         Map<Stage, SpirvStage> stages = GlslProgramTranslator.compileToSpirv(spec.name, sources);
         Set<String> compareSamplers = new LinkedHashSet<>();
 
