@@ -21,8 +21,14 @@ import static org.lwjgl.opengl.GL46C.*;
  * metallium-gl's own buffers and textures across encoders, and dispatches inside one compute encoder run serially, so
  * GL's {@code glMemoryBarrier} needs no extra work (it is accepted and counted).
  */
-final class GlCompute {
+public final class GlCompute {
     private final GlContext gl;
+    /** Totals since start (diagnostics: status line / game-test report). */
+    public static final java.util.concurrent.atomic.AtomicLong DISPATCHES = new java.util.concurrent.atomic.AtomicLong();
+    public static final java.util.concurrent.atomic.AtomicLong INDIRECT_DRAW_CALLS = new java.util.concurrent.atomic.AtomicLong();
+    /** Sum of the GPU-written draw counts seen by indirect-count draws (read from the count buffer when called: the value
+     *  the GPU wrote last, usually the previous frame's). */
+    public static final java.util.concurrent.atomic.AtomicLong INDIRECT_COUNT_SUM = new java.util.concurrent.atomic.AtomicLong();
     long dispatches;
     long barriers;
 
@@ -58,6 +64,7 @@ final class GlCompute {
             return;
         }
         dispatches++;
+        DISPATCHES.incrementAndGet();
         gl.device.dispatch(new GlDevice.DispatchOp(program.store, x, y, z, null, 0, bindings(program)));
     }
 
@@ -72,6 +79,7 @@ final class GlCompute {
             return;
         }
         dispatches++;
+        DISPATCHES.incrementAndGet();
         gl.device.dispatch(new GlDevice.DispatchOp(program.store, 0, 0, 0, buffer.store, offset, bindings(program)));
     }
 
@@ -120,6 +128,10 @@ final class GlCompute {
         }
         // Metal has no 8-bit indices: widen to 16 bits (firstIndex counts indices, so commands stay valid).
         GlDevice.BufferStore indices = type == GL_UNSIGNED_BYTE ? widened(elements) : elements.store;
+        INDIRECT_DRAW_CALLS.incrementAndGet();
+        if (counts != null) {
+            INDIRECT_COUNT_SUM.addAndGet(Integer.toUnsignedLong(MemoryUtil.memGetInt(MemoryUtil.memAddress(counts.store.contents()) + countOffset)));
+        }
         // GL reads at most the commands that fit in the buffer; maxdrawcount may be far larger (Voxy passes capacities).
         int draws = (int) Math.min(drawCount, (commands.size - offset - 20) / effectiveStride + 1);
         GlDevice.DrawOp op = gl.resolveDraw(mode, indices, 0, type == GL_UNSIGNED_INT, 0, 0, 1, 0, 0);

@@ -141,7 +141,9 @@ public final class MetalliumGlBootstrap {
         }
         long missing = MetalGLLog.unimplementedCalls().size();
         return "metallium-gl: " + optIn.mods().size() + " mod(s), " + CLASSES.get() + " classes / " + CALL_SITES.get()
-                + " GL call sites retargeted, " + missing + " unimplemented functions seen";
+                + " GL call sites retargeted, " + missing + " unimplemented functions seen; dispatches=" + dev.metallium.gl.GlCompute.DISPATCHES.get()
+                + " indirect draw calls=" + dev.metallium.gl.GlCompute.INDIRECT_DRAW_CALLS.get() + " (GPU counts seen: "
+                + dev.metallium.gl.GlCompute.INDIRECT_COUNT_SUM.get() + ")";
     }
 
     public static int retargetedClasses() {
