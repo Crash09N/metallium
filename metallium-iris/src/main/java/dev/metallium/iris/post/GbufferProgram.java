@@ -88,6 +88,8 @@ final class GbufferProgram implements AutoCloseable {
     final int normalMatrix;
     final int modelViewInverse;
     final int projectionInverse;
+    /** Stage 5: storage images/SSBOs outside the renderpearl binding table (bound per draw). */
+    StorageBindings storage = new StorageBindings();
 
     private GbufferProgram(final String name, final FrontendRenderPipeline pipeline, final Set<String> ownSamplers, final Set<String> extraBlocks,
                            final Map<String, PostUniforms.Block> blocks, final float alphaReference, final Set<String> compareSamplers) {
@@ -138,7 +140,8 @@ final class GbufferProgram implements AutoCloseable {
         return new com.mojang.renderpearl.api.pipeline.DepthStencilState(flipped, state.writeDepth(), state.depthBiasScaleFactor(), state.depthBiasConstant());
     }
 
-    static GbufferProgram compile(final Spec spec) throws Exception {
+    static GbufferProgram compile(final Spec spec, final StorageBindings.@Nullable Validator validator) throws Exception {
+        StorageBindings storage = new StorageBindings();
         Set<String> available = new LinkedHashSet<>();
         if (spec.vertexFormat != null) {
             for (VertexFormatElement element : spec.vertexFormat.getElements()) {
@@ -234,15 +237,21 @@ final class GbufferProgram implements AutoCloseable {
                                 if (dim == 5) { // SpvDimBuffer
                                     throw new PostProgram.UnsupportedProgramException("texel buffer '" + sampler + "' is not provided by " + spec.source.getLocation());
                                 }
-                                if (dim != 1 && dim != 4) { // SpvDim2D, SpvDimRect
+                                if (dim != 1 && dim != 4 && (validator == null || !validator.isCustomSampler(sampler))) { // SpvDim2D, SpvDimRect
                                     throw new PostProgram.UnsupportedProgramException("sampler '" + sampler + "' has dimension " + dim + " (only 2D textures are supported yet)");
                                 }
                                 description = new BindGroupLayout.UniformDescription(sampler, UniformType.COMBINED_IMAGE_SAMPLER);
                                 ownSamplers.add(sampler);
                             }
                         }
-                        case Spvc.SPVC_RESOURCE_TYPE_STORAGE_IMAGE -> throw new PostProgram.UnsupportedProgramException("image '" + descriptor.name() + "' (image load/store needs stage 5)");
-                        case Spvc.SPVC_RESOURCE_TYPE_STORAGE_BUFFER -> throw new PostProgram.UnsupportedProgramException("buffer '" + descriptor.name() + "' (SSBOs need stage 5)");
+                        case Spvc.SPVC_RESOURCE_TYPE_STORAGE_IMAGE -> {
+                            storage.assign(descriptor, StorageBindings.Kind.IMAGE, validator);
+                            continue;
+                        }
+                        case Spvc.SPVC_RESOURCE_TYPE_STORAGE_BUFFER -> {
+                            storage.assign(descriptor, StorageBindings.Kind.BUFFER, validator);
+                            continue;
+                        }
                         default -> throw new PostProgram.UnsupportedProgramException("resource '" + descriptor.name() + "' of type " + descriptor.resourceType());
                     }
                     String uniformName = description.name();
@@ -307,6 +316,7 @@ final class GbufferProgram implements AutoCloseable {
             FrontendRenderPipeline pipeline = new FrontendRenderPipeline("iris/" + spec.name, compiled, Collections.unmodifiableList(frontendFormats),
                     Object2IntMaps.unmodifiable(bindings), List.copyOf(uniforms), List.copyOf(colorTargets), spec.source.wantsDepthTexture(), spec.source.pushConstantSize());
             GbufferProgram program = new GbufferProgram(spec.name, pipeline, ownSamplers, extraBlocks, blocks, spec.alphaReference, Set.copyOf(compareSamplers));
+            program.storage = storage;
             blocks = null; // owned by the program now
             return program;
         } finally {

@@ -387,7 +387,7 @@ final class GbufferState implements AutoCloseable {
             GbufferProgram program = GbufferProgram.compile(new GbufferProgram.Spec(name, transformed.get(PatchShaderType.VERTEX),
                     transformed.get(PatchShaderType.FRAGMENT), replaced, vertexFormat, directives.getDrawBuffers(),
                     shadow ? shadowAttachments : attachments, shadow ? shadowAttachmentFormats : attachmentFormats, blend, bufferBlends,
-                    alpha.reference(), shadow));
+                    alpha.reference(), shadow), owner.storageValidator());
             var customUniforms = owner.customUniforms();
             CommonUniforms.addDynamicUniforms(program.uniforms, FogMode.PER_VERTEX);
             customUniforms.assignTo(program.uniforms);
@@ -534,10 +534,14 @@ final class GbufferState implements AutoCloseable {
         for (String sampler : program.ownSamplers) {
             bindSampler(pass, sampler, program);
         }
+        owner.bindStorage(pass, program.storage, writesAlt);
     }
 
     private void bindSampler(final RenderPass pass, final String name, final GbufferProgram program) {
         if (owner.bindShadowSampler(pass, name, program.compareSamplers.contains(name), program.ownSamplers.contains("watershadow"), shadowPass())) {
+            return;
+        }
+        if (owner.bindCustomImageSampler(pass, name)) {
             return;
         }
         int colortex = MetalPostPipeline.colortexIndex(name);

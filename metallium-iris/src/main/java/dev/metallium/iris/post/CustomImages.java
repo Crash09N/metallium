@@ -31,6 +31,19 @@ final class CustomImages implements AutoCloseable {
         /** 'f', 'u' or 'i': component type for clearing and sampler choice. */
         final char kind;
         MTLTexture texture;
+        /** The same texture for renderpearl render passes (owns the Metal reference). */
+        com.mojang.renderpearl.api.textures.GpuTexture gpuTexture;
+        com.mojang.renderpearl.api.textures.GpuTextureView view;
+
+        void wrap() {
+            gpuTexture = MetalliumInterop.wrapTexture(texture, format, "iris image " + info.name());
+            view = com.mojang.blaze3d.systems.RenderSystem.getDevice().createTextureView(gpuTexture);
+        }
+
+        void release() {
+            view.close();
+            gpuTexture.close();
+        }
 
         Image(final ImageInformation info) {
             this.info = info;
@@ -52,6 +65,7 @@ final class CustomImages implements AutoCloseable {
         for (ImageInformation info : infos) {
             Image image = new Image(info);
             image.texture = create(image, screenWidth, screenHeight);
+            image.wrap();
             images.add(image);
             byImageName.put(info.name(), image);
             if (info.samplerName() != null && !info.samplerName().equals("none")) {
@@ -113,9 +127,9 @@ final class CustomImages implements AutoCloseable {
     void resize(final int width, final int height, final MetalCompute compute) {
         for (Image image : images) {
             if (image.info.isRelative()) {
-                MTLTexture old = image.texture;
+                image.release();
                 image.texture = create(image, width, height);
-                MetalliumInterop.releaseAfterGpu(old::release);
+                image.wrap();
                 compute.clear(image.texture, image.kind);
             }
         }
@@ -138,8 +152,7 @@ final class CustomImages implements AutoCloseable {
     @Override
     public void close() {
         for (Image image : images) {
-            MTLTexture texture = image.texture;
-            MetalliumInterop.releaseAfterGpu(texture::release);
+            image.release();
         }
         images.clear();
         byImageName.clear();

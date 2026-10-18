@@ -109,6 +109,13 @@ final class PostTargets implements AutoCloseable {
         }
     }
 
+    /** Creates (and clears) every buffer used as an image; must run outside render passes (frame start). */
+    void createStorageTargets() {
+        for (int i = storage.nextSetBit(0); i >= 0; i = storage.nextSetBit(i + 1)) {
+            get(i);
+        }
+    }
+
     Target get(final int index) {
         Target target = targets[index];
         if (target == null) {

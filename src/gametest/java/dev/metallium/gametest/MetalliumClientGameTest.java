@@ -188,7 +188,8 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
     private static final String SHADOW_PACK = "metallium-shadowpack";
     private static final String[] SHADOW_PACK_FILES = {"gbuffers_terrain.vsh", "gbuffers_terrain.fsh", "shadow.vsh", "shadow.fsh", "composite.vsh", "composite.fsh"};
     private static final String COMPUTE_PACK = "metallium-computepack";
-    private static final String[] COMPUTE_PACK_FILES = {"shaders.properties", "setup.csh", "composite.csh", "composite1.csh", "composite2.vsh", "composite2.fsh"};
+    private static final String[] COMPUTE_PACK_FILES = {"shaders.properties", "setup.csh", "composite.csh", "composite1.csh", "composite2.vsh", "composite2.fsh",
+            "composite3.vsh", "composite3.fsh"};
 
     /**
      * Iris shader packs (needs -PwithIris): with a fixed view, compares a shaders-off screenshot with one taken with the
@@ -311,8 +312,9 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
      * Stage 5: the compute test pack's setup pass fills an SSBO, composite.csh writes its colour into the left half of
      * colortex2 (colorimg2) and counts every pixel with an image atomic, the compute-only composite1.csh checks counter,
      * SSBO and {@code .length()} and paints colortex3 green or red, composite2.fsh (colortex2 mipmapped) shows: top band
-     * = that verdict, bottom band = green if the smallest mip of colortex2 averages to half magenta, middle = magenta
-     * on the left half only.
+     * = that verdict (left third), its own check of SSBO + a 3D custom image read from a fragment program (middle) and
+     * an image it stored from the fragment program, shown by composite3.fsh (right); bottom band = green if the
+     * smallest mip of colortex2 averages to half magenta; middle = magenta on the left half only.
      */
     private void computePackScenario(ClientGameTestContext context) {
         line("iris compute test pack: pipeline=" + context.computeOnClient(client -> irisSelectPack(COMPUTE_PACK, true)));
@@ -321,14 +323,17 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
         Path shot = context.takeScreenshot("metallium-iris-computepack");
         try {
             java.awt.image.BufferedImage image = javax.imageio.ImageIO.read(shot.toFile());
-            double verdict = colorFraction(image, 0.02, 0.08, 0.05, 0.95, 0x00FF00);
+            double verdict = colorFraction(image, 0.02, 0.08, 0.02, 0.31, 0x00FF00);
+            double fragmentReads = colorFraction(image, 0.02, 0.08, 0.36, 0.64, 0x00FF00);
+            double fragmentStores = colorFraction(image, 0.02, 0.08, 0.69, 0.98, 0x00FF00);
             double mips = colorFraction(image, 0.92, 0.98, 0.05, 0.95, 0x00FF00);
             double left = magentaFraction(image, 0.30, 0.70, 0.05, 0.45);
             double right = magentaFraction(image, 0.30, 0.70, 0.55, 0.95);
-            line(String.format("iris compute test pack: verdict band green=%.2f, mipmap band green=%.2f, magenta left half=%.2f, right half=%.2f",
-                    verdict, mips, left, right));
-            if (verdict < 0.90 || mips < 0.90 || left < 0.90 || right > 0.10) {
-                failures.add(String.format("compute/SSBO/image/mipmap test pack check failed (verdict %.2f, mips %.2f, left %.2f, right %.2f)", verdict, mips, left, right));
+            line(String.format("iris compute test pack: compute verdict green=%.2f, fragment SSBO/3D-image reads green=%.2f, fragment image stores green=%.2f, "
+                    + "mipmap band green=%.2f, magenta left half=%.2f, right half=%.2f", verdict, fragmentReads, fragmentStores, mips, left, right));
+            if (verdict < 0.90 || fragmentReads < 0.90 || fragmentStores < 0.90 || mips < 0.90 || left < 0.90 || right > 0.10) {
+                failures.add(String.format("compute/SSBO/image/mipmap test pack check failed (verdict %.2f, fragment reads %.2f, fragment stores %.2f, mips %.2f, left %.2f, right %.2f)",
+                        verdict, fragmentReads, fragmentStores, mips, left, right));
             }
         } catch (IOException e) {
             failures.add("could not analyse compute pack screenshot: " + e);

@@ -11,9 +11,11 @@ layout(std430, binding = 0) buffer TestData {
 	uint pad2;
 	uint values[];
 } testData;
+layout(rgba8) writeonly uniform image3D volumeImg;
 
 void main() {
 	testData.color = vec4(1.0, 0.0, 1.0, 1.0);
+	imageStore(volumeImg, ivec3(1, 2, 3), vec4(0.0, 1.0, 0.0, 1.0));
 	for (int i = 0; i < testData.values.length(); i++) {
 		testData.values[i] = uint(i);
 	}

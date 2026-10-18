@@ -222,6 +222,8 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
         var imageInfos = programSet.getPack().getIrisCustomImages();
         this.customImages = imageInfos.isEmpty() ? null : new CustomImages(imageInfos, main.width, main.height);
 
+        markImagesUsedByRenderPrograms();
+
         BufferFlipper flipper = new BufferFlipper();
         build(flipper, ProgramArrayId.Begin, TextureStage.BEGIN, "begin_pre", begin, false);
         build(flipper, ProgramArrayId.Prepare, TextureStage.PREPARE, "prepare_pre", prepare, false);
@@ -333,7 +335,8 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
         try {
             Map<PatchShaderType, String> transformed = TransformPatcher.patchComposite(name,
                     source.getVertexSource().orElseThrow(), null, source.getFragmentSource().orElseThrow(), stage, getTextureMap(), getTextureOverrides(stage));
-            PostProgram program = PostProgram.compile(name, transformed.get(PatchShaderType.VERTEX), transformed.get(PatchShaderType.FRAGMENT), formats);
+            PostProgram program = PostProgram.compile(name, transformed.get(PatchShaderType.VERTEX), transformed.get(PatchShaderType.FRAGMENT), formats,
+                    storageValidator());
             CommonUniforms.addDynamicUniforms(program.uniforms, FogMode.OFF);
             customUniforms.assignTo(program.uniforms);
             customUniforms.mapholderToPass(program.uniforms, program);
@@ -344,6 +347,123 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
             MetalliumIris.LOGGER.warn("[metallium-iris] Program {} could not be translated for Metal", name, e);
             return null;
         }
+    }
+
+    private static final java.util.regex.Pattern IMAGE_NAME = java.util.regex.Pattern.compile("\\b(shadowcolorimg|colorimg)(\\d+)\\b");
+
+    /**
+     * Render programs (gbuffers/shadow are compiled lazily, mid-frame) may bind colortex/shadowcolor buffers as images;
+     * those buffers need shader-write usage from creation on, so the pack's sources are scanned up front.
+     */
+    private void markImagesUsedByRenderPrograms() {
+        List<ProgramSource> sources = new ArrayList<>();
+        for (ProgramId id : ProgramId.values()) {
+            programSet.get(id).ifPresent(sources::add);
+        }
+        for (ProgramArrayId id : ProgramArrayId.values()) {
+            for (ProgramSource source : programSet.getComposite(id)) {
+                if (source != null) {
+                    sources.add(source);
+                }
+            }
+        }
+        for (ProgramSource source : sources) {
+            for (Optional<String> text : List.of(source.getVertexSource(), source.getGeometrySource(), source.getFragmentSource())) {
+                if (text.isEmpty()) {
+                    continue;
+                }
+                java.util.regex.Matcher m = IMAGE_NAME.matcher(text.get());
+                while (m.find()) {
+                    int index = parseIndex(m.group(2));
+                    if (m.group(1).equals("colorimg")) {
+                        targets.requireStorage(index);
+                    } else {
+                        shadowTargets.requireStorage(index);
+                    }
+                }
+            }
+        }
+    }
+
+    /** Stage 5: which images/samplers render programs may use outside renderpearl's binding table. */
+    StorageBindings.Validator storageValidator() {
+        return new StorageBindings.Validator() {
+            @Override
+            public boolean knowsImage(final String name) {
+                int color = suffixIndex(name, "colorimg");
+                if (color >= 0 && color < PostTargets.COUNT && name.startsWith("colorimg")) {
+                    targets.requireStorage(color);
+                    return true;
+                }
+                int shadowColor = suffixIndex(name, "shadowcolorimg");
+                if (shadowColor >= 0 && shadowColor < ShadowTargets.COLOR_COUNT) {
+                    shadowTargets.requireStorage(shadowColor);
+                    return true;
+                }
+                return customImages != null && customImages.image(name) != null;
+            }
+
+            @Override
+            public boolean isCustomSampler(final String name) {
+                return customImages != null && customImages.sampler(name) != null;
+            }
+        };
+    }
+
+    /** A custom image's sampler ({@code image.<name> = <sampler> ...}) in a render pass; false if {@code name} is none. */
+    boolean bindCustomImageSampler(final RenderPass pass, final String name) {
+        CustomImages.Image image = customImages != null ? customImages.sampler(name) : null;
+        if (image == null) {
+            return false;
+        }
+        pass.setUniform(name, image.view, image.integer() ? nearest : linear);
+        return true;
+    }
+
+    /**
+     * Stage 5: binds a render program's storage images/SSBOs for the draws after {@code setPipeline} (Metal indices
+     * chosen by {@link StorageBindings}); {@code readsAlt}: flip state of colortex images (shadowcolor images follow
+     * the shadowcomp flips).
+     */
+    void bindStorage(final RenderPass pass, final StorageBindings storage, final ImmutableSet<Integer> readsAlt) {
+        com.mojang.renderpearl.backend.api.RenderPassBackend backend = ((dev.metallium.iris.mixin.FrontendRenderPassAccessor) pass).metallium$backend();
+        if (storage.isEmpty()) {
+            dev.metallium.backend.MetalliumInterop.setDrawBindings(backend, null);
+            return;
+        }
+        List<StorageBindings.Entry> entries = storage.entries();
+        Object[] resources = new Object[entries.size()];
+        for (int i = 0; i < entries.size(); i++) {
+            StorageBindings.Entry entry = entries.get(i);
+            if (entry.kind() == StorageBindings.Kind.BUFFER) {
+                io.github.kokodio.metaljvm.metal.MTLBuffer buffer = storageBuffers != null ? storageBuffers.get(entry.glBinding()) : null;
+                resources[i] = buffer != null ? buffer : compute().zeroBuffer();
+                continue;
+            }
+            String name = entry.name();
+            int color = suffixIndex(name, "colorimg");
+            int shadowColor = suffixIndex(name, "shadowcolorimg");
+            if (color >= 0 && name.startsWith("colorimg")) {
+                resources[i] = dev.metallium.backend.MetalliumInterop.metalTexture(targets.get(color).texture(readsAlt.contains(color)), true);
+            } else if (shadowColor >= 0) {
+                resources[i] = dev.metallium.backend.MetalliumInterop.metalTexture(shadowTargets.color(shadowColor).texture(shadowTargets.isFlipped(shadowColor)), true);
+            } else {
+                resources[i] = java.util.Objects.requireNonNull(customImages).image(name).texture;
+            }
+        }
+        dev.metallium.backend.MetalliumInterop.setDrawBindings(backend, encoder -> {
+            for (int i = 0; i < resources.length; i++) {
+                int index = entries.get(i).metalIndex();
+                if (resources[i] instanceof io.github.kokodio.metaljvm.metal.MTLBuffer buffer) {
+                    encoder.setVertexBuffer(buffer, 0, index);
+                    encoder.setFragmentBuffer(buffer, 0, index);
+                } else {
+                    io.github.kokodio.metaljvm.metal.MTLTexture texture = (io.github.kokodio.metaljvm.metal.MTLTexture) resources[i];
+                    encoder.setVertexTexture(texture, index);
+                    encoder.setFragmentTexture(texture, index);
+                }
+            }
+        });
     }
 
     /** Stage 5: the lazily created Metal compute host (also used for mipmap generation). */
@@ -531,6 +651,9 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
      */
     private void beginComputeFrame(final RenderTarget main) {
         targets.resetMips();
+        // Image targets of render programs are bound inside render passes, where they cannot be created any more.
+        targets.createStorageTargets();
+        shadowTargets.createStorageTargets();
         if (customImages != null) {
             if (imagesFresh) {
                 customImages.clearAll(compute());
@@ -953,6 +1076,9 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
         }
         try (RenderPass renderPass = encoder.createRenderPass(descriptor.build())) {
             renderPass.setPipeline(program.pipeline);
+            if (!program.storage.isEmpty()) {
+                bindStorage(renderPass, program.storage, pass.shadow ? ImmutableSet.of() : pass.readsAlt);
+            }
             renderPass.setVertexBuffer(0, quad.slice());
             blocks.forEach(renderPass::setUniform);
             for (String sampler : program.samplers) {
@@ -987,6 +1113,9 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
     }
 
     private void bindSampler(final RenderPass renderPass, final String name, final ImmutableSet<Integer> readsAlt, final RenderTarget main) {
+        if (bindCustomImageSampler(renderPass, name)) {
+            return;
+        }
         int colortex = colortexIndex(name);
         if (colortex >= 0) {
             PostTargets.Target target = targets.get(colortex);

@@ -9,6 +9,7 @@
     "BlockEntityRenderStateAccessor",
     "FrontendCommandEncoderMixin",
     "FrontendGpuDeviceAccessor",
+    "FrontendRenderPassAccessor",
     "FrontendRenderPassMixin",
     "GLDebugMixin",
     "GlStateManagerGuardMixin",

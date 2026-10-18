@@ -101,6 +101,13 @@ final class ShadowTargets implements AutoCloseable {
         }
     }
 
+    /** Creates every shadowcolor buffer used as an image; must run outside render passes. */
+    void createStorageTargets() {
+        for (int i = storage.nextSetBit(0); i >= 0; i = storage.nextSetBit(i + 1)) {
+            color(i);
+        }
+    }
+
     com.google.common.collect.ImmutableSet<Integer> flipped() {
         return flipped;
     }
