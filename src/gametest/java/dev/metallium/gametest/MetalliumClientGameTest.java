@@ -74,6 +74,148 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
         }
     }
 
+    private static final String TEST_PACK = "metallium-testpack";
+    private static final String[] TEST_PACK_FILES = {"composite.vsh", "composite.fsh", "final.vsh", "final.fsh"};
+
+    /**
+     * Iris shader packs (needs -PwithIris): with a fixed view, compares a shaders-off screenshot with one taken with the
+     * bundled test pack, whose composite pass inverts the image. Optionally (-Dmetallium.gametest.shaderpack=/path.zip)
+     * also loads an external pack and records what happens (no pixel check: it only must not crash). The external pack
+     * is copied into the run directory at runtime and never into the repository.
+     */
+    private void shaderPackScenario(ClientGameTestContext context, TestSingleplayerContext world) {
+        tryCommand(world, "time set 6000");
+        tryCommand(world, "gamerule advance_time false");
+        tryCommand(world, "weather clear");
+        tryCommand(world, "gamemode spectator @a");
+        context.waitTicks(40);
+        clearChat(context);
+        Path off = context.takeScreenshot("metallium-iris-shaders-off");
+
+        try {
+            Path packDir = context.computeOnClient(client -> irisShaderpacksDirectory()).resolve(TEST_PACK).resolve("shaders");
+            Files.createDirectories(packDir);
+            for (String file : TEST_PACK_FILES) {
+                try (var in = MetalliumClientGameTest.class.getResourceAsStream("/" + TEST_PACK + "/shaders/" + file)) {
+                    Files.copy(java.util.Objects.requireNonNull(in, file), packDir.resolve(file), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                }
+            }
+        } catch (IOException e) {
+            failures.add("could not install test shader pack: " + e);
+            return;
+        }
+
+        line("iris test pack: pipeline=" + context.computeOnClient(client -> irisSelectPack(TEST_PACK, true)));
+        context.waitTicks(60);
+        clearChat(context);
+        Path on = context.takeScreenshot("metallium-iris-testpack");
+        checkInverted(off, on);
+
+        String external = System.getProperty("metallium.gametest.shaderpack", "");
+        if (!external.isEmpty()) {
+            try {
+                Path source = Path.of(external);
+                Path target = context.computeOnClient(client -> irisShaderpacksDirectory()).resolve(source.getFileName().toString());
+                Files.copy(source, target, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                line("external pack " + source.getFileName() + ": pipeline="
+                        + context.computeOnClient(client -> irisSelectPack(source.getFileName().toString(), true)));
+                context.waitTicks(100);
+                context.takeScreenshot("metallium-iris-external-pack");
+                line("external pack: still running after 100 ticks");
+            } catch (IOException e) {
+                line("external pack could not be copied: " + e);
+            }
+        }
+
+        line("iris shaders off: pipeline=" + context.computeOnClient(client -> irisSelectPack(TEST_PACK, false)));
+        context.waitTicks(40);
+        clearChat(context);
+        Path offAgain = context.takeScreenshot("metallium-iris-shaders-off-again");
+        double same = matchFraction(off, offAgain, false);
+        line(String.format("iris shaders off again: match with first shaders-off screenshot=%.2f", same));
+        if (same < 0.80) {
+            failures.add(String.format("shaders off after a pack differs from vanilla (match %.2f)", same));
+        }
+    }
+
+    /** Chat messages (e.g. Metallium's shader-pack notices) would cover part of the compared area. */
+    private static void clearChat(ClientGameTestContext context) {
+        context.runOnClient(client -> client.gui.hud.getChat().clearMessages(false));
+        context.waitTick();
+    }
+
+    /** The test pack inverts colours: most pixels of {@code on} must be 255 minus the same pixel of {@code off}. */
+    private void checkInverted(Path off, Path on) {
+        double inverted = matchFraction(off, on, true);
+        double unchanged = matchFraction(off, on, false);
+        line(String.format("iris test pack: inverted-pixel fraction=%.2f, unchanged-pixel fraction=%.2f", inverted, unchanged));
+        if (inverted < 0.80) {
+            failures.add(String.format("test shader pack effect not visible (inverted fraction %.2f)", inverted));
+        }
+    }
+
+    /** Fraction of sampled pixels where {@code b} equals {@code a} (or its inverse) within a tolerance per channel. */
+    private double matchFraction(Path a, Path b, boolean inverse) {
+        try {
+            java.awt.image.BufferedImage imageA = javax.imageio.ImageIO.read(a.toFile());
+            java.awt.image.BufferedImage imageB = javax.imageio.ImageIO.read(b.toFile());
+            int w = Math.min(imageA.getWidth(), imageB.getWidth());
+            int h = Math.min(imageA.getHeight(), imageB.getHeight());
+            int total = 0;
+            int match = 0;
+            for (int y = h / 20; y < h * 7 / 10; y += 3) { // above chat and hotbar
+                for (int x = w / 20; x < w - w / 20; x += 3) {
+                    int pa = imageA.getRGB(x, y);
+                    int pb = imageB.getRGB(x, y);
+                    boolean ok = true;
+                    for (int shift = 0; shift <= 16; shift += 8) {
+                        int ca = (pa >> shift) & 0xFF;
+                        int cb = (pb >> shift) & 0xFF;
+                        if (Math.abs((inverse ? 255 - ca : ca) - cb) > 40) {
+                            ok = false;
+                        }
+                    }
+                    total++;
+                    if (ok) {
+                        match++;
+                    }
+                }
+            }
+            return (double) match / Math.max(1, total);
+        } catch (IOException e) {
+            line("could not compare screenshots: " + e);
+            return 0;
+        }
+    }
+
+    // Iris is only on the runtime classpath of -PwithIris runs, so it is driven by reflection.
+    private static Path irisShaderpacksDirectory() {
+        try {
+            return (Path) Class.forName("net.irisshaders.iris.Iris").getMethod("getShaderpacksDirectory").invoke(null);
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    /** Selects a pack (or turns shaders off), reloads Iris and returns the class name of the resulting pipeline. */
+    private static String irisSelectPack(String pack, boolean enabled) {
+        try {
+            Class<?> iris = Class.forName("net.irisshaders.iris.Iris");
+            Object config = iris.getMethod("getIrisConfig").invoke(null);
+            config.getClass().getMethod("setShaderPackName", String.class).invoke(config, pack);
+            config.getClass().getMethod("setShadersEnabled", boolean.class).invoke(config, enabled);
+            config.getClass().getMethod("save").invoke(config);
+            iris.getMethod("reload").invoke(null);
+            Object manager = iris.getMethod("getPipelineManager").invoke(null);
+            Object pipeline = manager.getClass().getMethod("preparePipeline", Class.forName("net.irisshaders.iris.shaderpack.materialmap.NamespacedId"))
+                    .invoke(manager, iris.getMethod("getCurrentDimension").invoke(null));
+            return pipeline == null ? "none" : pipeline.getClass().getName();
+        } catch (ReflectiveOperationException e) {
+            Throwable cause = e.getCause() != null ? e.getCause() : e;
+            return "error: " + cause;
+        }
+    }
+
     private void tryCommand(TestSingleplayerContext world, String command) {
         try {
             world.getServer().runCommand(command);
@@ -129,6 +271,9 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
                     failures.remove(failures.size() - 1); // diagnostic only
                 }
                 context.runOnClient(client -> client.options.chunkSectionFadeInTime().set(0.75));
+                if (net.fabricmc.loader.api.FabricLoader.getInstance().isModLoaded("iris")) {
+                    shaderPackScenario(context, world);
+                }
             }
 
             try (TestSingleplayerContext world = context.worldBuilder().setUseConsistentSettings(false)

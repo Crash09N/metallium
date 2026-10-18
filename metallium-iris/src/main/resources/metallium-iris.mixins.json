@@ -1,13 +1,19 @@
 {
   "required": true,
   "package": "dev.metallium.iris.mixin",
+  "plugin": "dev.metallium.iris.MetalliumIrisMixinPlugin",
   "compatibilityLevel": "JAVA_25",
   "priority": 1500,
   "client": [
+    "FrontendGpuDeviceAccessor",
     "GLDebugMixin",
+    "GlStateManagerGuardMixin",
+    "IrisCreatePipelineMixin",
     "IrisDebugMixin",
     "IrisMixin",
     "IrisRenderSystemMixin",
+    "IrisRenderSystemUniformMixin",
+    "MatrixUniformMixin",
     "MetalGpuTextureMixin",
     "SamplerLimitsMixin",
     "VanillaRenderingPipelineMixin"

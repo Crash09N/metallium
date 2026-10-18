@@ -47,7 +47,9 @@ Status legend: ✅ done · 🔄 in progress · ⏳ planned · 🔬 needs researc
 ## Phase 5 — Iris shader packs (top feature priority) 🔄
 - ✅ Shader translator: Iris-style GLSL → SPIR-V → Metal with uniform/binding reflection
 - ✅ Stage 1: game starts on Metal with Iris + adapter
-- ⏳ Stage 2: composite/deferred/final passes (post-processing packs)
+- ✅ Stage 2: begin/prepare/deferred/composite/final passes run on Metal over the vanilla/Sodium scene
+  (`MetalPostPipeline`, design: `docs/design/iris-stage2-post-pipeline.md`). Open items: mipmapped buffers,
+  viewport scale, composite blend overrides, custom textures, `size.buffer.*`, explicit uniform blocks
 - ⏳ Stage 3: gbuffers via Sodium (terrain/entities in the pack's shaders)
 - ⏳ Stage 4: shadow pass
 - ⏳ Stage 5: compute, image load/store, SSBO (packs that macOS OpenGL 4.1 cannot run today)
