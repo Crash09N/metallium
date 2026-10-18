@@ -9,3 +9,4 @@ pluginManagement {
 rootProject.name = 'metallium'
 
 include 'metallium-iris'
+include 'metallium-gl'

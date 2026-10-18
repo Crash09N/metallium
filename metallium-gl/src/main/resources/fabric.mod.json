@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "id": "metallium-gl",
+  "version": "${version}",
+  "name": "Metallium GL",
+  "description": "OpenGL to Metal translation layer: runs the raw OpenGL calls of opted-in mods on Metallium's Metal backend.",
+  "authors": ["Metallium contributors"],
+  "contact": {
+    "sources": "https://github.com/Crash09N/metallium"
+  },
+  "license": "Apache-2.0",
+  "environment": "client",
+  "entrypoints": {
+    "preLaunch": ["dev.metallium.gl.retarget.MetalliumGlPreLaunch"]
+  },
+  "mixins": ["metallium-gl.mixins.json"],
+  "depends": {
+    "metallium": "*",
+    "minecraft": "~26.3"
+  }
+}
