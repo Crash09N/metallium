@@ -116,6 +116,9 @@ loom.runs.clientGameTest {
 	// -PglMods=voxy (with -PwithGl): retarget these mods' GL calls to metallium-gl; -PglFailFast=false logs instead of throwing.
 	if (project.hasProperty('glMods')) vmArg "-Dmetallium.gl.mods=${project.property('glMods')}"
 	if (project.hasProperty('glFailFast')) vmArg "-Dmetallium.gl.failFast=${project.property('glFailFast')}"
+	// -PglTrace=N [-PglTraceAfter=S]: log N metallium-gl device operations after S seconds (diagnostics).
+	if (project.hasProperty('glTrace')) vmArg "-Dmetallium.gl.trace=${project.property('glTrace')}"
+	if (project.hasProperty('glTraceAfter')) vmArg "-Dmetallium.gl.traceAfter=${project.property('glTraceAfter')}"
 	if (project.hasProperty('benchPower')) vmArg '-Dmetallium.bench.power=true'
 	// A crashed earlier test run must not put the next one into crash-recovery mode (OpenGL + dialog).
 	vmArg "-Dmetallium.crashRecovery=${project.hasProperty('crashRecovery') ? 'on' : 'off'}"

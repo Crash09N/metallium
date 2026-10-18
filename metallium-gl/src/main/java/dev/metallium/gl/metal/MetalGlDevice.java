@@ -505,6 +505,8 @@ public final class MetalGlDevice implements GlDevice {
 
     @Override
     public void clear(final RenderTargets targets, final ClearOp op) {
+        if (GlTrace.on()) GlTrace.log("clear " + GlTrace.targets(targets) + " color=" + op.color() + java.util.Arrays.toString(op.rgba())
+                + " depth=" + op.depth() + "(" + op.depthValue() + ") stencil=" + op.stencil() + " scissor=" + java.util.Arrays.toString(op.scissor()));
         boolean fullMask = op.colorMask()[0] && op.colorMask()[1] && op.colorMask()[2] && op.colorMask()[3];
         boolean fullArea = op.scissor() == null || coversTarget(op.scissor(), targets);
         if (fullArea && (fullMask || !op.color())) {
@@ -615,6 +617,8 @@ public final class MetalGlDevice implements GlDevice {
 
     @Override
     public void draw(final DrawOp op) {
+        if (GlTrace.on()) GlTrace.log("draw " + GlTrace.draw(op) + " first=" + op.first() + " count=" + op.count() + " inst=" + op.instanceCount()
+                + " idx=" + (op.indexBuffer() != null));
         MTLRenderCommandEncoder encoder = prepareDraw(op, false);
         if (encoder == null) {
             return;
@@ -632,6 +636,9 @@ public final class MetalGlDevice implements GlDevice {
 
     @Override
     public void drawIndirect(final DrawOp op, final IndirectDraws draws) {
+        if (GlTrace.on()) GlTrace.log("drawIndirect " + GlTrace.draw(op) + " draws=" + draws.drawCount() + " stride=" + draws.stride()
+                + (draws.countBuffer() != null ? " gpuCount(last)=" + Integer.toUnsignedString(MemoryUtil.memGetInt(MemoryUtil.memAddress(draws.countBuffer().contents()) + draws.countOffset())) : "")
+                + " firstCmd=" + GlTrace.command(draws.commands(), draws.offset()));
         MetalBuffer commands = (MetalBuffer) draws.commands();
         MetalBuffer index = (MetalBuffer) op.indexBuffer();
         if (index == null) {
@@ -878,6 +885,8 @@ public final class MetalGlDevice implements GlDevice {
 
     @Override
     public void dispatch(final DispatchOp op) {
+        if (GlTrace.on()) GlTrace.log("dispatch prog" + ((MetalComputeProgram) op.program()).id + " groups=" + op.groupsX() + "," + op.groupsY() + "," + op.groupsZ()
+                + (op.indirect() != null ? " indirect" : "") + " buffers=" + op.bindings().buffers().length + " images=" + op.bindings().images().length);
         MetalComputeProgram program = (MetalComputeProgram) op.program();
         StageBindings bindings = op.bindings();
         for (TextureBinding binding : bindings.textures()) {
