@@ -65,6 +65,9 @@ Status legend: ✅ done · 🔄 in progress · ⏳ planned · 🔬 needs researc
   route: run Voxy **unmodified** through `metallium-gl` once that layer supports compute/SSBO/indirect (long-term,
   months). Short-term: make the game start cleanly with Voxy installed (disable it with a message instead of crashing).
 - ⏳ HUD/minimap/overlay mods: most work as-is (vanilla API); CI test that loads popular mods and takes screenshots
+- 🔬 Owner's must-work list (audit running → `docs/research/notes/mod-compat-batch1.md`): **ReGlass** (liquid-glass UI),
+  **Meshelium** (mesh-shader terrain; must be installable alongside Metallium; evaluate its ideas for Metal mesh shaders),
+  **Light Overlay**, **Cull Leaves**, **More Culling**. Each gets a game-test scenario once supported.
 - ⏳ Rule of thumb verified in CI: mods that work on vanilla's Vulkan backend should work on Metallium
 - ⏳ Automatic fallback: detect a mod Metallium cannot handle → OpenGL at next start, with message
 
