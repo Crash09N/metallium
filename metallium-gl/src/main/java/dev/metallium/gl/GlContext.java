@@ -1042,12 +1042,8 @@ public final class GlContext {
         if (!any) {
             return GL_FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT;
         }
-        for (int buffer : fb.drawBuffers) {
-            int index = buffer - GL_COLOR_ATTACHMENT0;
-            if (buffer != GL_NONE && (index < 0 || index >= MAX_COLOR_ATTACHMENTS || fb.color[index] == null)) {
-                return GL_FRAMEBUFFER_INCOMPLETE_DRAW_BUFFER;
-            }
-        }
+        // GL 4.1+ (and so the 4.6 metallium-gl reports) dropped INCOMPLETE_DRAW_BUFFER / READ_BUFFER: a draw buffer
+        // without an attachment just discards its writes (e.g. depth-only framebuffers with the default draw buffer).
         return GL_FRAMEBUFFER_COMPLETE;
     }
 

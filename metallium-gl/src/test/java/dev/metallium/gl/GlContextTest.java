@@ -172,7 +172,7 @@ class GlContextTest {
         MetalGL.glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, depth);
         assertEquals(GL_FRAMEBUFFER_COMPLETE, MetalGL.glCheckFramebufferStatus(GL_FRAMEBUFFER));
         MetalGL.glDrawBuffers(new int[]{GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1});
-        assertEquals(GL_FRAMEBUFFER_INCOMPLETE_DRAW_BUFFER, MetalGL.glCheckFramebufferStatus(GL_FRAMEBUFFER));
+        assertEquals(GL_FRAMEBUFFER_COMPLETE, MetalGL.glCheckFramebufferStatus(GL_FRAMEBUFFER), "GL 4.1+: missing draw-buffer attachments discard writes");
         MetalGL.glDrawBuffers(new int[]{GL_COLOR_ATTACHMENT0});
         MetalGL.glClearColor(0.25f, 0.5f, 0.75f, 1f);
         MetalGL.glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
