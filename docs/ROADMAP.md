@@ -73,6 +73,14 @@ Status legend: ✅ done · 🔄 in progress · ⏳ planned · 🔬 needs researc
 - ⏳ Rule of thumb verified in CI: mods that work on vanilla's Vulkan backend should work on Metallium
 - ⏳ Automatic fallback: detect a mod Metallium cannot handle → OpenGL at next start, with message
 
+## Phase 6b — Apple-native features ⏳ / 🔬
+- 🔬 **MetalFX upscaling** (research: `docs/research/notes/metalfx-upscaling.md`): spatial upscaler first (render scale
+  option, UI at native resolution), then temporal upscaler (needs camera jitter + motion vectors + depth)
+- ⏳ **MetalFX frame interpolation** (frame generation) after temporal upscaling works; depends on macOS version
+- ⏳ **Game Mode**: launcher wrapper `.app` with game category so macOS enables Game Mode
+- ⏳ Later, optional: hardware ray-traced effects (M3+), and a Metal-native GPU-driven terrain path (owner may start a
+  separate Nvidium-style project)
+
 ## Phase 7 — Benchmarks and comparison ⏳
 - Same world, seed and camera path; every frame presented; frame time median/p95/p99, CPU/GPU time, memory
 - Baselines: vanilla OpenGL, vanilla Vulkan via MoltenVK (and Mesa KosmicKrisp), Sodium on OpenGL, mcopt (pacing off)
