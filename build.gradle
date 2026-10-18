@@ -106,6 +106,8 @@ loom.runs.clientGameTest {
 if (project.hasProperty('withSodium')) {
 	dependencies {
 		gametestRuntimeOnly "maven.modrinth:sodium:${project.sodium_version}"
+		// also for ./gradlew runClient -PwithSodium (dev runtime only, not published)
+		localRuntime "maven.modrinth:sodium:${project.sodium_version}"
 	}
 }
 

@@ -3,6 +3,7 @@
   "package": "dev.metallium.mixin",
   "compatibilityLevel": "JAVA_25",
   "client": [
+    "DebugEntrySystemSpecsMixin",
     "PreferredGraphicsApiMixin"
   ],
   "injectors": {
