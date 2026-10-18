@@ -538,6 +538,20 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
     }
 
     /** Copies -Dmetallium.gametest.shaderpack (a local pack, never in the repository) into the run's pack folder. */
+    /** Combination tests (DH / Voxy / Bobby + -PwithIris -Pshaderpack=...): activates the external pack, if any. */
+    private void comboShaderPack(ClientGameTestContext context, String scene) {
+        if (!net.fabricmc.loader.api.FabricLoader.getInstance().isModLoaded("iris")) {
+            return;
+        }
+        String external = externalPack(context);
+        if (external == null) {
+            return;
+        }
+        line(scene + ": shader pack " + external + ": pipeline=" + context.computeOnClient(client -> irisSelectPack(external, true)));
+        context.waitTicks(100);
+        context.takeScreenshot("metallium-" + scene + "-pack");
+    }
+
     private String externalPack(ClientGameTestContext context) {
         String external = System.getProperty("metallium.gametest.shaderpack", "");
         if (external.isEmpty()) {
@@ -1001,6 +1015,7 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
             context.waitTicks(SETTLE_TICKS);
             checkTerrainVisible(context.takeScreenshot("metallium-natural-world"), "natural world");
             measure(context, "natural world");
+            comboShaderPack(context, "dh");
             distantHorizonsScenario(context, world);
             line(failures.isEmpty() ? "result: PASS" : "result: FAIL " + failures);
         } catch (Throwable t) {
@@ -1028,6 +1043,7 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
             tryCommand(world, "time set 6000");
             tryCommand(world, "gamerule advance_time false");
             context.runOnClient(client -> client.options.renderDistance().set(16));
+            comboShaderPack(context, "voxy");
             for (int i = 1; i <= 3; i++) {
                 context.waitTicks(400);
                 line("voxy: ingest phase " + (i * 20) + " s, " + glSummary());
@@ -1078,6 +1094,7 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
             tryCommand(world, "gamerule advance_time false");
             context.runOnClient(client -> client.options.renderDistance().set(16));
             world.getServer().runOnServer(server -> server.getPlayerList().setViewDistance(16));
+            comboShaderPack(context, "bobby");
             context.waitTicks(600);
             clearChat(context);
             line("bobby: server 16: " + chunkStats(context));
