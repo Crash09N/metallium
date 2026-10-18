@@ -95,6 +95,10 @@ public final class MetalliumGlBootstrap {
 
     private static byte[] retarget(final String className, final byte[] bytes) {
         String mod = optIn.modFor(className);
+        if (mod == null && (className.startsWith("dev.metallium.") || className.startsWith("org.objectweb.asm.")
+                || className.startsWith("org.spongepowered.") || className.startsWith("java"))) {
+            return bytes; // never other classes of the hook itself (circular class loading)
+        }
         try {
             // Classes of other mods: only methods an opted-in mod's mixins merged into them (e.g. Voxy's Sodium hooks).
             GlCallRetargeter.Result result = mod != null ? GlCallRetargeter.transform(mod, bytes)

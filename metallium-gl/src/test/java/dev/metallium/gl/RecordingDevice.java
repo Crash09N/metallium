@@ -174,6 +174,11 @@ final class RecordingDevice implements GlDevice {
     }
 
     @Override
+    public @Nullable TextureStore externalTexture(final Object engineTexture) {
+        return engineTexture instanceof com.mojang.renderpearl.api.textures.GpuTexture ? new Texture(TexFormat.RGBA8, 4, 4, 1) : null;
+    }
+
+    @Override
     public boolean readBuffer(final BufferStore source, final long offset, final ByteBuffer out) {
         MemoryUtil.memCopy(MemoryUtil.memAddress(source.contents()) + offset, MemoryUtil.memAddress(out), out.remaining());
         transfers.add("read " + out.remaining());

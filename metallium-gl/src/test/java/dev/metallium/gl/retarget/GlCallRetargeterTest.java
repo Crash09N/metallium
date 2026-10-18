@@ -106,6 +106,45 @@ class GlCallRetargeterTest {
     }
 
     @Test
+    void minecraftGlBackendInternalsAreRetargeted() throws Throwable {
+        String resource = dev.metallium.gl.fixture.McGlUser.class.getName().replace('.', '/') + ".class";
+        byte[] original;
+        try (InputStream in = GlCallRetargeterTest.class.getClassLoader().getResourceAsStream(resource)) {
+            original = in.readAllBytes();
+        }
+        GlCallRetargeter.Result result = GlCallRetargeter.transform("testmod", original);
+        assertEquals(3, result.callSites(), "_enableDepthTest + two glId() casts");
+        assertEquals(0, result.unimplemented());
+        byte[] bytes = result.bytes();
+        ClassLoader loader = new ClassLoader(GlCallRetargeterTest.class.getClassLoader()) {
+            @Override
+            protected Class<?> loadClass(final String name, final boolean resolve) throws ClassNotFoundException {
+                if (name.equals(dev.metallium.gl.fixture.McGlUser.class.getName())) {
+                    Class<?> loaded = findLoadedClass(name);
+                    return loaded != null ? loaded : defineClass(name, bytes, 0, bytes.length);
+                }
+                return super.loadClass(name, resolve);
+            }
+        };
+        Class<?> user = loader.loadClass(dev.metallium.gl.fixture.McGlUser.class.getName());
+        user.getMethod("enableDepthTest").invoke(null);
+        assertTrue(GlContext.current().isEnabled(org.lwjgl.opengl.GL11C.GL_DEPTH_TEST), "GlStateManager call reached metallium-gl");
+        // Metallium's textures are not GlTexture: without the rewrite the cast would throw ClassCastException.
+        com.mojang.renderpearl.api.textures.GpuTexture texture = (com.mojang.renderpearl.api.textures.GpuTexture) java.lang.reflect.Proxy.newProxyInstance(
+                getClass().getClassLoader(), new Class<?>[]{com.mojang.renderpearl.api.textures.GpuTexture.class},
+                (proxy, method, args) -> method.getName().equals("isClosed") ? Boolean.FALSE : method.getReturnType() == int.class ? (Object) 0 : null);
+        com.mojang.renderpearl.api.textures.GpuTextureView view = (com.mojang.renderpearl.api.textures.GpuTextureView) java.lang.reflect.Proxy.newProxyInstance(
+                getClass().getClassLoader(), new Class<?>[]{com.mojang.renderpearl.api.textures.GpuTextureView.class},
+                (proxy, method, args) -> method.getName().equals("texture") ? texture : method.getReturnType() == int.class ? (Object) 0
+                        : method.getReturnType() == boolean.class ? Boolean.FALSE : null);
+        int fromTexture = (int) user.getMethod("textureId", com.mojang.renderpearl.api.textures.GpuTexture.class).invoke(null, texture);
+        int fromView = (int) user.getMethod("viewId", com.mojang.renderpearl.api.textures.GpuTextureView.class).invoke(null, view);
+        assertTrue(fromTexture > 0, "a metallium-gl texture name");
+        assertEquals(fromTexture, fromView, "the view names its texture; one name per engine texture");
+        assertTrue(MetalGL.glIsTexture(fromTexture));
+    }
+
+    @Test
     void untouchedWithoutGlCalls() {
         assertNull(GlCallRetargeter.transform("testmod", new byte[]{1, 2, 3}).bytes());
     }

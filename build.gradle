@@ -176,5 +176,9 @@ if (project.hasProperty('withVoxy')) {
 	dependencies {
 		gametestRuntimeOnly "maven.modrinth:sodium:${project.sodium_version}"
 		gametestRuntimeOnly files(project.property('withVoxy'))
+		// The 263 Voxy build bundles RocksDB / LWJGL-zstd without macOS natives (its storage fails on world join):
+		// dev-only natives from Maven Central so the test can create Voxy's world storage on macOS.
+		gametestRuntimeOnly 'org.rocksdb:rocksdbjni:10.2.1'
+		gametestRuntimeOnly 'org.lwjgl:lwjgl-zstd:3.4.1:natives-macos-arm64'
 	}
 }

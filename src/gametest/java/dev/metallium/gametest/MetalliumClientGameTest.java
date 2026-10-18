@@ -556,6 +556,11 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
             distantHorizonsTest(context);
             return;
         }
+        if (net.fabricmc.loader.api.FabricLoader.getInstance().isModLoaded("voxy")
+                && System.getProperty("metallium.gl.routedMods", "").contains("voxy")) {
+            voxyTest(context);
+            return;
+        }
         try {
             try (TestSingleplayerContext world = context.worldBuilder().create()) {
                 world.getConnection().waitForChunksRender();
@@ -718,6 +723,63 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
         }
         writeReport();
         Runtime.getRuntime().halt(failures.isEmpty() ? 0 : 1);
+    }
+
+    /**
+     * Voxy routed through metallium-gl (-PwithVoxy=<jar> -PwithGl -PglMods=voxy): one natural world, high spectator view.
+     * Voxy only builds LODs from chunks the client has loaded, so the vanilla render distance is first raised (Voxy
+     * ingests the loaded chunks), then lowered: terrain beyond the low vanilla distance can only be Voxy's LODs. Judged by
+     * looking at the screenshots. Like the DH test it halts the JVM instead of closing the world.
+     */
+    private void voxyTest(ClientGameTestContext context) {
+        try {
+            TestSingleplayerContext world = context.worldBuilder().setUseConsistentSettings(false)
+                    .adjustSettings(state -> state.setSeed(System.getProperty("metallium.gametest.seed", "metallium-forest"))).create();
+            world.getConnection().waitForChunksRender();
+            tryCommand(world, "gamemode spectator @a");
+            tryCommand(world, "tp @a 0 140 0 30 15");
+            tryCommand(world, "time set 6000");
+            tryCommand(world, "gamerule advance_time false");
+            context.runOnClient(client -> client.options.renderDistance().set(16));
+            for (int i = 1; i <= 3; i++) {
+                context.waitTicks(400);
+                line("voxy: ingest phase " + (i * 20) + " s, " + glSummary());
+            }
+            context.takeScreenshot("metallium-voxy-rd16");
+            context.runOnClient(client -> client.options.renderDistance().set(4));
+            context.waitTicks(400);
+            clearChat(context);
+            checkTerrainVisible(context.takeScreenshot("metallium-voxy-lods-rd4"), "voxy LODs (vanilla rd 4)");
+            measure(context, "voxy rd4");
+            tryCommand(world, "tp @a 0 220 0 30 25");
+            context.waitTicks(200);
+            context.takeScreenshot("metallium-voxy-lods-high");
+            f3Screenshot(context);
+            line("voxy: final " + glSummary());
+            line(failures.isEmpty() ? "result: PASS" : "result: FAIL " + failures);
+        } catch (Throwable t) {
+            line("result: FAIL " + t);
+            line("voxy: " + glSummary());
+            writeReport();
+            Runtime.getRuntime().halt(1);
+        }
+        writeReport();
+        Runtime.getRuntime().halt(failures.isEmpty() ? 0 : 1);
+    }
+
+    /** metallium-gl status line + unimplemented functions seen so far (reflection: metallium-gl is optional). */
+    private static String glSummary() {
+        StringBuilder out = new StringBuilder();
+        for (String status : dev.metallium.api.MetalliumRuntime.statusLines()) {
+            if (status.startsWith("metallium-gl") || status.startsWith("Voxy")) out.append(status).append("; ");
+        }
+        try {
+            Object calls = Class.forName("dev.metallium.gl.MetalGLLog").getMethod("unimplementedCalls").invoke(null);
+            out.append("unimplemented=").append(calls);
+        } catch (ReflectiveOperationException e) {
+            out.append("unimplemented=?");
+        }
+        return out.toString();
     }
 
     /** F3 overlay screenshot; with Sodium also the draw-path label Sodium prints ("Terrain Rendering: ..."). */
