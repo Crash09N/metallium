@@ -109,6 +109,9 @@ loom.runs.clientGameTest {
 	if (project.hasProperty('benchSeconds')) vmArg "-Dmetallium.bench.seconds=${project.property('benchSeconds')}"
 	if (project.hasProperty('benchScene')) vmArg "-Dmetallium.bench.scene=${project.property('benchScene')}"
 	if (project.hasProperty('perfCounters')) vmArg '-Dmetallium.perfCounters=true'
+	if (project.hasProperty('benchPower')) vmArg '-Dmetallium.bench.power=true'
+	// A crashed earlier test run must not put the next one into crash-recovery mode (OpenGL + dialog).
+	vmArg "-Dmetallium.crashRecovery=${project.hasProperty('crashRecovery') ? 'on' : 'off'}"
 }
 
 // ./gradlew runClientGameTest -PwithSodium  → runs the game tests with Sodium loaded.
@@ -173,5 +176,25 @@ if (project.hasProperty('withVoxy')) {
 	dependencies {
 		gametestRuntimeOnly "maven.modrinth:sodium:${project.sodium_version}"
 		gametestRuntimeOnly files(project.property('withVoxy'))
+	}
+}
+
+// ./gradlew runClientGameTest -PwithGl -PcrashRecovery  → simulates "the last session crashed in a metallium-gl-routed
+// mod": seeds a session marker and a crash report into the run directory, so this run must start on OpenGL and show the
+// crash-recovery screen before the title screen.
+if (project.hasProperty('crashRecovery')) {
+	tasks.matching { it.name == 'runClientGameTest' }.configureEach {
+		doFirst {
+			def run = file('build/run/clientGameTest')
+			def start = System.currentTimeMillis() - 60_000
+			file("$run/config/metallium").mkdirs()
+			file("$run/config/metallium/session.json").text = """{"start": $start, "engine": "METAL", "routed": [{"id": "metallium-gametest", "name": "Metallium client game tests", "packages": ["dev.metallium.gametest.gl"]}]}"""
+			file("$run/crash-reports").mkdirs()
+			file("$run/crash-reports/crash-simulated-client.txt").text = '---- Minecraft Crash Report ----\n' +
+					'Description: Rendering overlay (simulated by -PcrashRecovery)\n\n' +
+					'java.lang.UnsupportedOperationException: metallium-gl: unimplemented GL11.glAccum(IF)V (called by metallium-gametest)\n' +
+					'\tat dev.metallium.gl.MetalGLLog.unimplemented(MetalGLLog.java:44)\n' +
+					'\tat dev.metallium.gametest.gl.RawGlQuads.render(RawGlQuads.java:1)\n'
+		}
 	}
 }

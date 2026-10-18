@@ -47,6 +47,7 @@ public final class BackendSelection {
     }
 
     private static Decision decide() {
+        dev.metallium.compat.CrashGuard.init(); // reads the last session's marker, starts this one's
         String override = System.getProperty(PROPERTY, "").trim().toLowerCase(Locale.ROOT);
         if (override.equals("off") || override.equals("false")) {
             return new Decision(false, "-D" + PROPERTY + "=" + override);
@@ -59,6 +60,10 @@ public final class BackendSelection {
 
         if (MetalliumConfig.INSTANCE.engine != MetalliumConfig.GraphicsEngine.METAL && !forced) {
             return new Decision(false, "Graphics Engine is " + MetalliumConfig.INSTANCE.engine + " in config/metallium.json");
+        }
+
+        if (!forced && dev.metallium.compat.CrashGuard.safeMode()) {
+            return new Decision(false, "the last session crashed in Metallium or a mod running through metallium-gl; OpenGL this session");
         }
 
         FabricLoader loader = FabricLoader.getInstance();

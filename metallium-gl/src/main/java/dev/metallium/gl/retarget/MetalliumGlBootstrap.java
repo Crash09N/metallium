@@ -47,6 +47,7 @@ public final class MetalliumGlBootstrap {
         GlContext.setDeviceFactory(() -> new MetalGlDevice(new GameMetalHost()));
         optIn = OptInMods.discover();
         MetalliumRuntime.registerStatusLine(MetalliumGlBootstrap::statusLine);
+        dev.metallium.compat.GlRouting.setUnimplementedSource(MetalGLLog::unimplementedCalls);
         if (optIn.mods().isEmpty()) {
             MetalGLLog.LOGGER.info("[metallium-gl] no mods opted in; class loading is not hooked");
             return;
@@ -58,6 +59,7 @@ public final class MetalliumGlBootstrap {
         try {
             hookKnot();
             hooked = true;
+            dev.metallium.compat.GlRouting.markHooked();
         } catch (ReflectiveOperationException | RuntimeException e) {
             MetalGLLog.LOGGER.error("[metallium-gl] could not hook class loading; opted-in mods run without retargeting", e);
         }
