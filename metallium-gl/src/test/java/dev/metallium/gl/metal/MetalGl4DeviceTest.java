@@ -348,6 +348,21 @@ class MetalGl4DeviceTest {
     }
 
     @Test
+    void glDepthRangeBuiltinFollowsGlDepthRange() {
+        int p = program(MetalGlDeviceTest.VS, """
+                #version 330 core
+                out vec4 fragColor;
+                void main() { fragColor = vec4(gl_DepthRange.near, gl_DepthRange.far, gl_DepthRange.diff, 1.0); }
+                """);
+        MetalGL.glUseProgram(p);
+        MetalGL.glBindVertexArray(MetalGlDeviceTest.quad(-1, -1, 1, 1));
+        MetalGL.glDepthRange(0.25, 0.75);
+        MetalGL.glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_SHORT, 0);
+        assertEquals(GL_NO_ERROR, MetalGL.glGetError());
+        assertPixel(SIZE / 2, SIZE / 2, 64, 191, 128, "near, far, diff");
+    }
+
+    @Test
     void blitCopiesFramebufferAndTextureViewSharesStorage() {
         int src = MetalGL4.glCreateTextures(GL_TEXTURE_2D);
         MetalGL4.glTextureStorage2D(src, 1, GL_RGBA8, SIZE, SIZE);

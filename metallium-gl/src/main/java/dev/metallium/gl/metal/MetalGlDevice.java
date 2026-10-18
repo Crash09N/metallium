@@ -62,17 +62,20 @@ public final class MetalGlDevice implements GlDevice {
 
     static final class MetalBuffer implements BufferStore {
         final MTLBuffer buffer;
+        /** A view of the storage; for buffers over 2 GiB only of the first 2 GiB (callers address by memAddress + offset). */
         final ByteBuffer contents;
+        final long size;
         @Nullable GpuUse lastUse;
 
         MetalBuffer(final MTLBuffer buffer, final long size) {
             this.buffer = buffer;
-            this.contents = ObjC.byteBufferView(buffer.contents(), size).order(ByteOrder.nativeOrder());
+            this.size = size;
+            this.contents = ObjC.byteBufferView(buffer.contents(), Math.min(size, Integer.MAX_VALUE & ~4095L)).order(ByteOrder.nativeOrder());
         }
 
         @Override
         public long size() {
-            return contents.capacity();
+            return size;
         }
 
         @Override
@@ -177,7 +180,10 @@ public final class MetalGlDevice implements GlDevice {
             throw new OutOfMemoryError("metallium-gl: newBuffer(" + size + ") failed");
         }
         MetalBuffer store = new MetalBuffer(buffer, size);
-        MemoryUtil.memSet(MemoryUtil.memAddress(store.contents), 0, size);
+        if (size <= (256L << 20)) {
+            // GL leaves uninitialised storage undefined; zero it anyway (cheap). Large buffers come zero-filled from the VM.
+            MemoryUtil.memSet(MemoryUtil.memAddress(store.contents), 0, size);
+        }
         return store;
     }
 

@@ -103,7 +103,7 @@ final class GlProgramLinker {
             return "0:0: error: extension " + unsupported.group(1) + " is not supported (metallium-gl)";
         }
         try {
-            Map<Stage, SpirvStage> result = GlslProgramTranslator.compileToSpirv(label, Map.of(stage, source));
+            Map<Stage, SpirvStage> result = GlslProgramTranslator.compileToSpirv(label, Map.of(stage, glCompat(source)));
             result.values().forEach(s -> MemoryUtil.memFree(s.spirv()));
             return null;
         } catch (GlslProgramTranslator.TranslationException | RuntimeException e) {
@@ -114,13 +114,13 @@ final class GlProgramLinker {
     static Linked link(final String label, final String vertexSource, final String fragmentSource,
                        final Map<String, Integer> attributeBindings) throws LinkException {
         Map<Stage, String> sources = new EnumMap<>(Stage.class);
-        sources.put(Stage.VERTEX, applyAttributeBindings(vertexSource, attributeBindings));
-        sources.put(Stage.FRAGMENT, fragmentSource);
+        sources.put(Stage.VERTEX, glCompat(applyAttributeBindings(vertexSource, attributeBindings)));
+        sources.put(Stage.FRAGMENT, glCompat(fragmentSource));
         return linkStages(label, sources);
     }
 
     static Linked linkCompute(final String label, final String computeSource) throws LinkException {
-        return linkStages(label, Map.of(Stage.COMPUTE, computeSource));
+        return linkStages(label, Map.of(Stage.COMPUTE, glCompat(computeSource)));
     }
 
     private static Linked linkStages(final String label, final Map<Stage, String> sources) throws LinkException {
@@ -279,6 +279,35 @@ final class GlProgramLinker {
             slots[base] = binding.metalIndex();
             slots[base + 1] = samplerIndex.getOrDefault(binding.name(), binding.metalIndex());
         }
+    }
+
+    static final String DEPTH_RANGE_NEAR = "metallium_DepthRangeNear";
+    static final String DEPTH_RANGE_FAR = "metallium_DepthRangeFar";
+    static final String DEPTH_RANGE_DIFF = "metallium_DepthRangeDiff";
+    private static final Pattern DEPTH_RANGE = Pattern.compile("\\bgl_DepthRange\\s*\\.\\s*(near|far|diff)\\b");
+    private static final Pattern LAST_DIRECTIVE = Pattern.compile("(?m)^[ \\t]*#[ \\t]*(version|extension)\\b.*$");
+
+    /**
+     * GL-only built-ins that Vulkan GLSL (glslang's target) lacks, rewritten to plain uniforms the context fills in:
+     * {@code gl_DepthRange.near/far/diff} → {@code metallium_DepthRange{Near,Far,Diff}} (set from glDepthRange per draw).
+     */
+    static String glCompat(final String source) {
+        if (!source.contains("gl_DepthRange")) {
+            return source;
+        }
+        Matcher m = DEPTH_RANGE.matcher(source);
+        StringBuilder sb = new StringBuilder();
+        while (m.find()) {
+            String field = m.group(1);
+            m.appendReplacement(sb, field.equals("near") ? DEPTH_RANGE_NEAR : field.equals("far") ? DEPTH_RANGE_FAR : DEPTH_RANGE_DIFF);
+        }
+        m.appendTail(sb);
+        String rewritten = sb.toString();
+        Matcher directive = LAST_DIRECTIVE.matcher(rewritten);
+        int insertAt = 0;
+        while (directive.find()) insertAt = directive.end();
+        String declarations = "\nuniform float " + DEPTH_RANGE_NEAR + ";\nuniform float " + DEPTH_RANGE_FAR + ";\nuniform float " + DEPTH_RANGE_DIFF + ";\n";
+        return rewritten.substring(0, insertAt) + declarations + rewritten.substring(insertAt);
     }
 
     /** glBindAttribLocation: gives matching vertex inputs without a layout qualifier an explicit location. */

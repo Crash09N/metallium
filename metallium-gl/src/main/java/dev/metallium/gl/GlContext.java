@@ -839,6 +839,10 @@ public final class GlContext {
             case GL_UNPACK_SKIP_ROWS -> unpack = new GlPixels.Unpack(unpack.alignment(), unpack.rowLength(), value, unpack.skipPixels());
             case GL_UNPACK_SKIP_PIXELS -> unpack = new GlPixels.Unpack(unpack.alignment(), unpack.rowLength(), unpack.skipRows(), value);
             case GL_PACK_ALIGNMENT -> packAlignment = value;
+            case GL_PACK_ROW_LENGTH, GL_PACK_SKIP_ROWS, GL_PACK_SKIP_PIXELS, GL_PACK_IMAGE_HEIGHT, GL_PACK_SKIP_IMAGES,
+                 GL_UNPACK_IMAGE_HEIGHT, GL_UNPACK_SKIP_IMAGES -> {
+                if (value != 0) MetalGLLog.unsupported("glPixelStorei pname 0x" + Integer.toHexString(pname) + " = " + value);
+            }
             default -> MetalGLLog.unsupported("glPixelStorei pname 0x" + Integer.toHexString(pname));
         }
     }
@@ -2069,12 +2073,26 @@ public final class GlContext {
                 attributes.add(new GlDevice.VertexAttrib(location, 4, GL_FLOAT, false, false, null, 0, 16, 0, currentAttrib[location].clone()));
             }
         }
+        writeDepthRange(program);
         GlDevice.StageBindings vertex = bindings.resolve(program, linked.vertexInterface(), program.vertexUniforms, linked.vertexBlockIndex(),
                 bindings.textures(program, true));
         GlDevice.StageBindings fragment = bindings.resolve(program, linked.fragmentInterface(), program.fragmentUniforms, linked.fragmentBlockIndex(),
                 bindings.textures(program, false));
         return new GlDevice.DrawOp(program.store, targets, mode, attributes.toArray(GlDevice.VertexAttrib[]::new),
                 indexBuffer, indexOffset, index32, first, count, instances, baseVertex, baseInstance, vertex, fragment, rasterState(targets));
+    }
+
+    /** Fills the uniforms that stand in for GL's gl_DepthRange (see GlProgramLinker.glCompat). */
+    private void writeDepthRange(final Program program) {
+        for (GlProgramLinker.Uniform u : program.linkedProgram.uniforms()) {
+            if (!u.name().startsWith("metallium_DepthRange")) continue;
+            float value = switch (u.name()) {
+                case GlProgramLinker.DEPTH_RANGE_NEAR -> depthNear;
+                case GlProgramLinker.DEPTH_RANGE_FAR -> depthFar;
+                default -> depthFar - depthNear;
+            };
+            uniform(u.location(), 1, 1, false, false, null, new float[]{value});
+        }
     }
 
     private GlDevice.RasterState rasterState(final GlDevice.RenderTargets targets) {
