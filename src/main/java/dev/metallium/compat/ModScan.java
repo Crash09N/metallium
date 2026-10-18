@@ -54,7 +54,7 @@ public final class ModScan {
             Map.entry("iris", "Metallium Iris adapter"),
             Map.entry("distanthorizons", "Metallium's Distant Horizons compat"),
             Map.entry("voxy", "routed as a whole through metallium-gl (OpenGL 4.6); see GlRouting.WHOLE_MOD"));
-    private static final int CACHE_VERSION = 2; // 2: mixins into the GL backend are not reported
+    private static final int CACHE_VERSION = 3; // 2: mixins into the GL backend are not reported; 3: backendObjectClasses
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().disableHtmlEscaping().create();
 
     private static @Nullable List<ModReport> results;
@@ -81,8 +81,9 @@ public final class ModScan {
                     results.size(), cachedMods, scanMillis, raw);
             for (ModReport report : results) {
                 if (report.rawGl() || report.usesBackendInternals()) {
-                    Metallium.LOGGER.info("[metallium]   {}: {} raw-GL classes, {} classes use Minecraft's OpenGL backend {}",
-                            report.id(), report.glClasses().size(), report.backendClasses(), report.functions());
+                    Metallium.LOGGER.info("[metallium]   {}: {} raw-GL classes, {} classes use Minecraft's OpenGL backend ({} build its objects) {}",
+                            report.id(), report.glClasses().size(), report.backendClasses(),
+                            report.buildsBackendObjects() ? report.backendObjectClasses().size() : 0, report.functions());
                 }
             }
         }
@@ -177,9 +178,11 @@ public final class ModScan {
         List<String> glClasses = new ArrayList<>();
         Set<String> functions = new TreeSet<>();
         Set<String> packages = new LinkedHashSet<>();
+        List<String> objects = new ArrayList<>();
         int backend = 0;
         for (GlUsageScanner.ClassUsage usage : usages) {
             if (usage.backendGl()) backend++;
+            if (usage.constructsBackend()) objects.add(usage.internalName().replace('/', '.'));
             if (!usage.rawGl()) continue;
             String binary = usage.internalName().replace('/', '.');
             glClasses.add(binary);
@@ -190,7 +193,8 @@ public final class ModScan {
         glClasses.sort(null);
         List<String> sample = new ArrayList<>(functions);
         if (sample.size() > 24) sample = new ArrayList<>(sample.subList(0, 24));
-        return new ModReport(id, name, version, List.copyOf(glClasses), backend, List.copyOf(sample), List.copyOf(packages));
+        objects.sort(null);
+        return new ModReport(id, name, version, List.copyOf(glClasses), backend, List.copyOf(sample), List.copyOf(packages), List.copyOf(objects));
     }
 
     private static final class CacheEntry {

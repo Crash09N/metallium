@@ -63,6 +63,9 @@ public final class BackendSelection {
             return new Decision(false, "Graphics Engine is " + MetalliumConfig.INSTANCE.engine + " in config/metallium.json");
         }
 
+        if (!forced) {
+            dev.metallium.compat.OpenGlRequirements.outcome(); // computed early: also forgets a "try Metal anyway" that just crashed
+        }
         if (!forced && dev.metallium.compat.CrashGuard.safeMode()) {
             return new Decision(false, "crash recovery: the last session crashed in Metallium, a mod running through metallium-gl, or during start-up on Metal; OpenGL this session");
         }
@@ -71,6 +74,14 @@ public final class BackendSelection {
         if (loader.isModLoaded("iris") && !loader.isModLoaded(IRIS_ADAPTER_MOD_ID)) {
             // Iris 1.11 hard-casts the device to vanilla's GlDevice and would crash on Metal.
             return new Decision(false, "Iris is installed without the Metallium Iris adapter; using OpenGL so Iris keeps working");
+        }
+
+        if (!forced) {
+            // Mods that build Minecraft's OpenGL backend objects abort the JVM on Metal: OpenGL until the player chose.
+            dev.metallium.compat.OpenGlRequirements.Outcome needsGl = dev.metallium.compat.OpenGlRequirements.outcome();
+            if (!needsGl.offerMetal()) {
+                return new Decision(false, needsGl.reason());
+            }
         }
 
         return new Decision(true, forced ? "forced by -D" + PROPERTY + "=metal" : "Apple Silicon macOS");
