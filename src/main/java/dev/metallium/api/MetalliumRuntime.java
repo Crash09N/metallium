@@ -5,6 +5,7 @@ package dev.metallium.api;
  */
 public final class MetalliumRuntime {
     private static volatile boolean metalActive;
+    private static volatile String metalDescription = "";
     private static final java.util.List<java.util.function.Supplier<String>> STATUS_PROVIDERS = new java.util.concurrent.CopyOnWriteArrayList<>();
 
     private MetalliumRuntime() {
@@ -37,6 +38,16 @@ public final class MetalliumRuntime {
             }
         }
         return lines;
+    }
+
+    /** Metal feature summary of the active device, e.g. "Metal 4 · GPU family Apple9 · MSL 4.0"; empty if inactive. */
+    public static String metalDescription() {
+        return metalDescription;
+    }
+
+    /** Internal: set by the Metal backend after device creation. */
+    public static void setMetalDescription(final String description) {
+        metalDescription = description == null ? "" : description;
     }
 
     /** Internal: called by the Metal backend after successful device creation. */

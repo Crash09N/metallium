@@ -33,6 +33,7 @@ import java.util.regex.Pattern;
 @Environment(EnvType.CLIENT)
 final class MetalCrossShaderCompiler {
     private static final int MSL_VERSION_4_0 = 0x040000;
+    static final String MSL_VERSION_STRING = "4.0";
     private static final int[] RESOURCE_TYPES = {
             Spvc.SPVC_RESOURCE_TYPE_UNIFORM_BUFFER,
             Spvc.SPVC_RESOURCE_TYPE_SAMPLED_IMAGE,

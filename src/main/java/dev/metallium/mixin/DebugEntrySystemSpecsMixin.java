@@ -33,7 +33,8 @@ abstract class DebugEntrySystemSpecsMixin {
                 .map(mod -> mod.getMetadata().getVersion().getFriendlyString())
                 .orElse("?");
         if (MetalliumRuntime.isMetalActive()) {
-            return "Metallium " + version + ": Metal active";
+            String details = MetalliumRuntime.metalDescription();
+            return "Metallium " + version + ": Metal active" + (details.isEmpty() ? "" : " · " + details);
         }
         BackendSelection.Decision decision = BackendSelection.decision();
         return "Metallium " + version + ": inactive (" + (decision.offerMetal() ? "Metal init failed, using fallback" : decision.reason()) + ")";
