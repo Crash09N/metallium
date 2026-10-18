@@ -22,6 +22,11 @@ dependencies {
 
 	include(implementation("io.github.kokodio:metal-jvm:${project.metal_jvm_version}"))
 
+	// Release jar: metallium-gl (Apache-2.0) and the Iris adapter (LGPL-3.0, stays a separate nested jar) are jar-in-jar.
+	// Both are inert unless needed (see IrisSupport / GlRouting), so the one jar is safe to install anywhere.
+	include project(':metallium-gl')
+	include project(':metallium-iris')
+
 	testImplementation platform('org.junit:junit-bom:5.13.4')
 	testImplementation 'org.junit.jupiter:junit-jupiter'
 	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
@@ -262,4 +267,32 @@ if (project.hasProperty('crashRecovery')) {
 					'\tat dev.metallium.gametest.gl.RawGlQuads.render(RawGlQuads.java:1)\n'
 		}
 	}
+}
+
+// ./gradlew releaseJar  -> build/release/metallium-<version>.jar: the single installable alpha jar (see docs/RELEASE.md).
+tasks.register('releaseJar', Copy) {
+	group = 'build'
+	description = 'Builds the single installable Metallium jar (core + metallium-gl + metallium-iris + metal-jvm, jar-in-jar).'
+	from(tasks.named('jar'))
+	into layout.buildDirectory.dir('release')
+}
+
+// ./gradlew runClientGameTest -PreleaseJarTest  -> runs the game test against build/release/metallium-<version>.jar installed as a
+// mod (jar-in-jar metallium-gl + metallium-iris included) instead of the dev classes of the root project and subprojects.
+// -PreleaseJarSodium / -PreleaseJarIris add Sodium (+ Iris) as ordinary mods next to the jar.
+if (project.hasProperty('releaseJarTest')) {
+	def releaseJarFile = layout.buildDirectory.file("release/metallium-${project.version}.jar").get().asFile
+	if (project.hasProperty('releaseJarSodium') || project.hasProperty('releaseJarIris')) {
+		dependencies {
+			gametestRuntimeOnly "maven.modrinth:sodium:${project.sodium_version}"
+			if (project.hasProperty('releaseJarIris')) gametestRuntimeOnly "maven.modrinth:iris:${project.iris_version}"
+		}
+	}
+	afterEvaluate {
+		def mainClasses = sourceSets.main.output.files
+		sourceSets.gametest.runtimeClasspath = sourceSets.gametest.output +
+				configurations.gametestRuntimeClasspath.filter { f -> !mainClasses.contains(f) } +
+				files(releaseJarFile)
+	}
+	tasks.matching { it.name == 'runClientGameTest' }.configureEach { dependsOn 'releaseJar' }
 }
