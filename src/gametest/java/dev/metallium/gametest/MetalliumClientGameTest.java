@@ -292,6 +292,7 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
                 context.waitTicks(SETTLE_TICKS);
                 checkTerrainVisible(context.takeScreenshot("metallium-natural-world"), "natural world");
                 measure(context, "natural world");
+                f3Screenshot(context);
             }
             if (!failures.isEmpty()) {
                 if (backend.contains("Paravirtual")) {
@@ -394,6 +395,33 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
         }
         writeReport();
         Runtime.getRuntime().halt(failures.isEmpty() ? 0 : 1);
+    }
+
+    /** F3 overlay screenshot; with Sodium also the draw-path label Sodium prints ("Terrain Rendering: ..."). */
+    private void f3Screenshot(ClientGameTestContext context) {
+        if (net.fabricmc.loader.api.FabricLoader.getInstance().isModLoaded("sodium")) {
+            String label = context.computeOnClient(client -> {
+                try {
+                    Class<?> type = Class.forName("net.caffeinemc.mods.sodium.client.gpu.device.backend.DrawBackend");
+                    Object backend = type.getField("BACKEND").get(null);
+                    return (String) type.getMethod("getName").invoke(backend);
+                } catch (ReflectiveOperationException e) {
+                    return "unavailable: " + e;
+                }
+            });
+            line("sodium draw backend label: " + label);
+            if (backendIsMetal(context) && !label.startsWith("metal_multidraw")) {
+                failures.add("Sodium draw backend label not Metal: " + label);
+            }
+        }
+        context.runOnClient(client -> client.debugEntries.setOverlayVisible(true));
+        context.waitTicks(20);
+        context.takeScreenshot("metallium-f3");
+        context.runOnClient(client -> client.debugEntries.setOverlayVisible(false));
+    }
+
+    private static boolean backendIsMetal(ClientGameTestContext context) {
+        return context.computeOnClient(client -> RenderSystem.getDevice().getDeviceInfo().backendName().equals("Metal"));
     }
 
     private static String dhSetRenderDistance(int chunks) {
