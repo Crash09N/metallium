@@ -96,7 +96,13 @@ public final class GlCallRetargeter {
         return IMPLEMENTED.containsKey(name + descriptor);
     }
 
-    static boolean isGlCall(final String owner, final String name) {
+    /** True if {@code GlStateManager.name(descriptor)} has a {@link MetalGLStateManager} twin. */
+    public static boolean isStateManagerImplemented(final String name, final String descriptor) {
+        return STATE_IMPLEMENTED.containsKey(name + descriptor);
+    }
+
+    /** True for the LWJGL GL entry points this retargeter rewrites (GLnn(C), vendor extension classes, GL.getCapabilities). */
+    public static boolean isGlCall(final String owner, final String name) {
         if (!owner.startsWith(GL_PACKAGE)) {
             return false;
         }

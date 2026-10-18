@@ -61,3 +61,14 @@ jar {
 tasks.matching { it.name.startsWith('runClient') || it.name.startsWith('runServer') }.configureEach {
 	enabled = false
 }
+
+// Static GL coverage scan of a mod corpus (developer tool; see docs/compat/gl-coverage.md):
+//   ./gradlew :metallium-gl:glCoverage -PglCorpus=/path/to/jars[,more] [-PglCoverageOut=file.json]
+tasks.register('glCoverage', JavaExec) {
+	dependsOn 'testClasses'
+	classpath = sourceSets.test.runtimeClasspath
+	mainClass = 'dev.metallium.gl.tools.GlCoverageScan'
+	def out = project.findProperty('glCoverageOut') ?: layout.buildDirectory.file('gl-coverage.json').get().asFile.path
+	def corpus = (project.findProperty('glCorpus') ?: '').toString().split(',').findAll { !it.isBlank() }
+	args([out] + corpus)
+}
