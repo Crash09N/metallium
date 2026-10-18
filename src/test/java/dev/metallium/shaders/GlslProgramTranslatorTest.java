@@ -160,6 +160,32 @@ class GlslProgramTranslatorTest {
         }
     }
 
+    @Test
+    void fragmentOutputsCanBeMovedToOtherAttachments() throws Exception {
+        String vs = """
+                #version 330 core
+                in vec3 Position;
+                void main() { gl_Position = vec4(Position, 1.0); }
+                """;
+        // Like Iris's patched gbuffers: DRAWBUFFERS:03 -> iris_FragData0/1 at locations 0/1.
+        String fs = """
+                #version 330 core
+                layout(location = 0) out vec4 iris_FragData0;
+                layout(location = 1) out vec4 iris_FragData1;
+                void main() { iris_FragData0 = vec4(1.0); iris_FragData1 = vec4(0.5); }
+                """;
+        Map<Stage, GlslProgramTranslator.SpirvStage> stages = GlslProgramTranslator.compileToSpirv("gbuffers_terrain", sources(vs, fs));
+        try {
+            java.nio.ByteBuffer spirv = stages.get(Stage.FRAGMENT).spirv();
+            // Render pass attachments colortex0,1,3: slot 0 (colortex0) -> 0, slot 1 (colortex3) -> 2.
+            GlslProgramTranslator.remapOutputLocations(spirv, location -> location == 1 ? 2 : location);
+            Map<String, Integer> out = locations(spirv, org.lwjgl.util.spvc.Spvc.SPVC_RESOURCE_TYPE_STAGE_OUTPUT);
+            assertEquals(Map.of("iris_FragData0", 0, "iris_FragData1", 2), out);
+        } finally {
+            stages.values().forEach(stage -> org.lwjgl.system.MemoryUtil.memFree(stage.spirv()));
+        }
+    }
+
     private static Map<String, Integer> locations(java.nio.ByteBuffer spirv, int resourceType) throws Exception {
         java.nio.IntBuffer words = spirv.asIntBuffer();
         Map<String, Integer> result = new java.util.TreeMap<>();

@@ -168,6 +168,52 @@ public final class GlslProgramTranslator {
         }
     }
 
+    /**
+     * Rewrites the {@code Location} of every stage output of a module in place: new location = {@code mapping(old)}.
+     * Used for fragment outputs, e.g. to move a shader pack's {@code DRAWBUFFERS} slot {@code i} to the index of that
+     * buffer in a render pass with a different attachment list.
+     */
+    public static void remapOutputLocations(final ByteBuffer spirv, final java.util.function.IntUnaryOperator mapping) throws TranslationException {
+        IntBuffer words = spirv.asIntBuffer();
+        for (Varying v : varyings(spirv, Spvc.SPVC_RESOURCE_TYPE_STAGE_OUTPUT)) {
+            words.put(v.locationWordOffset(), mapping.applyAsInt(words.get(v.locationWordOffset())));
+        }
+    }
+
+    /**
+     * Names of the uniform buffers, textures and images the entry point statically uses. glslang keeps declared but
+     * unused samplers at -O0; shader packs declare many (behind option macros), and Metal allows only 16 samplers per
+     * stage, so hosts should bind only these.
+     */
+    public static java.util.Set<String> activeResourceNames(final ByteBuffer spirv) throws TranslationException {
+        try (MemoryStack stack = MemoryStack.stackPush()) {
+            IntBuffer words = spirv.asIntBuffer();
+            PointerBuffer p = stack.mallocPointer(1);
+            check(Spvc.spvc_context_create(p), "context_create");
+            long context = p.get(0);
+            try {
+                check(Spvc.spvc_context_parse_spirv(context, words, words.remaining(), p), "parse_spirv");
+                long ir = p.get(0);
+                check(Spvc.spvc_context_create_compiler(context, Spvc.SPVC_BACKEND_NONE, ir, Spvc.SPVC_CAPTURE_MODE_TAKE_OWNERSHIP, p), "create_compiler");
+                long compiler = p.get(0);
+                check(Spvc.spvc_compiler_get_active_interface_variables(compiler, p), "get_active_interface_variables");
+                long activeSet = p.get(0);
+                check(Spvc.spvc_compiler_create_shader_resources_for_active_variables(compiler, p, activeSet), "create_shader_resources_for_active_variables");
+                long resources = p.get(0);
+                java.util.Set<String> names = new java.util.HashSet<>();
+                for (int type : new int[]{Spvc.SPVC_RESOURCE_TYPE_UNIFORM_BUFFER, Spvc.SPVC_RESOURCE_TYPE_STORAGE_BUFFER, Spvc.SPVC_RESOURCE_TYPE_SAMPLED_IMAGE,
+                        Spvc.SPVC_RESOURCE_TYPE_SEPARATE_IMAGE, Spvc.SPVC_RESOURCE_TYPE_STORAGE_IMAGE}) {
+                    for (SpvcReflectedResource resource : list(stack, resources, type)) {
+                        names.add(resource.nameString());
+                    }
+                }
+                return names;
+            } finally {
+                Spvc.spvc_context_destroy(context);
+            }
+        }
+    }
+
     /** Test hook: varying name -> SPIR-V word offset of its Location operand. */
     static List<Map.Entry<String, Integer>> varyingsForTest(final ByteBuffer spirv, final int resourceType) throws TranslationException {
         return varyings(spirv, resourceType).stream().map(v -> Map.entry(v.name(), v.locationWordOffset())).toList();
@@ -374,7 +420,19 @@ public final class GlslProgramTranslator {
             // -O0 like vanilla: keeps resource names, which reflection-based binding relies on.
             Shaderc.shaderc_compile_options_set_optimization_level(options, Shaderc.shaderc_optimization_level_zero);
 
-            long result = Shaderc.shaderc_compile_into_spv(compiler, source, stage.shadercKind, programName + "." + stage.name().toLowerCase(), "main", options);
+            // Heap-allocated strings: the CharSequence overload copies the source onto LWJGL's thread-local MemoryStack
+            // (64 KiB), which large shader packs overflow when this runs deep inside a renderer that also uses it.
+            ByteBuffer sourceText = MemoryUtil.memUTF8(source, false);
+            ByteBuffer fileName = MemoryUtil.memUTF8(programName + "." + stage.name().toLowerCase());
+            ByteBuffer entryPoint = MemoryUtil.memUTF8("main");
+            long result;
+            try {
+                result = Shaderc.shaderc_compile_into_spv(compiler, sourceText, stage.shadercKind, fileName, entryPoint, options);
+            } finally {
+                MemoryUtil.memFree(sourceText);
+                MemoryUtil.memFree(fileName);
+                MemoryUtil.memFree(entryPoint);
+            }
             try {
                 if (Shaderc.shaderc_result_get_compilation_status(result) != Shaderc.shaderc_compilation_status_success) {
                     throw new TranslationException(programName + "/" + stage + ": " + Shaderc.shaderc_result_get_error_message(result));
