@@ -89,6 +89,8 @@ final class GlObjects {
         int internalFormat;
         int width;
         int height;
+        /** Depth (3D) or layer count (2D array) of engine textures; 1 for GL-created 2D textures. */
+        int depth = 1;
         /** Mip levels the storage has. */
         int levels;
         boolean immutable;

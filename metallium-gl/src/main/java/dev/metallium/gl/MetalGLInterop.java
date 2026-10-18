@@ -25,7 +25,33 @@ public final class MetalGLInterop {
         if (object == null || !MetalGL.isActive()) {
             return object;
         }
-        return GlShadowObjects.of(object, glType);
+        if (glType.startsWith("com/mojang/renderpearl/backend/opengl/")) {
+            return GlShadowObjects.of(object, glType);
+        }
+        // A mod type (Mixin package): if it is an accessor interface that Mixin added to a GL backend class, the object
+        // needs the stand-in of that class.
+        String backend = ACCESSOR_TARGETS.computeIfAbsent(glType, MetalGLInterop::accessorTarget);
+        return backend.isEmpty() ? object : GlShadowObjects.of(object, backend);
+    }
+
+    private static final java.util.Map<String, String> ACCESSOR_TARGETS = new java.util.concurrent.ConcurrentHashMap<>();
+    private static final Class<?>[] SHADOW_TYPES = {com.mojang.renderpearl.backend.opengl.GlBuffer.class,
+            com.mojang.renderpearl.backend.opengl.GlTexture.class, com.mojang.renderpearl.backend.opengl.GlTextureView.class,
+            com.mojang.renderpearl.backend.opengl.GlSampler.class};
+
+    /** The GL backend class (internal name) that implements the interface {@code type}, or "" if none. */
+    private static String accessorTarget(final String type) {
+        try {
+            Class<?> cls = Class.forName(type.replace('/', '.'), false, MetalGLInterop.class.getClassLoader());
+            if (cls.isInterface()) {
+                for (Class<?> backend : SHADOW_TYPES) {
+                    if (cls.isAssignableFrom(backend)) return backend.getName().replace('.', '/');
+                }
+            }
+        } catch (ClassNotFoundException | LinkageError e) {
+            // not loadable: leave casts to it alone
+        }
+        return "";
     }
 
     /** Called by retargeting bridges in place of {@code ((GlTexture) texture).glId()} on Metal. */

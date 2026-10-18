@@ -138,6 +138,13 @@ public final class MetalGlDevice implements GlDevice {
         /** Single-level views for storage-image bindings of mip level i (index = level). */
         @Nullable MTLTexture @Nullable [] levelViews;
 
+        /** Metal texture type: 2D for GL-created textures; engine textures may also be 3D or 2D arrays. */
+        MTLTextureType type = MTLTextureType.Type2D;
+        /** Depth of a 3D texture (1 otherwise). */
+        int depth = 1;
+        /** Array slices (1 unless a 2D array / cube). */
+        int slices = 1;
+
         MetalTexture(final MTLTexture texture, final MTLPixelFormat pixelFormat, final TexFormat format, final int width, final int height,
                      final int levels, final boolean external) {
             this.texture = texture;
@@ -147,6 +154,21 @@ public final class MetalGlDevice implements GlDevice {
             this.height = height;
             this.levels = levels;
             this.external = external;
+        }
+
+        @Override
+        public int depth() {
+            return depth;
+        }
+
+        @Override
+        public int layers() {
+            return slices;
+        }
+
+        @Override
+        public boolean is3D() {
+            return type == MTLTextureType.Type3D;
         }
 
         @Override
@@ -278,6 +300,8 @@ public final class MetalGlDevice implements GlDevice {
             case RGBA32F -> MTLPixelFormat.RGBA32Float;
             case DEPTH32F -> MTLPixelFormat.Depth32Float;
             case DEPTH32F_STENCIL8 -> MTLPixelFormat.Depth32Float_Stencil8;
+            case R32UI -> MTLPixelFormat.R32Uint;
+            case R32I -> MTLPixelFormat.R32Sint;
         };
     }
 
@@ -368,10 +392,17 @@ public final class MetalGlDevice implements GlDevice {
             return cached;
         }
         MTLPixelFormat format = texture.pixelFormat();
-        TexFormat tex = format == MTLPixelFormat.Depth32Float ? TexFormat.DEPTH32F
-                : format == MTLPixelFormat.Depth32Float_Stencil8 ? TexFormat.DEPTH32F_STENCIL8
-                : format == MTLPixelFormat.RGBA16Float ? TexFormat.RGBA16F : TexFormat.RGBA8;
+        TexFormat tex = TexFormat.RGBA8;
+        for (TexFormat candidate : TexFormat.values()) {
+            if (pixelFormat(candidate) == format) {
+                tex = candidate;
+                break;
+            }
+        }
         MetalTexture wrapper = new MetalTexture(texture, format, tex, (int) texture.width(), (int) texture.height(), (int) texture.mipmapLevelCount(), true);
+        wrapper.type = texture.textureType();
+        wrapper.depth = (int) Math.max(1, texture.depth());
+        wrapper.slices = (int) Math.max(1, texture.arrayLength()) * (wrapper.type == MTLTextureType.TypeCube || wrapper.type == MTLTextureType.TypeCubeArray ? 6 : 1);
         if (externalTextures.size() > 16) {
             externalTextures.clear();
         }
@@ -966,6 +997,7 @@ public final class MetalGlDevice implements GlDevice {
         if (level == 0 && texture.levels == 1) {
             return texture.texture;
         }
+        MTLTextureType viewType = texture.type == MTLTextureType.Type3D || texture.type == MTLTextureType.Type2DArray ? texture.type : MTLTextureType.Type2D;
         if (texture.levelViews == null) {
             texture.levelViews = new MTLTexture[texture.levels];
         }
@@ -973,8 +1005,9 @@ public final class MetalGlDevice implements GlDevice {
         MTLTexture view = texture.levelViews[l];
         if (view == null) {
             try (AutoreleasePool _ = AutoreleasePool.push()) {
-                view = texture.texture.newTextureViewWithPixelFormat(texture.pixelFormat, MTLTextureType.Type2D,
-                        new io.github.kokodio.metaljvm.foundation.NSRange(l, 1), new io.github.kokodio.metaljvm.foundation.NSRange(0, 1));
+                view = texture.texture.newTextureViewWithPixelFormat(texture.pixelFormat, viewType,
+                        new io.github.kokodio.metaljvm.foundation.NSRange(l, 1),
+                        new io.github.kokodio.metaljvm.foundation.NSRange(0, viewType == MTLTextureType.Type2DArray ? texture.slices : 1));
             }
             texture.levelViews[l] = view;
         }
@@ -1126,13 +1159,18 @@ public final class MetalGlDevice implements GlDevice {
         prepare(texture, false);
         int w = Math.max(1, texture.width >> level);
         int h = Math.max(1, texture.height >> level);
+        int d = texture.is3D() ? Math.max(1, texture.depth >> level) : 1;
         long row = (long) w * texture.format.bytesPerPixel;
-        long size = row * h;
+        long image = row * h * d;
+        long size = image * texture.slices;
         if (out.remaining() < size) {
             return false;
         }
         MTLBuffer readback = device.newBuffer(size, MTLResourceOptions.StorageModeShared);
-        blitEncoder().copyFromTexture(texture.texture, 0, level, new MTLOrigin(0, 0, 0), new MTLSize(w, h, 1), readback, 0, row, size);
+        for (int slice = 0; slice < texture.slices; slice++) {
+            blitEncoder().copyFromTexture(texture.texture, slice, level, new MTLOrigin(0, 0, 0), new MTLSize(w, h, d), readback, slice * image, row,
+                    row * h);
+        }
         endEncoders();
         commandBuffer = null;
         boolean ok = host.submitAndWait();
@@ -1149,14 +1187,29 @@ public final class MetalGlDevice implements GlDevice {
         prepare(texture, true);
         int w = Math.max(1, texture.width >> level);
         int h = Math.max(1, texture.height >> level);
+        int d = texture.is3D() ? Math.max(1, texture.depth >> level) : 1;
         int bpp = texture.format.bytesPerPixel;
-        long size = (long) w * h * bpp;
-        MTLBuffer staging = device.newBuffer(size, MTLResourceOptions.StorageModeShared);
-        ByteBuffer data = ObjC.byteBufferView(staging.contents(), size);
-        for (long i = 0; i < size; i += bpp) {
-            for (int b = 0; b < bpp; b++) data.put((int) (i + b), texel.get(texel.position() + b % texel.remaining()));
+        long size = (long) w * h * d * bpp;
+        boolean uniform = true;
+        for (int b = 1; b < bpp; b++) {
+            uniform &= texel.get(texel.position() + b % texel.remaining()) == texel.get(texel.position());
         }
-        blitEncoder().copyFromBuffer(staging, 0, (long) w * bpp, size, new MTLSize(w, h, 1), texture.texture, 0, level, new MTLOrigin(0, 0, 0));
+        MTLBuffer staging;
+        if (uniform) {
+            // One byte value everywhere (typically zero): fill on the GPU, no CPU loop over every texel.
+            staging = device.newBuffer(size, MTLResourceOptions.StorageModePrivate);
+            blitEncoder().fillBuffer(staging, new io.github.kokodio.metaljvm.foundation.NSRange(0, size), texel.get(texel.position()));
+        } else {
+            staging = device.newBuffer(size, MTLResourceOptions.StorageModeShared);
+            ByteBuffer data = ObjC.byteBufferView(staging.contents(), size);
+            for (long i = 0; i < size; i += bpp) {
+                for (int b = 0; b < bpp; b++) data.put((int) (i + b), texel.get(texel.position() + b % texel.remaining()));
+            }
+        }
+        for (int slice = 0; slice < texture.slices; slice++) {
+            blitEncoder().copyFromBuffer(staging, 0, (long) w * bpp, (long) w * h * bpp, new MTLSize(w, h, d), texture.texture, slice, level,
+                    new MTLOrigin(0, 0, 0));
+        }
         host.releaseAfterGpu(staging::release);
     }
 
@@ -1180,6 +1233,27 @@ public final class MetalGlDevice implements GlDevice {
         MetalTexture wrapper = external(texture);
         wrapper.engine = engineTexture;
         return wrapper;
+    }
+
+    @Override
+    public boolean copyTextureToBuffer(final TextureStore store, final int level, final BufferStore buffer, final long offset) {
+        MetalTexture texture = (MetalTexture) store;
+        MetalBuffer dst = (MetalBuffer) buffer;
+        prepare(texture, false);
+        int w = Math.max(1, texture.width >> level);
+        int h = Math.max(1, texture.height >> level);
+        int d = texture.is3D() ? Math.max(1, texture.depth >> level) : 1;
+        long row = (long) w * texture.format.bytesPerPixel;
+        long image = row * h * d;
+        if (offset + image * texture.slices > dst.size) {
+            return false;
+        }
+        dst.lastUse = frameUse;
+        for (int slice = 0; slice < texture.slices; slice++) {
+            blitEncoder().copyFromTexture(texture.texture, slice, level, new MTLOrigin(0, 0, 0), new MTLSize(w, h, d), dst.mtl(),
+                    offset + slice * image, row, row * h);
+        }
+        return true;
     }
 
     @Override

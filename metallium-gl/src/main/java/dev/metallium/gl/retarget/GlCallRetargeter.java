@@ -60,7 +60,8 @@ import java.util.regex.Pattern;
  *       gets {@code MetalGLInterop.shadow(obj, "type")} inserted before it: on Metal the engine object is replaced by a
  *       stand-in of that type carrying metallium-gl names (e.g. a mod's {@code ((GlBuffer) buffer)} handle accessor,
  *       a {@code GlSampler} stored in a field). The stack holds the same object type before the cast, so frames are
- *       unaffected.</li>
+ *       unaffected. Casts to types in Mixin packages get the same call: a mod's accessor interface on a GL backend class
+ *       (resolved at run time).</li>
  * </ul>
  */
 public final class GlCallRetargeter {
@@ -219,7 +220,8 @@ public final class GlCallRetargeter {
                     glId.itf = isInterface;
                     insn = after;
                     sites++;
-                } else if (insn instanceof TypeInsnNode cast && cast.getOpcode() == Opcodes.CHECKCAST && SHADOW_CLASSES.contains(cast.desc)) {
+                } else if (insn instanceof TypeInsnNode cast && cast.getOpcode() == Opcodes.CHECKCAST
+                        && (SHADOW_CLASSES.contains(cast.desc) || isMixinType(cast.desc))) {
                     // Any other cast to a GL backend type: on Metal the engine object becomes a stand-in of that type.
                     method.instructions.insertBefore(cast, new LdcInsnNode(cast.desc));
                     method.instructions.insertBefore(cast, new MethodInsnNode(Opcodes.INVOKESTATIC, INTEROP, "shadow",
@@ -242,6 +244,14 @@ public final class GlCallRetargeter {
         ClassWriter writer = new ClassWriter(ClassWriter.COMPUTE_MAXS);
         node.accept(writer);
         return new Result(writer.toByteArray(), sites, unimplemented, references);
+    }
+
+    /**
+     * A type in a Mixin package: possibly a mod's accessor interface that Mixin adds to a GL backend class (e.g.
+     * {@code ((GlBufferAccessor) buffer).getHandle()}); {@link MetalGLInterop#shadow} decides at run time.
+     */
+    static boolean isMixinType(final String internalName) {
+        return internalName.contains("/mixin/") || internalName.contains("/mixins/");
     }
 
     /** The next instruction that is not a label, line number or frame. */

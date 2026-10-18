@@ -158,7 +158,7 @@ final class GlDsa {
         if (texture == null) {
             return failed;
         }
-        if (texture.target != GL_TEXTURE_2D) {
+        if (!GlContext.supportedTarget(texture.target)) {
             MetalGLLog.unsupported("DSA on texture target 0x" + Integer.toHexString(texture.target));
             gl.error(GL_INVALID_OPERATION);
             return failed;
@@ -189,14 +189,14 @@ final class GlDsa {
 
     void textureParameteri(final int name, final int pname, final int value) {
         onTexture(name, null, () -> {
-            gl.texParameteri(GL_TEXTURE_2D, pname, value);
+            gl.texParameteri(texture(name).target, pname, value);
             return null;
         });
     }
 
     void textureParameterf(final int name, final int pname, final float value) {
         onTexture(name, null, () -> {
-            gl.texParameterf(GL_TEXTURE_2D, pname, value);
+            gl.texParameterf(texture(name).target, pname, value);
             return null;
         });
     }
@@ -206,12 +206,12 @@ final class GlDsa {
     }
 
     int getTextureParameteri(final int name, final int pname) {
-        return onTexture(name, 0, () -> gl.getTexParameteri(GL_TEXTURE_2D, pname));
+        return onTexture(name, 0, () -> gl.getTexParameteri(texture(name).target, pname));
     }
 
     void generateTextureMipmap(final int name) {
         onTexture(name, null, () -> {
-            gl.generateMipmap(GL_TEXTURE_2D);
+            gl.generateMipmap(texture(name).target);
             return null;
         });
     }
@@ -230,7 +230,7 @@ final class GlDsa {
         if (texture == null) {
             return;
         }
-        if (texture.target != GL_TEXTURE_2D) {
+        if (!GlContext.supportedTarget(texture.target)) {
             MetalGLLog.unsupported("glBindTextureUnit with target 0x" + Integer.toHexString(texture.target));
             return;
         }

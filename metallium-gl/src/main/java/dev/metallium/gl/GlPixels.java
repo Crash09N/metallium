@@ -109,7 +109,7 @@ final class GlPixels {
 
     /** Client pixels already have the storage layout: rows can be copied as they are. */
     private static boolean sameLayout(final int format, final int type, final TexFormat target) {
-        boolean channelOrder = format == GL_RGBA || format == GL_RG || format == GL_RED;
+        boolean channelOrder = format == GL_RGBA || format == GL_RG || format == GL_RED || format == GL_RED_INTEGER;
         if (!channelOrder || channels(format) != target.channels) {
             return false;
         }
@@ -117,6 +117,8 @@ final class GlPixels {
             case UNORM8 -> type == GL_UNSIGNED_BYTE;
             case HALF -> type == GL_HALF_FLOAT;
             case FLOAT -> type == GL_FLOAT;
+            case UINT -> format == GL_RED_INTEGER && type == GL_UNSIGNED_INT;
+            case SINT -> format == GL_RED_INTEGER && type == GL_INT;
             case DEPTH, DEPTH_STENCIL -> false;
         };
     }
@@ -199,6 +201,7 @@ final class GlPixels {
                 }
             }
             case DEPTH -> out.putFloat(at, rgba[0]);
+            case UINT, SINT -> out.putInt(at, (int) rgba[0]);
             case DEPTH_STENCIL -> {
                 out.putFloat(at, rgba[0]);
                 out.putInt(at + 4, 0);

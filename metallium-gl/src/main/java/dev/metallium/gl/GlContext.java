@@ -510,14 +510,23 @@ public final class GlContext {
         activeTexture = index;
     }
 
+    /**
+     * Texture targets a unit can hold. GL-created textures are 2D; 3D and 2D-array textures come from the engine
+     * (external) and are bound to sample or attach them as images. A unit holds one texture of any target (the last
+     * one bound): mods do not rely on different targets of one unit at the same time.
+     */
+    static boolean supportedTarget(final int target) {
+        return target == GL_TEXTURE_2D || target == GL_TEXTURE_3D || target == GL_TEXTURE_2D_ARRAY;
+    }
+
     public void bindTexture(final int target, final int name) {
-        if (target != GL_TEXTURE_2D) {
+        if (!supportedTarget(target)) {
             MetalGLLog.unsupported("texture target 0x" + Integer.toHexString(target));
             error(GL_INVALID_ENUM);
             return;
         }
         if (name == 0) {
-            bound2D[activeTexture] = null;
+            if (bound2D[activeTexture] != null && bound2D[activeTexture].target == target) bound2D[activeTexture] = null;
             return;
         }
         if (!textures.isReserved(name)) {
@@ -537,12 +546,15 @@ public final class GlContext {
     }
 
     @Nullable Texture boundTexture(final int target) {
-        if (target != GL_TEXTURE_2D) {
+        if (!supportedTarget(target)) {
             MetalGLLog.unsupported("texture target 0x" + Integer.toHexString(target));
             error(GL_INVALID_ENUM);
             return null;
         }
         Texture texture = bound2D[activeTexture];
+        if (texture != null && texture.target != target) {
+            texture = null;
+        }
         if (texture == null) {
             error(GL_INVALID_OPERATION);
         }
@@ -825,6 +837,35 @@ public final class GlContext {
     private static boolean isWrap(final int value) {
         return value == GL_REPEAT || value == GL_CLAMP_TO_EDGE || value == GL_MIRRORED_REPEAT || value == GL_CLAMP_TO_BORDER
                 || value == GL_MIRROR_CLAMP_TO_EDGE;
+    }
+
+    /**
+     * glGetTexImage. Only into a bound pixel-pack buffer (a GPU copy, no wait) and in the storage layout (e.g. RGBA16F
+     * as GL_RGBA / GL_HALF_FLOAT), all layers; client-memory readbacks go through glGetTextureImage.
+     */
+    public void getTexImage(final int target, final int level, final int format, final int type, final long offset) {
+        Texture texture = boundTexture(target);
+        if (texture == null) {
+            return;
+        }
+        if (texture.store == null || level < 0 || level >= texture.levels) {
+            error(texture.store == null ? GL_INVALID_OPERATION : GL_INVALID_VALUE);
+            return;
+        }
+        if (pixelPackBuffer == null || pixelPackBuffer.store == null) {
+            MetalGLLog.unsupported("glGetTexImage into client memory");
+            error(GL_INVALID_OPERATION);
+            return;
+        }
+        if (GlPixels.clientPixelBytes(format, type) != texture.format.bytesPerPixel) {
+            MetalGLLog.unsupported("glGetTexImage " + texture.format + " as 0x" + Integer.toHexString(format) + "/0x" + Integer.toHexString(type));
+            error(GL_INVALID_OPERATION);
+            return;
+        }
+        pixelPackBuffer.gpuWritten = true;
+        if (!device.copyTextureToBuffer(texture.store, level, pixelPackBuffer.store, offset)) {
+            error(GL_INVALID_OPERATION);
+        }
     }
 
     public void generateMipmap(final int target) {
@@ -2280,7 +2321,11 @@ public final class GlContext {
             case GL_VERTEX_ARRAY_BINDING -> out[0] = vertexArray.name;
             case GL_CURRENT_PROGRAM -> out[0] = program == null ? 0 : program.name;
             case GL_ACTIVE_TEXTURE -> out[0] = GL_TEXTURE0 + activeTexture;
-            case GL_TEXTURE_BINDING_2D -> out[0] = bound2D[activeTexture] == null ? 0 : bound2D[activeTexture].name;
+            case GL_TEXTURE_BINDING_2D, GL_TEXTURE_BINDING_3D, GL_TEXTURE_BINDING_2D_ARRAY -> {
+                Texture bound = bound2D[activeTexture];
+                int target = pname == GL_TEXTURE_BINDING_2D ? GL_TEXTURE_2D : pname == GL_TEXTURE_BINDING_3D ? GL_TEXTURE_3D : GL_TEXTURE_2D_ARRAY;
+                out[0] = bound == null || bound.target != target ? 0 : bound.name;
+            }
             case GL_DRAW_FRAMEBUFFER_BINDING -> out[0] = drawFramebuffer == null ? 0 : drawFramebuffer.name;
             case GL_READ_FRAMEBUFFER_BINDING -> out[0] = readFramebuffer == null ? 0 : readFramebuffer.name;
             case GL_RENDERBUFFER_BINDING -> out[0] = boundRenderbuffer == null ? 0 : boundRenderbuffer.name;
@@ -2303,7 +2348,10 @@ public final class GlContext {
             case GL_MAX_SHADER_STORAGE_BUFFER_BINDINGS, GL_MAX_UNIFORM_BUFFER_BINDINGS -> out[0] = GlBindings.MAX_BUFFER_BINDINGS;
             case GL_MAX_COMPUTE_SHADER_STORAGE_BLOCKS, GL_MAX_COMBINED_SHADER_STORAGE_BLOCKS, GL_MAX_FRAGMENT_SHADER_STORAGE_BLOCKS,
                  GL_MAX_VERTEX_SHADER_STORAGE_BLOCKS -> out[0] = 16;
-            case GL_MAX_IMAGE_UNITS -> out[0] = GlBindings.MAX_IMAGE_UNITS;
+            case GL_MAX_IMAGE_UNITS, GL_MAX_COMPUTE_IMAGE_UNIFORMS, GL_MAX_COMBINED_IMAGE_UNIFORMS, GL_MAX_FRAGMENT_IMAGE_UNIFORMS ->
+                    out[0] = GlBindings.MAX_IMAGE_UNITS;
+            case GL_MAX_COMPUTE_TEXTURE_IMAGE_UNITS -> out[0] = MAX_TEXTURE_UNITS;
+            case GL_MAX_COMPUTE_UNIFORM_BLOCKS -> out[0] = GlBindings.MAX_BUFFER_BINDINGS;
             case GL_MAX_COMPUTE_WORK_GROUP_INVOCATIONS -> out[0] = 1024;
             case GL_MAX_COMPUTE_SHARED_MEMORY_SIZE -> out[0] = 32768;
             case GL_MAX_SHADER_STORAGE_BLOCK_SIZE -> out[0] = Integer.MAX_VALUE;

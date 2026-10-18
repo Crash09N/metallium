@@ -93,6 +93,11 @@ final class PhysicsScenario {
         oceanScene(context, tag);
     }
 
+    /** Metallium's status lines (metallium-gl dispatch / draw counters) after a scene. */
+    private void status(final ClientGameTestContext context, final String scene) {
+        line.accept("physics: status after " + scene + ": " + context.computeOnClient(c -> String.join(" | ", dev.metallium.api.MetalliumRuntime.statusLines())));
+    }
+
     /** Physics Mod's static config field (closed source: reached by name, test code only). */
     private void setConfig(final String field, final Object value) {
         try {
@@ -122,8 +127,8 @@ final class PhysicsScenario {
         line.accept("physics: volumetric smoke supported=" + context.computeOnClient(c ->
                 String.valueOf(callStatic("net.diebuddies.render.SmokeVolumeRenderer", "supportsVolumetricSmoke"))));
         command(world, "kill @e[type=!player]");
-        command(world, "fill -6 -60 3 6 -50 12 minecraft:air");
-        command(world, "tp @p 0.5 -60 0.5 0 10");
+        command(world, "fill 24 -61 3 36 -50 12 minecraft:air", "fill 24 -61 3 36 -61 12 minecraft:grass_block");
+        command(world, "tp @p 30.5 -60 0.5 0 10");
         context.waitTicks(40);
         // Liquid source a few blocks up, in front of the player (what Physics Mod's stick tool does on right-click).
         String toggled = context.computeOnClient(client -> {
@@ -132,7 +137,7 @@ final class PhysicsScenario {
                         .getMethod("getInstance", net.minecraft.client.multiplayer.ClientLevel.class).invoke(null, client.level);
                 Object physicsWorld = mod.getClass().getMethod("getPhysicsWorld").invoke(mod);
                 physicsWorld.getClass().getMethod("toggleLiquidSource", net.minecraft.core.BlockPos.class)
-                        .invoke(physicsWorld, new net.minecraft.core.BlockPos(0, -57, 6));
+                        .invoke(physicsWorld, new net.minecraft.core.BlockPos(30, -57, 6));
                 return "ok";
             } catch (ReflectiveOperationException e) {
                 return "failed: " + (e.getCause() != null ? e.getCause() : e);
@@ -143,13 +148,15 @@ final class PhysicsScenario {
         context.takeScreenshot("physics-" + tag + "-liquid");
         context.waitTicks(100);
         context.takeScreenshot("physics-" + tag + "-liquid-later");
-        command(world, "setblock -2 -60 8 minecraft:campfire");
-        command(world, "setblock 2 -60 8 minecraft:campfire");
+        status(context, "liquid");
+        command(world, "setblock 28 -60 8 minecraft:campfire");
+        command(world, "setblock 32 -60 8 minecraft:campfire");
         context.waitTicks(160);
         context.takeScreenshot("physics-" + tag + "-smoke");
-        command(world, "setblock 0 -60 7 minecraft:fire");
+        command(world, "setblock 30 -60 7 minecraft:fire");
         context.waitTicks(60);
         context.takeScreenshot("physics-" + tag + "-smoke-fire");
+        status(context, "smoke");
     }
 
     /** FFT ocean: a natural world, above the nearest ocean. */
@@ -182,6 +189,7 @@ final class PhysicsScenario {
             command(world, "weather thunder");
             context.waitTicks(200);
             context.takeScreenshot("physics-" + tag + "-ocean-storm");
+            status(context, "ocean");
             line.accept("physics: ocean scene done");
         }
     }
