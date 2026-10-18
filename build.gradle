@@ -148,3 +148,20 @@ if (project.hasProperty('withReGlass') || project.hasProperty('withCullLeaves') 
 		}
 	}
 }
+
+// ./gradlew runClientGameTest -PwithDH  → Sodium + Distant Horizons 3.3.4 (26.3, fabric).
+if (project.hasProperty('withDH')) {
+	dependencies {
+		gametestRuntimeOnly "maven.modrinth:sodium:${project.sodium_version}"
+		gametestRuntimeOnly 'maven.modrinth:distanthorizons:TGgEbP9A'
+	}
+}
+
+// ./gradlew runClientGameTest -PwithVoxy=/abs/path/voxy-26.3.jar  → Sodium + a locally built Voxy (branch 263).
+// There is no 26.3 Voxy on Modrinth yet and Voxy is all-rights-reserved: the jar is never committed or redistributed.
+if (project.hasProperty('withVoxy')) {
+	dependencies {
+		gametestRuntimeOnly "maven.modrinth:sodium:${project.sodium_version}"
+		gametestRuntimeOnly files(project.property('withVoxy'))
+	}
+}
