@@ -43,7 +43,7 @@ Iris.createPipeline (mixin, Metal only) -> MetalPostPipeline(ProgramSet)
   member(s); Iris's uniform objects keep calling `IrisRenderSystem.uniform*` / `glUniform*`, which the adapter's
   mixins route to `PostUniforms.set*` on Metal. Blocks are uploaded per draw through `TransientMemory`.
 - **Samplers.** `colortexN` / legacy names -> `PostTargets` (main or alt by flip state), `depthtex0/1/2` -> main depth,
-  `noisetex` -> generated noise, `shadow*` -> white placeholder, anything else -> colortex0 (GL's texture-unit-0
+  `noisetex` -> generated noise, `shadow*` -> shadow maps (stage 4; cleared = fully lit without a shadow pass), anything else -> colortex0 (GL's texture-unit-0
   behaviour that Iris relies on in fullscreen passes). Fragment samplers get the low Metal indices (16 per stage).
 - **No GL on Metal.** Every static `GlStateManager` method is prefixed (bytecode, `GlStateManagerGuard` via the mixin
   plugin) with `if (GlGuard.active()) return <answer>;`, so Iris paths that still call it (pipeline reset, macro

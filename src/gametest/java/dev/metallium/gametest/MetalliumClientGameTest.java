@@ -139,6 +139,17 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
             tryCommand(world, "weather clear");
             tryCommand(world, "execute as @p at @s positioned ^ ^-1 ^4 run setblock ~ ~ ~ minecraft:air");
             tryCommand(world, "execute as @p at @s positioned ^1 ^-1 ^4 run setblock ~ ~ ~ minecraft:air");
+            // Shadow comparison scene (stage 4): a small "tree" (log + leaf canopy) and a wall in the morning sun, which
+            // stands low in the east, so the shadows fall long across the flat ground. Same scene with -Pengine=OPENGL.
+            tryCommand(world, "time set 1500");
+            tryCommand(world, "execute as @p at @s run fill ^-2 ^ ^8 ^-2 ^3 ^8 minecraft:oak_log");
+            tryCommand(world, "execute as @p at @s run fill ^-4 ^3 ^6 ^0 ^5 ^10 minecraft:oak_leaves[persistent=true]");
+            tryCommand(world, "execute as @p at @s run fill ^3 ^ ^10 ^5 ^2 ^10 minecraft:stone_bricks");
+            context.waitTicks(80);
+            clearChat(context);
+            context.takeScreenshot("metallium-iris-external-pack-shadows");
+            tryCommand(world, "execute as @p at @s run fill ^-4 ^ ^6 ^5 ^5 ^10 minecraft:air");
+            tryCommand(world, "time set 6000");
             context.waitTicks(40);
         }
 
