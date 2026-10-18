@@ -55,6 +55,8 @@ final class PostProgram implements AutoCloseable {
     final PostUniforms.Holder uniforms;
     /** Stage 5: storage images/SSBOs outside the renderpearl binding table (bound per draw). */
     final StorageBindings storage;
+    /** Iris texture stage the program belongs to (selects {@code texture.<stage>.*} custom textures). */
+    net.irisshaders.iris.shaderpack.texture.TextureStage stage = net.irisshaders.iris.shaderpack.texture.TextureStage.COMPOSITE_AND_FINAL;
 
     private PostProgram(final String name, final FrontendRenderPipeline pipeline, final Set<String> samplers, final Set<String> compareSamplers,
                         final Map<String, PostUniforms.Block> blocks, final StorageBindings storage) {

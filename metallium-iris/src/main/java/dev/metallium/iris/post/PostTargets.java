@@ -29,8 +29,25 @@ final class PostTargets implements AutoCloseable {
     /** Stage 5: buffers some pass lists in {@code colortexNMipmapEnabled} (allocated with a full mip chain). */
     private final java.util.BitSet mipmapped = new java.util.BitSet();
 
+    /** {@code size.buffer.<name> = w h} overrides (Iris's {@code PackDirectives.getTextureScaleOverride}), or null. */
+    private final net.irisshaders.iris.shaderpack.properties.@org.jspecify.annotations.Nullable PackDirectives sizes;
+
     PostTargets(final PackRenderTargetDirectives directives) {
+        this(directives, null);
+    }
+
+    PostTargets(final PackRenderTargetDirectives directives, final net.irisshaders.iris.shaderpack.properties.@org.jspecify.annotations.Nullable PackDirectives sizes) {
         this.settings = directives.getRenderTargetSettings();
+        this.sizes = sizes;
+    }
+
+    /** Size of buffer {@code index}: the screen size unless the pack sets {@code size.buffer.colortexN} (absolute or relative). */
+    org.joml.Vector2i size(final int index) {
+        if (sizes == null) {
+            return new org.joml.Vector2i(width, height);
+        }
+        org.joml.Vector2i size = sizes.getTextureScaleOverride(index, width, height);
+        return new org.joml.Vector2i(Math.max(1, size.x), Math.max(1, size.y));
     }
 
     static final class Target {
@@ -119,7 +136,8 @@ final class PostTargets implements AutoCloseable {
     Target get(final int index) {
         Target target = targets[index];
         if (target == null) {
-            target = create("iris colortex" + index, format(index), width, height, storage.get(index), mipmapped.get(index));
+            org.joml.Vector2i size = size(index);
+            target = create("iris colortex" + index, format(index), size.x, size.y, storage.get(index), mipmapped.get(index));
             targets[index] = target;
             clear(index, true);
         }

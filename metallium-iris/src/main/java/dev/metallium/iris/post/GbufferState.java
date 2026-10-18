@@ -546,6 +546,9 @@ final class GbufferState implements AutoCloseable {
     }
 
     private void bindSampler(final RenderPass pass, final String name, final GbufferProgram program) {
+        if (owner.bindCustomTexture(pass, TextureStage.GBUFFERS_AND_SHADOW, name)) {
+            return;
+        }
         if (owner.bindShadowSampler(pass, name, program.compareSamplers.contains(name), program.ownSamplers.contains("watershadow"), shadowPass())) {
             return;
         }
