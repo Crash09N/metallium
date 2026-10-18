@@ -296,6 +296,37 @@ public final class GlslProgramTranslator {
         }
     }
 
+    /**
+     * Names of the combined image samplers whose image type is a depth image ({@code sampler2DShadow} etc.): they
+     * sample with a reference compare ({@code sample_compare} in MSL) and need a sampler with a compare function.
+     */
+    public static java.util.Set<String> depthCompareSamplerNames(final ByteBuffer spirv) throws TranslationException {
+        try (MemoryStack stack = MemoryStack.stackPush()) {
+            IntBuffer words = spirv.asIntBuffer();
+            PointerBuffer p = stack.mallocPointer(1);
+            check(Spvc.spvc_context_create(p), "context_create");
+            long context = p.get(0);
+            try {
+                check(Spvc.spvc_context_parse_spirv(context, words, words.remaining(), p), "parse_spirv");
+                long ir = p.get(0);
+                check(Spvc.spvc_context_create_compiler(context, Spvc.SPVC_BACKEND_NONE, ir, Spvc.SPVC_CAPTURE_MODE_TAKE_OWNERSHIP, p), "create_compiler");
+                long compiler = p.get(0);
+                check(Spvc.spvc_compiler_create_shader_resources(compiler, p), "create_shader_resources");
+                long resources = p.get(0);
+                java.util.Set<String> names = new java.util.HashSet<>();
+                for (SpvcReflectedResource resource : list(stack, resources, Spvc.SPVC_RESOURCE_TYPE_SAMPLED_IMAGE)) {
+                    long type = Spvc.spvc_compiler_get_type_handle(compiler, resource.base_type_id());
+                    if (Spvc.spvc_type_get_image_is_depth(type)) {
+                        names.add(resource.nameString());
+                    }
+                }
+                return names;
+            } finally {
+                Spvc.spvc_context_destroy(context);
+            }
+        }
+    }
+
     /** Test hook: varying name -> SPIR-V word offset of its Location operand. */
     static List<Map.Entry<String, Integer>> varyingsForTest(final ByteBuffer spirv, final int resourceType) throws TranslationException {
         return varyings(spirv, resourceType).stream().map(v -> Map.entry(v.name(), v.locationWordOffset())).toList();

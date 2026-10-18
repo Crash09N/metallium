@@ -39,7 +39,7 @@ The blueprint proposed per-draw retargeting hooks in the backend (H1-H6). Stage 
 4. **Binding.** Right after `setPipeline` (`FrontendRenderPass` TAIL) the program's loose uniforms are updated like
    Iris's `ExtendedShader.iris$setupState` (alpha-test reference, `iris_ModelViewMatInverse`, `iris_NormalMat`,
    `iris_ProjMatInverse`, all Iris uniform providers incl. pack custom uniforms) and uploaded as one block per stage;
-   the pack's samplers (colortex, depthtex0/1/2, noisetex, normals/specular defaults, shadow placeholders) are bound.
+   the pack's samplers (colortex, depthtex0/1/2, noisetex, normals/specular defaults, shadow maps since stage 4) are bound.
    Vanilla's own resources keep flowing: Iris renames `DynamicTransforms/Projection/Globals/Fog/CloudInfo` to
    `iris_<Name>` and the textures to `gtexture/lightmap/iris_overlay`; the program's binding table maps them back to the
    names vanilla/Sodium set (`Sampler0`, `u_BlockTex`, `u_LightTex`, `u_Globals`, `u_SectionTimeInfo`, ...). Sodium's
@@ -61,7 +61,9 @@ layout still lacks become constants (`GbufferProgram.defaultMissingInputs`, like
 ## Frame structure on Metal
 
 ```
-beginLevelRendering : resize/clear colortex (colortex0 to fog colour), begin+prepare passes, capture ON (flip: after prepare)
+beginLevelRendering : resize/clear colortex (colortex0 to fog colour), begin passes, capture ON (flip: after prepare)
+renderShadows       : (stage 4) shadow pass, captured into the shadow targets; then prepare passes
+                      (without a shadow pass, prepare runs at beginLevelRendering)
 level frame graph   : sky, terrain (Sodium), entities, particles... -> captured passes -> gbuffers programs
 beginHand           : copy depth -> depthtex2; Iris's HandRenderer draws the solid hand (captured, gbuffers_hand)
 beginTranslucents   : copy depth -> depthtex1, deferred passes, capture continues (flip: after deferred)
@@ -71,7 +73,7 @@ finalizeLevel...    : capture OFF, composite passes, final pass -> main target, 
 
 ## Not supported yet
 
-- Shadow pass (stage 4): `shadow*` samplers stay white placeholders.
+- Shadow pass: implemented in stage 4 (`iris-stage4-shadows.md`); shadow samplers are bound to the real shadow maps.
 - `gbuffers_*` with geometry/tessellation shaders, explicit pack uniform blocks, images/SSBOs (stage 5), or more than
   16 textures in use (Metal: 16 samplers per stage, the backend numbers textures per pipeline): the vanilla shader is
   used for that pipeline (reported once in the log).
@@ -79,4 +81,4 @@ finalizeLevel...    : capture OFF, composite passes, final pass -> main target, 
 - Custom textures (`texture.gbuffers.*`), real PBR normal/specular atlases (defaults are bound).
 - Per-draw uniform freshness: loose uniforms are uploaded per `setPipeline`, not per draw (per-entity IDs come from
   the extended vertex formats, as in Iris).
-- `prepare` passes run at `beginLevelRendering` (Iris runs them after the shadow pass, which does not exist yet).
+- (Resolved in stage 4: `prepare` passes run after the shadow pass, as in Iris.)

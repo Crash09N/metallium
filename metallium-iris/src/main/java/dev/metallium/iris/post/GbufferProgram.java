@@ -78,6 +78,8 @@ final class GbufferProgram implements AutoCloseable {
     final Set<String> ownSamplers;
     /** Vanilla uniform blocks the replaced pipeline does not have (bound from RenderSystem by Metallium). */
     final Set<String> extraBlocks;
+    /** {@code sampler2DShadow}s: need a depth-compare sampler. */
+    final Set<String> compareSamplers;
     /** Uniform-buffer name -> CPU default block of one stage. */
     final Map<String, PostUniforms.Block> blocks;
     final PostUniforms.Holder uniforms;
@@ -88,8 +90,9 @@ final class GbufferProgram implements AutoCloseable {
     final int projectionInverse;
 
     private GbufferProgram(final String name, final FrontendRenderPipeline pipeline, final Set<String> ownSamplers, final Set<String> extraBlocks,
-                           final Map<String, PostUniforms.Block> blocks, final float alphaReference) {
+                           final Map<String, PostUniforms.Block> blocks, final float alphaReference, final Set<String> compareSamplers) {
         this.name = name;
+        this.compareSamplers = compareSamplers;
         this.pipeline = pipeline;
         this.ownSamplers = ownSamplers;
         this.extraBlocks = extraBlocks;
@@ -110,10 +113,29 @@ final class GbufferProgram implements AutoCloseable {
      * @param attachments   colortex index of each colour attachment of the captured pass
      * @param blend         blend for written float attachments (pack override or the replaced pipeline's blend)
      * @param bufferBlends  per-colortex blend overrides ({@code blend.<program>.<buffer>})
+     * @param shadow        shadow pass: no culling and the depth test flipped to forward Z (Iris's MixinGlRenderPipeline)
      */
     record Spec(String name, String vertex, String fragment, RenderPipeline source, VertexFormat vertexFormat,
                 int[] drawBuffers, int[] attachments, List<GpuFormat> attachmentFormats,
-                Optional<BlendFunction> blend, Map<Integer, Optional<BlendFunction>> bufferBlends, float alphaReference) {
+                Optional<BlendFunction> blend, Map<Integer, Optional<BlendFunction>> bufferBlends, float alphaReference, boolean shadow) {
+    }
+
+    /**
+     * The shadow pass uses forward Z (cleared to 1, Iris's shadow projection and {@code DepthTransformer}), the level
+     * pass reversed Z: Iris flips the depth comparison of every pipeline while shadows render.
+     */
+    static com.mojang.renderpearl.api.pipeline.@Nullable DepthStencilState shadowDepth(final com.mojang.renderpearl.api.pipeline.@Nullable DepthStencilState state) {
+        if (state == null) {
+            return null;
+        }
+        com.mojang.renderpearl.api.pipeline.CompareOp flipped = switch (state.depthTest()) {
+            case LESS_THAN -> com.mojang.renderpearl.api.pipeline.CompareOp.GREATER_THAN;
+            case LESS_THAN_OR_EQUAL -> com.mojang.renderpearl.api.pipeline.CompareOp.GREATER_THAN_OR_EQUAL;
+            case GREATER_THAN -> com.mojang.renderpearl.api.pipeline.CompareOp.LESS_THAN;
+            case GREATER_THAN_OR_EQUAL -> com.mojang.renderpearl.api.pipeline.CompareOp.LESS_THAN_OR_EQUAL;
+            default -> state.depthTest();
+        };
+        return new com.mojang.renderpearl.api.pipeline.DepthStencilState(flipped, state.writeDepth(), state.depthBiasScaleFactor(), state.depthBiasConstant());
     }
 
     static GbufferProgram compile(final Spec spec) throws Exception {
@@ -127,6 +149,7 @@ final class GbufferProgram implements AutoCloseable {
         sources.put(Stage.VERTEX, defaultMissingInputs(SODIUM_PUSH_CONSTANTS.matcher(spec.vertex).replaceAll("layout(push_constant) uniform iris_SodiumPushConstants"), available));
         sources.put(Stage.FRAGMENT, spec.fragment);
         Map<Stage, SpirvStage> stages = GlslProgramTranslator.compileToSpirv(spec.name, sources);
+        Set<String> compareSamplers = new LinkedHashSet<>();
 
         List<SPIRVModule> modules = new ArrayList<>();
         Map<String, PostUniforms.Block> blocks = new LinkedHashMap<>();
@@ -159,6 +182,7 @@ final class GbufferProgram implements AutoCloseable {
             Collections.reverse(ordered); // fragment first: it gets the low texture indices (16 samplers per stage)
             for (SpirvStage stage : ordered) {
                 ShaderType type = stage.stage() == Stage.VERTEX ? ShaderType.VERTEX : ShaderType.FRAGMENT;
+                compareSamplers.addAll(GlslProgramTranslator.depthCompareSamplerNames(stage.spirv()));
                 SPIRVModule module = new SPIRVModule(stage.spirv(), type);
                 modules.add(module);
                 if (type == ShaderType.VERTEX) {
@@ -269,9 +293,9 @@ final class GbufferProgram implements AutoCloseable {
                     List.copyOf(attribs),
                     List.copyOf(uniforms),
                     spec.source.pushConstantSize(),
-                    spec.source.getDepthStencilState(),
+                    spec.shadow ? shadowDepth(spec.source.getDepthStencilState()) : spec.source.getDepthStencilState(),
                     spec.source.getPolygonMode(),
-                    spec.source.isCull(),
+                    !spec.shadow && spec.source.isCull(),
                     List.copyOf(colorTargets),
                     spec.source.getPrimitiveTopology());
 
@@ -282,7 +306,7 @@ final class GbufferProgram implements AutoCloseable {
             }
             FrontendRenderPipeline pipeline = new FrontendRenderPipeline("iris/" + spec.name, compiled, Collections.unmodifiableList(frontendFormats),
                     Object2IntMaps.unmodifiable(bindings), List.copyOf(uniforms), List.copyOf(colorTargets), spec.source.wantsDepthTexture(), spec.source.pushConstantSize());
-            GbufferProgram program = new GbufferProgram(spec.name, pipeline, ownSamplers, extraBlocks, blocks, spec.alphaReference);
+            GbufferProgram program = new GbufferProgram(spec.name, pipeline, ownSamplers, extraBlocks, blocks, spec.alphaReference, Set.copyOf(compareSamplers));
             blocks = null; // owned by the program now
             return program;
         } finally {

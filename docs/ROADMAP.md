@@ -59,7 +59,11 @@ Status legend: ✅ done · 🔄 in progress · ⏳ planned · 🔬 needs researc
   lines via Iris's own pipeline mapping and GLSL patcher, Iris's extended vertex formats; deferred passes between
   opaque and translucent geometry; depthtex1/2 copies. Open items: custom textures, PBR atlases, programs with >16
   textures or geometry shaders (vanilla shader used), a test with clouds/weather/block entities
-- ⏳ Stage 4: shadow pass
+- 🔄 Stage 4: shadow pass on Metal (design: `docs/design/iris-stage4-shadows.md`): Iris's shadow pass (adapted
+  `ShadowRenderer`) retargeted to shadowtex0/1 + shadowcolorN, pack `shadow*` programs (cull off, forward-Z depth),
+  shadow samplers incl. `sampler2DShadow` via a Metal depth-compare sampler, prepare passes after the shadow pass.
+  Verified with a synthetic shadow pack and Complementary (matches Iris/OpenGL). Open items: shadowcomp passes,
+  mipmapped shadow maps, DH shadows, `ShadowRenderCallbacks`
 - ⏳ Stage 5: compute, image load/store, SSBO (packs that macOS OpenGL 4.1 cannot run today)
 - ⏳ Stage 6: geometry/tessellation shaders via compute emulation, learning from Mesa's Apple-GPU emulation (MIT)
 - Unsupported features are detected at pack load and reported; never a crash or black screen

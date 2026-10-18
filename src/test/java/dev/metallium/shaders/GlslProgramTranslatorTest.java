@@ -225,6 +225,31 @@ class GlslProgramTranslatorTest {
         }
     }
 
+    @Test
+    void shadowSamplersAreReportedAsDepthCompare() throws Exception {
+        String vs = """
+                #version 330 core
+                in vec3 Position;
+                out vec2 uv;
+                void main() { gl_Position = vec4(Position, 1.0); uv = Position.xy; }
+                """;
+        String fs = """
+                #version 330 core
+                uniform sampler2DShadow shadowtex0;
+                uniform sampler2D shadowtex1;
+                uniform sampler2D colortex0;
+                in vec2 uv;
+                layout(location = 0) out vec4 color;
+                void main() { color = texture(colortex0, uv) * texture(shadowtex0, vec3(uv, 0.5)) + texture(shadowtex1, uv).r; }
+                """;
+        Map<Stage, GlslProgramTranslator.SpirvStage> stages = GlslProgramTranslator.compileToSpirv("composite", sources(vs, fs));
+        try {
+            assertEquals(java.util.Set.of("shadowtex0"), GlslProgramTranslator.depthCompareSamplerNames(stages.get(Stage.FRAGMENT).spirv()));
+        } finally {
+            stages.values().forEach(stage -> org.lwjgl.system.MemoryUtil.memFree(stage.spirv()));
+        }
+    }
+
     private static Map<String, Integer> locations(java.nio.ByteBuffer spirv, int resourceType) throws Exception {
         java.nio.IntBuffer words = spirv.asIntBuffer();
         Map<String, Integer> result = new java.util.TreeMap<>();

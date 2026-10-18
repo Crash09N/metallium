@@ -75,6 +75,7 @@ import java.util.TreeSet;
  */
 final class GbufferState implements AutoCloseable {
     private static final Object NO_KEY = new Object();
+    private static final Object NO_KEY_SHADOW = new Object();
 
     private final MetalPostPipeline owner;
     private final ProgramSet programSet;
@@ -82,6 +83,9 @@ final class GbufferState implements AutoCloseable {
     /** colortex index of each colour attachment of a captured pass (always starts with colortex0). */
     private final int[] attachments;
     private final List<GpuFormat> attachmentFormats = new ArrayList<>();
+    /** Stage 4: shadowcolor index of each colour attachment of a captured shadow pass (always starts with shadowcolor0). */
+    private final int[] shadowAttachments;
+    private final List<GpuFormat> shadowAttachmentFormats = new ArrayList<>();
     private final Map<CompiledRenderPipeline, Map<Object, CompiledRenderPipeline>> substitutes = new IdentityHashMap<>();
     private final Map<CompiledRenderPipeline, GbufferProgram> programs = new IdentityHashMap<>();
     private final Map<CompiledRenderPipeline, CompiledRenderPipeline> formatFixes = new IdentityHashMap<>();
@@ -134,6 +138,24 @@ final class GbufferState implements AutoCloseable {
             attachmentFormats.add(owner.targets().format(buffer));
         }
 
+        TreeSet<Integer> shadowUsed = new TreeSet<>();
+        shadowUsed.add(0);
+        for (ProgramId id : ProgramId.values()) {
+            if (id.getGroup() == ProgramGroup.Shadow) {
+                programSet.get(id).ifPresent(source -> {
+                    for (int buffer : source.getDirectives().getDrawBuffers()) {
+                        if (buffer >= 0 && buffer < ShadowTargets.COLOR_COUNT) {
+                            shadowUsed.add(buffer);
+                        }
+                    }
+                });
+            }
+        }
+        this.shadowAttachments = shadowUsed.stream().limit(ColorTargetState.MAX_COLOR_TARGETS).mapToInt(Integer::intValue).toArray();
+        for (int buffer : shadowAttachments) {
+            shadowAttachmentFormats.add(owner.shadowTargets().colorFormat(buffer));
+        }
+
         var device = RenderSystem.getDevice();
         int usage = GpuTexture.USAGE_TEXTURE_BINDING | GpuTexture.USAGE_COPY_DST;
         this.defaultNormals = device.createTexture("iris default normals", usage, GpuFormat.RGBA8_UNORM, 1, 1, 1, 1);
@@ -159,6 +181,25 @@ final class GbufferState implements AutoCloseable {
             out.append(i == 0 ? "" : ",").append(attachments[i]);
         }
         return out.toString();
+    }
+
+    String shadowAttachmentSummary() {
+        StringBuilder out = new StringBuilder("shadowcolor");
+        for (int i = 0; i < shadowAttachments.length; i++) {
+            out.append(i == 0 ? "" : ",").append(shadowAttachments[i]);
+        }
+        return out.toString();
+    }
+
+    /** Before the shadow pass opens its render passes: creates (and clears) the shadowcolor attachments. */
+    void prepareShadowAttachments() {
+        for (int buffer : shadowAttachments) {
+            owner.shadowTargets().color(buffer);
+        }
+    }
+
+    private static boolean shadowPass() {
+        return net.irisshaders.iris.shadows.ShadowRenderingState.areShadowsCurrentlyBeingRendered();
     }
 
     /** Like IrisRenderingPipeline's constructor: Iris's extended Sodium vertex format, ID maps and lighting settings. */
@@ -245,6 +286,17 @@ final class GbufferState implements AutoCloseable {
     // ---------------------------------------------------------------------------------------------- passes
 
     RenderPassDescriptor descriptor(final RenderPassDescriptor original, final Optional<Vector4fc> clearColor) {
+        if (shadowPass()) {
+            // Stage 4: the shadow pass draws into shadowcolor (main textures; shadowcomp flips come later) and
+            // shadowtex0 (cleared to 1.0 at the start of the shadow pass). The viewport follows the attachment size.
+            ShadowTargets shadow = owner.shadowTargets();
+            RenderPassDescriptor.Builder builder = RenderPassDescriptor.builder(original.label());
+            for (int buffer : shadowAttachments) {
+                builder.withColorAttachment(shadow.color(buffer).view(false), Optional.empty());
+            }
+            builder.withDepthAttachment(shadow.depthView, java.util.OptionalDouble.empty());
+            return builder.build();
+        }
         RenderPassDescriptor.Builder builder = RenderPassDescriptor.builder(original.label());
         for (int buffer : attachments) {
             PostTargets.Target target = owner.targets().get(buffer);
@@ -270,10 +322,11 @@ final class GbufferState implements AutoCloseable {
         } catch (RuntimeException e) {
             MetalliumIris.LOGGER.debug("[metallium-iris] no Iris program key for {}", source.getLocation(), e);
         }
-        if (key != null && key.isShadow()) {
+        boolean shadow = shadowPass();
+        if (key != null && key.isShadow() != shadow) {
             key = null;
         }
-        Object cacheKey = key == null ? NO_KEY : key;
+        Object cacheKey = key == null ? (shadow ? NO_KEY_SHADOW : NO_KEY) : key;
         CompiledRenderPipeline cached = byKey.get(cacheKey);
         if (cached != null && !cached.isClosed()) {
             return cached;
@@ -282,7 +335,7 @@ final class GbufferState implements AutoCloseable {
         if (key != null) {
             ProgramSource programSource = resolver.resolveNullable(key.getProgram());
             if (programSource != null) {
-                GbufferProgram program = compileProgram(key, programSource, source);
+                GbufferProgram program = compileProgram(key, programSource, source, shadow);
                 if (program != null) {
                     programs.put(program.pipeline, program);
                     result = program.pipeline;
@@ -290,14 +343,14 @@ final class GbufferState implements AutoCloseable {
             }
         }
         if (result == null) {
-            result = vanillaVariant(source);
+            result = shadow ? shadowVanillaVariant(source) : vanillaVariant(source);
         }
         byKey.put(cacheKey, result);
         return result;
     }
 
     @Nullable
-    private GbufferProgram compileProgram(final ShaderKey key, final ProgramSource source, final RenderPipeline replaced) {
+    private GbufferProgram compileProgram(final ShaderKey key, final ProgramSource source, final RenderPipeline replaced, final boolean shadow) {
         String name = source.getName() + "/" + key.getName() + "/" + replaced.getLocation().getNamespace() + "/" + replaced.getLocation().getPath();
         if (source.getGeometrySource().isPresent() || source.getTessControlSource().isPresent() || source.getTessEvalSource().isPresent()) {
             report(source.getName(), "geometry/tessellation shaders are not supported on Metal (vanilla shader used)");
@@ -313,7 +366,7 @@ final class GbufferState implements AutoCloseable {
             String vertexSource = source.getVertexSource().orElseThrow();
             String fragmentSource = source.getFragmentSource().orElseThrow();
             if (sodium) {
-                transformed = TransformPatcher.patchSodium(key.getName(), vertexSource, null, null, null, fragmentSource, alpha, textureMap, overrides, false);
+                transformed = TransformPatcher.patchSodium(key.getName(), vertexSource, null, null, null, fragmentSource, alpha, textureMap, overrides, shadow);
             } else {
                 boolean isLines = key.getProgram() == ProgramId.Line && resolver.has(ProgramId.Line);
                 ShaderAttributeInputs inputs = new ShaderAttributeInputs(key.getVertexFormat(), key.shouldIgnoreLightmap(), isLines, key.isGlint(), key.isText(), false);
@@ -332,8 +385,9 @@ final class GbufferState implements AutoCloseable {
             }
 
             GbufferProgram program = GbufferProgram.compile(new GbufferProgram.Spec(name, transformed.get(PatchShaderType.VERTEX),
-                    transformed.get(PatchShaderType.FRAGMENT), replaced, vertexFormat, directives.getDrawBuffers(), attachments,
-                    attachmentFormats, blend, bufferBlends, alpha.reference()));
+                    transformed.get(PatchShaderType.FRAGMENT), replaced, vertexFormat, directives.getDrawBuffers(),
+                    shadow ? shadowAttachments : attachments, shadow ? shadowAttachmentFormats : attachmentFormats, blend, bufferBlends,
+                    alpha.reference(), shadow));
             var customUniforms = owner.customUniforms();
             CommonUniforms.addDynamicUniforms(program.uniforms, FogMode.PER_VERTEX);
             customUniforms.assignTo(program.uniforms);
@@ -369,6 +423,19 @@ final class GbufferState implements AutoCloseable {
     }
 
     /**
+     * Shadow pass without a pack program for this pipeline: the vanilla shader writes depth only (Iris's fallback
+     * shadow shader writes no shadowcolor either), cull off, forward-Z depth test.
+     */
+    private CompiledRenderPipeline shadowVanillaVariant(final RenderPipeline source) {
+        ColorTargetState[] states = new ColorTargetState[ColorTargetState.MAX_COLOR_TARGETS];
+        for (int i = 0; i < shadowAttachments.length; i++) {
+            states[i] = new ColorTargetState(Optional.empty(), shadowAttachmentFormats.get(i), ColorTargetState.WRITE_NONE);
+        }
+        MetalliumIris.LOGGER.info("[metallium-iris] {} has no shadow program; its vanilla shader writes shadow depth only", source.getLocation());
+        return copyPipeline(source, states, shadowAttachments.length, "shadow/", true);
+    }
+
+    /**
      * A pass that is not captured (e.g. the entity outline target) while Iris's extended vertex formats are active: the
      * vanilla pipeline was compiled for the vanilla layout, but the buffers now carry the extended one, so it is
      * recompiled for the current layout (same shaders and colour targets).
@@ -401,6 +468,11 @@ final class GbufferState implements AutoCloseable {
     }
 
     private static CompiledRenderPipeline copyPipeline(final RenderPipeline source, final ColorTargetState[] states, final int stateCount, final String prefix) {
+        return copyPipeline(source, states, stateCount, prefix, false);
+    }
+
+    private static CompiledRenderPipeline copyPipeline(final RenderPipeline source, final ColorTargetState[] states, final int stateCount, final String prefix,
+                                                       final boolean shadow) {
         VertexFormat[] formats = new VertexFormat[16];
         List<VertexFormat> bindings = source.getVertexFormatBindings();
         for (int i = 0; i < Math.min(16, bindings.size()); i++) {
@@ -411,8 +483,9 @@ final class GbufferState implements AutoCloseable {
             formats[0] = WorldRenderingSettings.INSTANCE.getVertexFormat().getVertexFormat();
         }
         RenderPipeline.Snippet snippet = new RenderPipeline.Snippet(source.getShaders(), Optional.of(source.getShaderDefines()),
-                Optional.of(source.getBindGroupLayouts()), states, stateCount, Optional.ofNullable(source.getDepthStencilState()),
-                Optional.of(source.getPolygonMode()), Optional.of(source.isCull()), formats, Optional.of(source.getPrimitiveTopology()),
+                Optional.of(source.getBindGroupLayouts()), states, stateCount,
+                Optional.ofNullable(shadow ? GbufferProgram.shadowDepth(source.getDepthStencilState()) : source.getDepthStencilState()),
+                Optional.of(source.getPolygonMode()), Optional.of(!shadow && source.isCull()), formats, Optional.of(source.getPrimitiveTopology()),
                 source.pushConstantSize());
         RenderPipeline copy = RenderPipeline.builder(snippet)
                 .withLocation(Identifier.fromNamespaceAndPath("metallium", prefix + source.getLocation().getNamespace() + "/" + source.getLocation().getPath()))
@@ -435,7 +508,9 @@ final class GbufferState implements AutoCloseable {
             PostUniforms.setMatrix(program.normalMatrix, 3, modelView.invert(tempMatrix).transpose3x3(tempMatrix3).get(floats9));
         }
         if (program.projectionInverse >= 0) {
-            PostUniforms.setMatrix(program.projectionInverse, 4, new Matrix4f(CapturedRenderingState.INSTANCE.getGbufferProjection()).invert().get(floats16));
+            Matrix4f projection = shadowPass() ? net.irisshaders.iris.helpers.MatrixUtils.undoRevZ(net.irisshaders.iris.shadows.ShadowRenderer.PROJECTION)
+                    : new Matrix4f(CapturedRenderingState.INSTANCE.getGbufferProjection());
+            PostUniforms.setMatrix(program.projectionInverse, 4, projection.invert().get(floats16));
         }
         program.uniforms.update();
         owner.customUniforms().push(program);
@@ -457,11 +532,14 @@ final class GbufferState implements AutoCloseable {
             pass.setUniform(block, slice);
         }
         for (String sampler : program.ownSamplers) {
-            bindSampler(pass, sampler);
+            bindSampler(pass, sampler, program);
         }
     }
 
-    private void bindSampler(final RenderPass pass, final String name) {
+    private void bindSampler(final RenderPass pass, final String name, final GbufferProgram program) {
+        if (owner.bindShadowSampler(pass, name, program.compareSamplers.contains(name), program.ownSamplers.contains("watershadow"), shadowPass())) {
+            return;
+        }
         int colortex = MetalPostPipeline.colortexIndex(name);
         if (colortex >= 0) {
             PostTargets.Target target = owner.targets().getIfPresent(colortex);

@@ -13,3 +13,6 @@ Third-party code included in this distribution:
   (LICENSES/MIT-metallum.txt). Basis of the Metal backend in dev.metallium.backend.
 - metal-jvm (https://github.com/kokodio/metal-jvm), Copyright (c) 2026 kokodio, MIT License
   (LICENSES/MIT-metal-jvm.txt). Bundled as a dependency.
+- Iris (https://github.com/IrisShaders/Iris), Copyright (c) IrisShaders contributors, LGPL-3.0
+  (metallium-iris/LICENSE). Adapted code only in the separate metallium-iris module (LGPL-3.0):
+  dev.metallium.iris.post.MetalShadowRenderer is adapted from Iris's ShadowRenderer.

@@ -38,6 +38,20 @@ final class MetalGpuSampler implements GpuSampler {
             final int maxAnisotropy,
             final OptionalDouble maxLod
     ) {
+        this(device, addressModeU, addressModeV, minFilter, magFilter, maxAnisotropy, maxLod, null);
+    }
+
+    /** With a depth compare function (GL's {@code GL_TEXTURE_COMPARE_MODE}), for {@code sample_compare} in MSL. */
+    MetalGpuSampler(
+            final MetalDevice device,
+            final AddressMode addressModeU,
+            final AddressMode addressModeV,
+            final FilterMode minFilter,
+            final FilterMode magFilter,
+            final int maxAnisotropy,
+            final OptionalDouble maxLod,
+            final com.mojang.renderpearl.api.pipeline.@org.jspecify.annotations.Nullable CompareOp compare
+    ) {
         this.device = device;
         MTLSamplerDescriptor descriptor = MTLSamplerDescriptor.alloc().init();
         descriptor.setMinFilter(MetalConversions.minMagFilter(minFilter));
@@ -49,6 +63,9 @@ final class MetalGpuSampler implements GpuSampler {
         descriptor.setLodMinClamp(0.0f);
         double lodMaxClamp = toMtlMaxLodClamp(maxLod);
         descriptor.setLodMaxClamp(lodMaxClamp >= 0.0 && Double.isFinite(lodMaxClamp) ? (float) lodMaxClamp : Float.MAX_VALUE);
+        if (compare != null) {
+            descriptor.setCompareFunction(MetalConversions.compareFunction(compare));
+        }
         this.metalSampler = MetalUtilities.nonNil(device.metalDevice().newSamplerState(descriptor), "newSamplerStateWithDescriptor:");
         descriptor.release();
         this.addressModeU = addressModeU;

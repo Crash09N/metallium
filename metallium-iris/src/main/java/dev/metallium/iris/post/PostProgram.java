@@ -48,12 +48,16 @@ final class PostProgram implements AutoCloseable {
     final FrontendRenderPipeline pipeline;
     /** Combined image samplers the program uses (union over stages). */
     final Set<String> samplers;
+    /** {@code sampler2DShadow}s among them: need a depth-compare sampler. */
+    final Set<String> compareSamplers;
     /** Uniform-buffer name (as bound with {@code RenderPass.setUniform}) -> CPU block of that stage. */
     final Map<String, PostUniforms.Block> blocks;
     final PostUniforms.Holder uniforms;
 
-    private PostProgram(final String name, final FrontendRenderPipeline pipeline, final Set<String> samplers, final Map<String, PostUniforms.Block> blocks) {
+    private PostProgram(final String name, final FrontendRenderPipeline pipeline, final Set<String> samplers, final Set<String> compareSamplers,
+                        final Map<String, PostUniforms.Block> blocks) {
         this.name = name;
+        this.compareSamplers = compareSamplers;
         this.pipeline = pipeline;
         this.samplers = samplers;
         this.blocks = blocks;
@@ -80,6 +84,7 @@ final class PostProgram implements AutoCloseable {
             Object2IntOpenHashMap<String> bindings = new Object2IntOpenHashMap<>();
             List<BindGroupLayout.UniformDescription> uniforms = new ArrayList<>();
             Set<String> samplers = new LinkedHashSet<>();
+            Set<String> compareSamplers = new LinkedHashSet<>();
             SPIRVModule vertexModule = null;
             // Fragment first: Metal allows 16 samplers per stage but the backend numbers textures per pipeline, so the
             // stage with most samplers gets the low indices.
@@ -87,6 +92,7 @@ final class PostProgram implements AutoCloseable {
             java.util.Collections.reverse(ordered);
             for (SpirvStage stage : ordered) {
                 ShaderType type = stage.stage() == Stage.VERTEX ? ShaderType.VERTEX : ShaderType.FRAGMENT;
+                compareSamplers.addAll(GlslProgramTranslator.depthCompareSamplerNames(stage.spirv()));
                 SPIRVModule module = new SPIRVModule(stage.spirv(), type);
                 modules.add(module);
                 if (type == ShaderType.VERTEX) {
@@ -157,7 +163,7 @@ final class PostProgram implements AutoCloseable {
             formats[0] = QUAD_FORMAT;
             FrontendRenderPipeline pipeline = new FrontendRenderPipeline("iris/" + name, compiled, Arrays.asList(formats),
                     Object2IntMaps.unmodifiable(bindings), List.copyOf(uniforms), colorTargets, false, 0);
-            PostProgram program = new PostProgram(name, pipeline, samplers, blocks);
+            PostProgram program = new PostProgram(name, pipeline, samplers, Set.copyOf(compareSamplers), blocks);
             blocks = null; // owned by the program now
             return program;
         } finally {
