@@ -59,6 +59,7 @@ final class MetalDevice implements GpuDeviceBackend {
         MetalUtilities.init(this.metalDevice);
         this.commandEncoder = new MetalCommandEncoder(this);
         this.deviceInfo = buildDeviceInfo(deviceName);
+        MetalliumInterop.attach(this);
     }
 
     @Override
