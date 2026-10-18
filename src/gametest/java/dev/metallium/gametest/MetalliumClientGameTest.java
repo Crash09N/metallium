@@ -31,7 +31,6 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
         context.runOnClient(client -> {
             client.options.enableVsync().set(false);
             client.options.framerateLimit().set(260); // 260 = unlimited
-            client.options.renderDistance().set(16);
             client.options.chunkSectionFadeInTime().set(0.0);
         });
         try (TestSingleplayerContext world = context.worldBuilder()
@@ -39,7 +38,9 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
                 .adjustSettings(state -> state.setSeed(BENCH_SEED))
                 .create()) {
             world.getConnection().waitForChunksRender();
-            context.waitTicks(400); // let section building finish at RD 16
+            // Raise the render distance only after the initial load (waitForChunksRender at RD 16 times out).
+            context.runOnClient(client -> client.options.renderDistance().set(16));
+            context.waitTicks(900); // ~45 s: let chunk loading and section building finish at RD 16
             checkTerrainVisible(context.takeScreenshot("metallium-bench-view"), "bench view");
             sodiumStats(context, "bench");
 
