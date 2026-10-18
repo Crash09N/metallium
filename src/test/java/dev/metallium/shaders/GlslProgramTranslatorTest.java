@@ -300,7 +300,7 @@ class GlslProgramTranslatorTest {
                 vec4 fetch(sampler2D sampler, vec2 coord) { return textureLod(sampler, coord, 0.0); }
                 float length_squared(vec3 v) { return dot(v, v); }
                 float saturate(float x) { return clamp(x, 0.0, 1.0); }
-                void main() { color = fetch(colortex0, vec2(0.5)) * saturate(length_squared(vec3(0.5))); }
+                void main() { bool new = true; color = fetch(colortex0, vec2(0.5)) * saturate(length_squared(vec3(new ? 0.5 : 0.25))); }
                 """);
         Program program = GlslProgramTranslator.translate("bicubic", sources);
         assertTrue(names(program.stages().get(Stage.FRAGMENT), ResourceBinding.Kind.SAMPLED_TEXTURE).contains("colortex0"));

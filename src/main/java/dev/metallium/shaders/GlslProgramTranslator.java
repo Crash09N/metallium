@@ -536,10 +536,11 @@ public final class GlslProgramTranslator {
      * GL identifiers that cannot survive the trip: {@code sampler}/{@code samplerShadow} are reserved words only in
      * Vulkan GLSL, which glslang applies even with relaxed rules (Photon: {@code sampler2D sampler}); the others are
      * Metal standard-library functions that packs define themselves, which become ambiguous overloads in MSL
-     * ({@code using namespace metal}; Photon: {@code length_squared}).
+     * ({@code using namespace metal}; Photon: {@code length_squared}), or C++/MSL keywords that are plain GLSL names
+     * (BSL: {@code bool new}).
      */
     private static final Pattern VULKAN_ONLY_KEYWORDS = Pattern.compile(
-            "\\b(sampler|samplerShadow|length_squared|distance_squared|saturate|max3|min3|median3|powr|rsqrt)\\b");
+            "\\b(sampler|samplerShadow|length_squared|distance_squared|saturate|max3|min3|median3|powr|rsqrt|new|delete|this|template|typename|namespace|operator|friend|virtual|explicit|mutable|private|protected|public|kernel|device|thread|threadgroup|register)\\b");
 
     static ByteBuffer compileToSpirv(final String programName, final Stage stage, final String glslSource) throws TranslationException {
         String source = VULKAN_ONLY_KEYWORDS.matcher(glslSource).replaceAll("metallium_$1");
