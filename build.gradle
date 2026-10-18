@@ -100,6 +100,9 @@ loom.runs.clientGameTest {
 	vmArg '-Xmx4G'
 	vmArg '--enable-native-access=ALL-UNNAMED'
 	vmArg "-Dmetallium.gametest.expectBackend=${System.getenv('METALLIUM_EXPECT_BACKEND') ?: ''}"
+	if (project.hasProperty('bench')) vmArg '-Dmetallium.gametest.mode=bench'
+	if (project.hasProperty('backendOff')) vmArg '-Dmetallium.backend=off'
+	if (project.hasProperty('benchSeconds')) vmArg "-Dmetallium.bench.seconds=${project.property('benchSeconds')}"
 }
 
 // ./gradlew runClientGameTest -PwithSodium  → runs the game tests with Sodium loaded.
