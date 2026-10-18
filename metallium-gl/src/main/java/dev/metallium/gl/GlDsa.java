@@ -258,7 +258,10 @@ final class GlDsa {
             return;
         }
         int w = Math.max(1, texture.width >> level);
-        int h = Math.max(1, texture.height >> level);
+        // 3D: depth slices of the level; 2D array: all layers; each image follows the previous one (pack image height 0)
+        int images = texture.target == GL_TEXTURE_3D ? Math.max(1, texture.depth >> level)
+                : texture.target == GL_TEXTURE_2D_ARRAY ? Math.max(1, texture.depth) : 1;
+        int h = Math.max(1, texture.height >> level) * images;
         int bpp = storage.bytesPerPixel;
         long size = (long) w * h * bpp;
         // GL pack state: row length / skips / alignment describe the client layout.

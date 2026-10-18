@@ -127,7 +127,8 @@ final class PhysicsScenario {
         line.accept("physics: volumetric smoke supported=" + context.computeOnClient(c ->
                 String.valueOf(callStatic("net.diebuddies.render.SmokeVolumeRenderer", "supportsVolumetricSmoke"))));
         command(world, "kill @e[type=!player]");
-        command(world, "fill 24 -61 3 36 -50 12 minecraft:air", "fill 24 -61 3 36 -61 12 minecraft:grass_block");
+        command(world, "fill 24 -61 3 36 -50 12 minecraft:air");
+        command(world, "fill 24 -61 3 36 -61 12 minecraft:grass_block");
         command(world, "tp @p 30.5 -60 0.5 0 10");
         context.waitTicks(40);
         // Liquid source a few blocks up, in front of the player (what Physics Mod's stick tool does on right-click).

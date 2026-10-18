@@ -122,7 +122,11 @@ public final class PhysicsModCompat {
         descriptor.setHeight(Math.max(1, height));
         descriptor.setDepth(Math.max(1, depth));
         descriptor.setMipmapLevelCount(Math.max(1, mipLevels));
-        descriptor.setUsage(MTLTextureUsage.ShaderRead | (storage ? MTLTextureUsage.ShaderWrite : 0));
+        boolean integer = format == GpuFormat.R32_UINT || format == GpuFormat.R32_SINT;
+        // Storage images are written by compute shaders; integer ones with atomics, which Metal only performs on
+        // textures created with ShaderAtomic usage (without it the writes of a 3D texture land in its first slice).
+        descriptor.setUsage(MTLTextureUsage.ShaderRead | (storage ? MTLTextureUsage.ShaderWrite : 0)
+                | (storage && integer ? MTLTextureUsage.ShaderAtomic : 0));
         descriptor.setStorageMode(MTLStorageMode.Shared);
         descriptor.setHazardTrackingMode(MTLHazardTrackingMode.Untracked);
         MTLTexture texture = MetalliumInterop.device().newTexture(descriptor);
