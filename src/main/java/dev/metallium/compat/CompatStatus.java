@@ -118,12 +118,11 @@ public final class CompatStatus {
             rows.add(Row.of(line.substring(0, line.length() - 2), Tone.INFO));
         }
 
-        List<String> extra = MetalliumRuntime.statusLines();
+        List<String> extra = new ArrayList<>(MetalliumRuntime.statusLines());
+        extra.removeIf(line -> line.startsWith("Power:")); // already shown above
         if (!extra.isEmpty()) {
             rows.add(Row.of("Adapters", Tone.HEADER));
-            for (String line : extra) {
-                if (!line.startsWith("Power:")) rows.add(Row.of(line, Tone.INFO)); // already shown above
-            }
+            for (String line : extra) rows.add(Row.of(line, Tone.INFO));
         }
         return rows;
     }

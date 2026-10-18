@@ -856,6 +856,18 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
         for (String row : dev.metallium.compat.CompatStatus.text().split("\n")) {
             line("compat-status: " + row);
         }
+        if (net.fabricmc.loader.api.FabricLoader.getInstance().isModLoaded("sodium")) {
+            sodiumMetalliumTab(context);
+        } else {
+            // Vanilla Video Settings: Metallium section (power mode + status button) at the end of the list.
+            context.runOnClient(client -> client.gui.setScreen(
+                    new net.minecraft.client.gui.screens.options.VideoSettingsScreen(null, client, client.options)));
+            context.waitTicks(5);
+            context.runOnClient(client -> client.gui.screen().mouseScrolled(client.gui.screen().width / 2.0,
+                    client.gui.screen().height / 2.0, 0, -1000));
+            context.waitTicks(5);
+            context.takeScreenshot("metallium-vanilla-video-settings");
+        }
         context.runOnClient(client -> client.gui.setScreen(new dev.metallium.screen.MetalliumStatusScreen(null)));
         context.waitTicks(10);
         context.takeScreenshot("metallium-status-screen");
@@ -911,6 +923,48 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
             writeReport();
         }
         if (!failures.isEmpty()) throw new AssertionError(String.join("; ", failures));
+    }
+
+    /** Screenshots of the Metallium tab's pages in Sodium's video settings (via reflection; Sodium is optional). */
+    private void sodiumMetalliumTab(ClientGameTestContext context) {
+        List<Object> pages = context.computeOnClient(client -> {
+            try {
+                Class<?> manager = Class.forName("net.caffeinemc.mods.sodium.client.config.ConfigManager");
+                Object config = manager.getField("CONFIG").get(null);
+                for (Object mod : (List<?>) config.getClass().getMethod("getModOptions").invoke(config)) {
+                    if ("metallium".equals(mod.getClass().getMethod("configId").invoke(mod))) {
+                        return new ArrayList<Object>((List<?>) mod.getClass().getMethod("pages").invoke(mod));
+                    }
+                }
+                return List.<Object>of();
+            } catch (ReflectiveOperationException e) {
+                line("sodium tab: unavailable: " + e);
+                return List.<Object>of();
+            }
+        });
+        line("sodium tab: metallium pages=" + pages.size());
+        if (pages.size() < 2) failures.add("sodium tab: expected General + Power pages, got " + pages.size());
+        for (int i = 0; i < pages.size(); i++) {
+            Object page = pages.get(i);
+            boolean opened = context.computeOnClient(client -> {
+                try {
+                    Class<?> screen = Class.forName("net.caffeinemc.mods.sodium.client.gui.VideoSettingsScreen");
+                    Class<?> optionPage = Class.forName("net.caffeinemc.mods.sodium.client.config.structure.OptionPage");
+                    if (!optionPage.isInstance(page)) return false;
+                    client.gui.setScreen((net.minecraft.client.gui.screens.Screen) screen.getMethod("createScreen",
+                            net.minecraft.client.gui.screens.Screen.class, optionPage).invoke(null, null, page));
+                    return true;
+                } catch (ReflectiveOperationException e) {
+                    line("sodium tab: could not open page: " + e);
+                    return false;
+                }
+            });
+            if (opened) {
+                context.waitTicks(10);
+                context.takeScreenshot("metallium-sodium-tab-" + i);
+            }
+        }
+        context.runOnClient(client -> client.gui.setScreen(null));
     }
 
     /** Bench add-on (-Dmetallium.bench.power=true): 10 s each in Performance and Low Power, same scene. */
