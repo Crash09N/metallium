@@ -73,8 +73,12 @@ public final class GlRouting {
         }
     }
 
-    /** Excluded from the scan and automatic routing, but routable on explicit request. */
-    static final Set<String> EXPLICIT_ONLY = Set.of("voxy");
+    /**
+     * Mods excluded from the scan that metallium-gl routes as a whole (every class) by the same policy as scanned raw-GL
+     * mods: Voxy (OpenGL 4.6 renderer, verified on Metal 2026-10-18; without metallium-gl Metallium's safe-disable
+     * mixin keeps the game running with Voxy off).
+     */
+    static final Set<String> WHOLE_MOD = Set.of("voxy");
 
     private static @Nullable Map<String, Decision> plan;
     private static volatile boolean hooked;
@@ -91,12 +95,9 @@ public final class GlRouting {
             boolean metal = BackendSelection.shouldOfferMetal();
             MetalliumConfig config = MetalliumConfig.INSTANCE;
             plan = decide(ModScan.results(), authorChoices(), userList(), config.modOverrides, config.glAutoRouting, glInstalled, metal);
-            // Mods excluded from automatic routing because Metallium has dedicated compat for them (Voxy is disabled on
-            // Metal) can still be routed explicitly (-Dmetallium.gl.mods / override METALLIUM_GL): experimental.
-            for (String id : EXPLICIT_ONLY) {
-                if (loader.isModLoaded(id) && glInstalled
-                        && (userList().contains(id) || config.modOverrides.getOrDefault(id, ModOverride.AUTO) == ModOverride.METALLIUM_GL)) {
-                    plan.put(id, new Decision(id, Status.ROUTED, "routed explicitly (experimental)", List.of(), List.of(), true, false));
+            for (String id : WHOLE_MOD) {
+                if (loader.isModLoaded(id)) {
+                    plan.put(id, decideWholeMod(id, userList(), config.modOverrides, config.glAutoRouting, glInstalled, metal));
                 }
             }
             List<CrashGuard.RoutedMod> routed = new ArrayList<>();
@@ -154,6 +155,30 @@ public final class GlRouting {
             result.put(id, decision);
         }
         return result;
+    }
+
+    /** Policy for a {@link #WHOLE_MOD} mod (unit-tested): like a scanned raw-GL mod, but all classes are retargeted. */
+    static Decision decideWholeMod(final String id, final Set<String> userList, final Map<String, ModOverride> overrides, final boolean autoRouting,
+                                   final boolean glInstalled, final boolean metal) {
+        ModOverride override = overrides.getOrDefault(id, ModOverride.AUTO);
+        if (override == ModOverride.NATIVE) {
+            return new Decision(id, Status.OPTED_OUT, "override: native (Metallium disables it on Metal)", List.of(), List.of(), false, false);
+        }
+        if (override == ModOverride.METALLIUM_GL || userList.contains(id)) {
+            String why = override == ModOverride.METALLIUM_GL ? "override: metallium-gl" : "listed in metallium.gl.mods";
+            return glInstalled ? new Decision(id, Status.ROUTED, why, List.of(), List.of(), true, false)
+                    : new Decision(id, Status.NEEDS_METALLIUM_GL, why + ", but metallium-gl is not installed", List.of(), List.of(), false, false);
+        }
+        if (!metal) {
+            return new Decision(id, Status.OPENGL_ENGINE, "Metal not active; real OpenGL", List.of(), List.of(), false, false);
+        }
+        if (!autoRouting) {
+            return new Decision(id, Status.AUTO_ROUTING_OFF, "automatic metallium-gl routing is off", List.of(), List.of(), false, false);
+        }
+        if (!glInstalled) {
+            return new Decision(id, Status.NEEDS_METALLIUM_GL, "OpenGL 4.6 renderer; install metallium-gl to run it on Metal", List.of(), List.of(), false, false);
+        }
+        return new Decision(id, Status.ROUTED, "OpenGL 4.6 renderer, all classes routed automatically", List.of(), List.of(), true, true);
     }
 
     private static Map<String, AuthorChoice> authorChoices() {

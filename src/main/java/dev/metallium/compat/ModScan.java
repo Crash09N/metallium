@@ -53,7 +53,7 @@ public final class ModScan {
             Map.entry("sodium", "Metallium's Sodium backend"),
             Map.entry("iris", "Metallium Iris adapter"),
             Map.entry("distanthorizons", "Metallium's Distant Horizons compat"),
-            Map.entry("voxy", "disabled on Metal by Metallium (needs OpenGL 4.6)"));
+            Map.entry("voxy", "routed as a whole through metallium-gl (OpenGL 4.6); see GlRouting.WHOLE_MOD"));
     private static final int CACHE_VERSION = 2; // 2: mixins into the GL backend are not reported
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().disableHtmlEscaping().create();
 
