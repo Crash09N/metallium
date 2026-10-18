@@ -88,3 +88,17 @@ Background: `vanilla-renderpearl.md` TL;DR. Premise used here: on Metal, raw `or
 3. Meshelium's gate treats "not Vulkan" as OpenGL, so the only collision is its "switch to Vulkan" popup. Suggest documenting `showVulkanPrompt=false` / `-Dmeshelium.sodium.adapter=false` or shipping a 1-class compat mixin.
 4. Light Overlay needs an upstream or local port to 26.x before any test; Metal is not the blocker.
 5. Nothing here needs `metallium-gl`. A Metallium extension API (custom pipeline types: mesh/object, indirect command buffers) would only matter for a future Metal-native mesh terrain path inspired by Meshelium/Nvidium, not for any compatibility goal in this batch.
+
+---
+
+## Runtime-verified on M3 Max (2026-10-18)
+
+Apple M3 Max, macOS 27.0.1, Metal backend, each mod together with Sodium 0.9.2, via the game-test variants `./gradlew :runClientGameTest -PwithReGlass | -PwithCullLeaves | -PwithMoreCulling` (Cull Leaves and More Culling are mutually exclusive). Mod jars are Modrinth version ids (`lmGLWyTl` ReGlass 2.1.1, `jqOVPlQ8` Cull Leaves 4.1.2, `t7vAlfgO` More Culling 1.9.0 + Cloth Config `fg2uyxOW`); use ids because Modrinth version numbers are shared across MC versions (`reglass:2.1.1` resolves to the 1.21.11 jar and fails to load). Fabric mod ids: `reglass`, `cullleaves`, `moreculling`.
+
+| Mod | Loads | Renders correctly | Errors / validation in latest.log | Result |
+|---|---|---|---|---|
+| ReGlass 2.1.1 | yes | yes: glass panels with backdrop blur on the HUD (hotbar, health/food), inventory, pause menu (buttons, icons, labels) and title screen; world terrain unaffected (coverage 1.00) | none from ReGlass (only the usual offline-account/Realms noise) | PASS |
+| Cull Leaves 4.1.2 | yes | yes: leaves culled/hollow, terrain coverage 0.99-1.00 | none | PASS |
+| More Culling 1.9.0 | yes | yes: terrain, trees and water fine, coverage 1.00; logged "Cached all modded block culling states" | none | PASS |
+
+Notes: the title-screen screenshot is taken during vanilla's button fade-in, so labels are not yet drawn there (not a ReGlass issue). Metal API validation (`MTL_DEBUG_LAYER`) was not enabled in these local runs. The prediction in the summary table ((a) for all three) held; no compat code was needed. The three variants are in the CI matrix.

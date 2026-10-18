@@ -126,3 +126,21 @@ if (project.hasProperty('withIris')) {
 		gametestRuntimeOnly project(':metallium-iris')
 	}
 }
+
+// Mod-compat game-test variants (Sodium + the mod; one Minecraft run each):
+//   ./gradlew runClientGameTest -PwithReGlass | -PwithCullLeaves | -PwithMoreCulling
+// Cull Leaves and More Culling are mutually exclusive in one run.
+if (project.hasProperty('withReGlass') || project.hasProperty('withCullLeaves') || project.hasProperty('withMoreCulling')) {
+	if (project.hasProperty('withCullLeaves') && project.hasProperty('withMoreCulling')) {
+		throw new GradleException('-PwithCullLeaves and -PwithMoreCulling cannot be combined')
+	}
+	dependencies {
+		gametestRuntimeOnly "maven.modrinth:sodium:${project.sodium_version}"
+		if (project.hasProperty('withReGlass')) gametestRuntimeOnly 'maven.modrinth:reglass:lmGLWyTl' // 2.1.1 for 26.3 (version numbers are shared across MC versions, so use the id)
+		if (project.hasProperty('withCullLeaves')) gametestRuntimeOnly 'maven.modrinth:cull-leaves:jqOVPlQ8'
+		if (project.hasProperty('withMoreCulling')) {
+			gametestRuntimeOnly 'maven.modrinth:moreculling:t7vAlfgO'
+			gametestRuntimeOnly 'maven.modrinth:cloth-config:fg2uyxOW' // required dependency of More Culling
+		}
+	}
+}
