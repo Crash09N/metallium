@@ -16,6 +16,28 @@ Verified on GitHub's macOS arm64 runners (virtual M1, "Apple Paravirtual device"
 
 Full plan: `docs/ROADMAP.md`.
 
+### Backend performance (Roadmap phase 2), M3 Max, 2026-10-18
+
+Bench: `./gradlew :runClientGameTest -PwithSodium -Pbench` (seed `metallium`, fixed spectator camera, RD16, VSync off,
+854×480 window). Add `-PperfCounters` for per-submit backend counters (encoders, blits by kind, draws, submit wait, GPU time).
+
+| | avg fps | frame p50 |
+|---|---|---|
+| Metal before (vsync-locked) | 119.7 | 8.01 ms |
+| Metal after, window visible | 3507–3914 | 0.07 ms |
+| Metal after, screen locked / window occluded | 277 (was 160 with the blocking acquire) | 0.47 ms |
+| OpenGL, same scene (coordinator) | ~1017 | 0.21 ms |
+
+- Cause of the cap: with VSync off the frontend picks MAILBOX (`displaySyncEnabled=false`), but a windowed CAMetalLayer
+  only returns drawables at the display refresh, so the blocking `nextDrawable()` capped Metal at 120 fps (ProMotion).
+  Fix: with VSync off, present only when the previous present reached the display and a drawable acquired by a helper
+  thread is ready; otherwise skip the drawable blit (the frame is still rendered) — mailbox-like frame dropping.
+- Per frame the bench scene needs only ~1 render encoder, 0.5 blit encoders (a `copyToBuffer`), ~9 draw calls and
+  0.04 ms of GPU time, so the encoder/fence/upload items of phase 2 (global fence, blit batching, load/store actions)
+  have nothing measurable to gain here; they need a heavier scene (Iris passes, larger window) to be evaluated.
+- Tried and dropped (no measurable gain): polling `MTLCommandBuffer.status` instead of completed-handler upcalls;
+  4 instead of 3 submits in flight.
+
 Next steps:
 1. Owner test on M3 Max (`docs/TESTING-ON-MAC.md`): decides whether the Sodium bug is backend or virtual-GPU specific.
 2. Fix Sodium terrain on Metal.
