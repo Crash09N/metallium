@@ -201,7 +201,8 @@ class GlContextTest {
         // "enable" of an unsupported extension: a warning in GL, and its macro is undefined.
         int optional = MetalGL.glCreateShader(GL_COMPUTE_SHADER);
         MetalGL.glShaderSource(optional, "#version 450\n#extension GL_ARB_gpu_shader_int64 : enable\n#ifdef GL_ARB_gpu_shader_int64\n"
-                + "#error int64 must look unsupported\n#endif\nlayout(local_size_x=32) in;\nvoid main() { }\n");
+                + "#error int64 must look unsupported\n#endif\n#ifdef NOT_DEFINED\n#extension GL_NV_fragment_shader_barycentric : require\n#endif\n"
+                + "layout(local_size_x=32) in;\nvoid main() { }\n");
         MetalGL.glCompileShader(optional);
         assertEquals(GL_TRUE, MetalGL.glGetShaderi(optional, GL_COMPILE_STATUS), MetalGL.glGetShaderInfoLog(optional));
     }

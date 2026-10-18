@@ -100,7 +100,7 @@ final class GlProgramLinker {
     static @Nullable String checkCompile(final String label, final Stage stage, final String source) {
         Matcher unsupported = UNSUPPORTED_EXTENSION.matcher(source);
         while (unsupported.find()) {
-            if (unsupported.group(2).equals("require")) {
+            if (unsupported.group(2).equals("require") && activeAfterPreprocessing(label, stage, source, unsupported.group())) {
                 return "0:0: error: extension " + unsupported.group(1) + " is not supported (metallium-gl)";
             }
         }
@@ -110,6 +110,16 @@ final class GlProgramLinker {
             return null;
         } catch (GlslProgramTranslator.TranslationException | RuntimeException e) {
             return e.getMessage() == null ? e.toString() : e.getMessage();
+        }
+    }
+
+    /** True if {@code directive} survives the preprocessor (is not inside a false #if). */
+    private static boolean activeAfterPreprocessing(final String label, final Stage stage, final String source, final String directive) {
+        try {
+            String marked = glCompat(source.replace(directive, "METALLIUM_ACTIVE_REQUIRE_MARKER"));
+            return GlslProgramTranslator.preprocess(label, stage, marked).contains("METALLIUM_ACTIVE_REQUIRE_MARKER");
+        } catch (GlslProgramTranslator.TranslationException | RuntimeException e) {
+            return true;
         }
     }
 
