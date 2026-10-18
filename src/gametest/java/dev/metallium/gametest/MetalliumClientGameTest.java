@@ -541,6 +541,7 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
             line(mod + " loaded: " + net.fabricmc.loader.api.FabricLoader.getInstance().isModLoaded(mod));
         }
         context.takeScreenshot("metallium-title");
+        graphicsApiLabelsTest(context);
 
         if ("bench".equals(System.getProperty("metallium.gametest.mode"))) {
             try {
@@ -718,6 +719,65 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
         }
         writeReport();
         Runtime.getRuntime().halt(failures.isEmpty() ? 0 : 1);
+    }
+
+    /** Graphics API labels: vanilla caption() and (with Sodium) Sodium's option element names / tooltip + screenshot. */
+    private void graphicsApiLabelsTest(ClientGameTestContext context) {
+        boolean relabel = dev.metallium.GraphicsApiLabels.relabelDefault();
+        String metal = "Metal (via Metallium)";
+        for (net.minecraft.client.PreferredGraphicsApi api : net.minecraft.client.PreferredGraphicsApi.values()) {
+            String vanilla = context.computeOnClient(client -> api.caption().getString());
+            line("graphicsApi vanilla caption " + api + ": " + vanilla);
+            boolean expectMetal = relabel && api == net.minecraft.client.PreferredGraphicsApi.DEFAULT;
+            if (expectMetal != vanilla.equals(metal)) {
+                failures.add("vanilla Graphics API caption for " + api + " wrong: " + vanilla);
+            }
+        }
+        if (!net.fabricmc.loader.api.FabricLoader.getInstance().isModLoaded("sodium")) {
+            return;
+        }
+        String result = context.computeOnClient(client -> {
+            try {
+                Class<?> manager = Class.forName("net.caffeinemc.mods.sodium.client.config.ConfigManager");
+                Object config = manager.getField("CONFIG").get(null);
+                Object id = net.minecraft.resources.Identifier.parse("sodium:general.graphics_api");
+                Object option = config.getClass().getMethod("getOption", id.getClass()).invoke(config, id);
+                java.lang.reflect.Method name = null;
+                for (java.lang.reflect.Method method : option.getClass().getMethods()) {
+                    if (method.getName().equals("getElementName")) {
+                        name = method;
+                    }
+                }
+                StringBuilder out = new StringBuilder();
+                for (net.minecraft.client.PreferredGraphicsApi api : net.minecraft.client.PreferredGraphicsApi.values()) {
+                    out.append(api).append('=').append(((net.minecraft.network.chat.Component) name.invoke(option, api)).getString()).append(';');
+                }
+                Object tip = option.getClass().getMethod("getTooltip").invoke(option);
+                out.append("tooltip=").append(((net.minecraft.network.chat.Component) tip).getString());
+                return out.toString();
+            } catch (ReflectiveOperationException | RuntimeException e) {
+                return "unavailable: " + e;
+            }
+        });
+        line("graphicsApi sodium option: " + result);
+        String defaultName = result.contains("DEFAULT=") ? result.split("DEFAULT=")[1].split(";")[0] : "";
+        if (result.startsWith("unavailable") || relabel != defaultName.equals(metal)
+                || !result.contains("OPENGL=Prefer OpenGL;") || !result.contains("VULKAN=Prefer Vulkan;")) {
+            failures.add("Sodium Graphics API option names wrong: " + result);
+        }
+        context.runOnClient(client -> {
+            try {
+                Class<?> screen = Class.forName("net.caffeinemc.mods.sodium.client.gui.VideoSettingsScreen");
+                client.setScreenAndShow((net.minecraft.client.gui.screens.Screen) screen
+                        .getMethod("createScreen", net.minecraft.client.gui.screens.Screen.class).invoke(null, (Object) null));
+            } catch (ReflectiveOperationException e) {
+                line("sodium video settings screen unavailable: " + e);
+            }
+        });
+        context.waitTicks(20);
+        context.takeScreenshot("metallium-sodium-video-settings");
+        context.runOnClient(client -> client.setScreenAndShow(null));
+        context.waitTicks(5);
     }
 
     /** F3 overlay screenshot; with Sodium also the draw-path label Sodium prints ("Terrain Rendering: ..."). */

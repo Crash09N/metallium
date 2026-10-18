@@ -5,7 +5,9 @@
   "mixins": [
   ],
   "client": [
-    "DrawBackendMixin"
+    "DrawBackendMixin",
+    "EnumOptionMixin",
+    "StatefulOptionMixin"
   ],
   "injectors": {
     "defaultRequire": 0

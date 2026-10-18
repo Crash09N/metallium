@@ -1,0 +1,4 @@
+{
+  "metallium.graphicsApi.metal": "Metal (via Metallium)",
+  "metallium.graphicsApi.metal.tooltip": "Renders with Apple's Metal through Metallium and falls back to OpenGL if Metal is unavailable. Choose Prefer OpenGL to use vanilla's OpenGL renderer."
+}

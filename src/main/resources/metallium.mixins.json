@@ -5,6 +5,7 @@
   "client": [
     "DebugEntrySystemSpecsMixin",
     "OptionsMixin",
+    "PreferredGraphicsApiCaptionMixin",
     "PreferredGraphicsApiMixin"
   ],
   "injectors": {
