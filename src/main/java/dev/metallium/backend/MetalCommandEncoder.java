@@ -20,6 +20,7 @@ import io.github.kokodio.metaljvm.metal.*;
 import io.github.kokodio.metaljvm.objc.AutoreleasePool;
 import io.github.kokodio.metaljvm.objc.ObjC;
 import io.github.kokodio.metaljvm.objc.ObjCBlock;
+import io.github.kokodio.metaljvm.quartzcore.CAMetalDrawable;
 import io.github.kokodio.metaljvm.quartzcore.CAMetalLayer;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import net.fabricmc.api.EnvType;
@@ -352,13 +353,21 @@ final class MetalCommandEncoder implements CommandEncoderBackend {
         }
     }
 
-    boolean presentTextureToDrawable(final CAMetalLayer layer, final GpuTextureView textureView, final long presentedHandler) {
-        MetalGpuTexture source = (MetalGpuTexture) textureView.texture();
-        flushPendingClear(source);
+    boolean presentTextureToDrawable(final CAMetalLayer layer, final GpuTextureView textureView) {
+        MTLCommandBuffer commandBuffer = prepareForPresent(textureView);
+        return MetalUtilities.encodePresentTextureToDrawable(commandBuffer, layer, ((MetalGpuTexture) textureView.texture()).metalTexture(), fence);
+    }
+
+    void presentTextureToDrawable(final CAMetalDrawable drawable, final GpuTextureView textureView, final long presentedHandler) {
+        MTLCommandBuffer commandBuffer = prepareForPresent(textureView);
+        MetalUtilities.encodePresentTextureToDrawable(commandBuffer, drawable, ((MetalGpuTexture) textureView.texture()).metalTexture(), fence, presentedHandler);
+    }
+
+    private MTLCommandBuffer prepareForPresent(final GpuTextureView textureView) {
+        flushPendingClear((MetalGpuTexture) textureView.texture());
         submitRenderPass();
         endEncoder();
-        MTLCommandBuffer commandBuffer = commandBuffer();
-        return MetalUtilities.encodePresentTextureToDrawable(commandBuffer, layer, source.metalTexture(), fence, presentedHandler);
+        return commandBuffer();
     }
 
     @Override

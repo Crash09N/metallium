@@ -201,18 +201,32 @@ final class MetalUtilities {
         encoder.drawPrimitives(MTLPrimitiveType.Triangle, 0, 3, 1, 0);
     }
 
+    /** Acquires the next drawable (blocking) and encodes the present blit into it. */
     static boolean encodePresentTextureToDrawable(
             final MTLCommandBuffer commandBuffer,
             final CAMetalLayer layer,
             final MTLTexture sourceTexture,
-            final MTLFence globalFence,
-            final long presentedHandler
+            final MTLFence globalFence
     ) {
         try (AutoreleasePool _ = AutoreleasePool.push()) {
             CAMetalDrawable drawable = layer.nextDrawable();
             if (drawable == null) {
                 return false;
             }
+            encodePresentTextureToDrawable(commandBuffer, drawable, sourceTexture, globalFence, 0L);
+            return true;
+        }
+    }
+
+    /** Encodes the present blit into an already acquired drawable and schedules its presentation. */
+    static void encodePresentTextureToDrawable(
+            final MTLCommandBuffer commandBuffer,
+            final CAMetalDrawable drawable,
+            final MTLTexture sourceTexture,
+            final MTLFence globalFence,
+            final long presentedHandler
+    ) {
+        try (AutoreleasePool _ = AutoreleasePool.push()) {
             MTLTexture drawableTexture = drawable.texture();
 
             MTLRenderPassDescriptor renderPass = MTLRenderPassDescriptor.alloc().init();
@@ -248,7 +262,6 @@ final class MetalUtilities {
                 drawable.addPresentedHandler(presentedHandler);
             }
             commandBuffer.presentDrawable(drawable);
-            return true;
         }
     }
 
