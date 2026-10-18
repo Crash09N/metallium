@@ -792,7 +792,7 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
             distantHorizonsTest(context);
             return;
         }
-        if (net.fabricmc.loader.api.FabricLoader.getInstance().isModLoaded("voxy")
+        if (Boolean.getBoolean("metallium.gametest.voxyScenario") || net.fabricmc.loader.api.FabricLoader.getInstance().isModLoaded("voxy")
                 && System.getProperty("metallium.gl.routedMods", "").contains("voxy")) {
             voxyTest(context);
             return;
