@@ -64,7 +64,7 @@ final class MetalGpuTexture extends BaseGpuTexture {
         }
         descriptor.setTextureType(this.textureType);
         descriptor.setMipmapLevelCount(Math.max(mipLevels, 1));
-        descriptor.setUsage(toMtlTextureUsage(usage));
+        descriptor.setUsage(toMtlTextureUsage(usage, format));
         descriptor.setStorageMode(MTLStorageMode.Private);
         descriptor.setHazardTrackingMode(MTLHazardTrackingMode.Untracked);
         this.metalTexture = MetalUtilities.nonNil(device.metalDevice().newTexture(descriptor), "newTextureWithDescriptor:");
@@ -150,8 +150,15 @@ final class MetalGpuTexture extends BaseGpuTexture {
         return this.closed;
     }
 
-    private static long toMtlTextureUsage(@GpuTexture.Usage final int usage) {
+    private static long toMtlTextureUsage(@GpuTexture.Usage final int usage, final GpuFormat format) {
         long result = 0L;
+        if ((usage & MetalliumInterop.TEXTURE_USAGE_STORAGE) != 0) {
+            // Metallium extension: compute image load/store (and native image atomics on 32-bit integer formats).
+            result |= MTLTextureUsage.ShaderRead | MTLTextureUsage.ShaderWrite;
+            if (format == GpuFormat.R32_UINT || format == GpuFormat.R32_SINT) {
+                result |= MTLTextureUsage.ShaderAtomic;
+            }
+        }
         if ((usage & GpuTexture.USAGE_TEXTURE_BINDING) != 0 || (usage & GpuTexture.USAGE_COPY_DST) != 0 || (usage & GpuTexture.USAGE_COPY_SRC) != 0) {
             result |= MTLTextureUsage.ShaderRead;
         }
