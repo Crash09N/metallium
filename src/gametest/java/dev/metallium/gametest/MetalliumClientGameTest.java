@@ -242,6 +242,9 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
         line("sodium loaded: " + net.fabricmc.loader.api.FabricLoader.getInstance().isModLoaded("sodium"));
         line("iris loaded: " + net.fabricmc.loader.api.FabricLoader.getInstance().isModLoaded("iris")
                 + ", adapter: " + net.fabricmc.loader.api.FabricLoader.getInstance().isModLoaded("metallium-iris"));
+        for (String mod : new String[] {"reglass", "cullleaves", "moreculling"}) {
+            line(mod + " loaded: " + net.fabricmc.loader.api.FabricLoader.getInstance().isModLoaded(mod));
+        }
         context.takeScreenshot("metallium-title");
 
         if ("bench".equals(System.getProperty("metallium.gametest.mode"))) {
@@ -261,6 +264,9 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
                 context.waitTicks(SETTLE_TICKS);
                 checkTerrainVisible(context.takeScreenshot("metallium-flat-world"), "flat world");
                 measure(context, "flat world");
+                if (net.fabricmc.loader.api.FabricLoader.getInstance().isModLoaded("reglass")) {
+                    reglassScreens(context);
+                }
                 // Diagnostic A/B: chunk fade-in off (Sodium reads per-section fade times from a texel buffer).
                 context.runOnClient(client -> client.options.chunkSectionFadeInTime().set(0.0));
                 context.waitTicks(20);
@@ -335,6 +341,25 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
         } catch (IOException e) {
             line(scene + ": could not analyse screenshot: " + e);
         }
+    }
+
+    /** ReGlass restyles the hotbar, inventory and pause/options screens: open them and screenshot. */
+    private void reglassScreens(ClientGameTestContext context) {
+        context.takeScreenshot("metallium-reglass-hud");
+        context.runOnClient(client -> client.setScreenAndShow(new net.minecraft.client.gui.screens.inventory.InventoryScreen(client.player)));
+        context.waitTicks(30);
+        context.takeScreenshot("metallium-reglass-inventory");
+        context.runOnClient(client -> client.setScreenAndShow(null));
+        context.runOnClient(client -> client.setScreenAndShow(new net.minecraft.client.gui.screens.PauseScreen(true)));
+        context.waitTicks(30);
+        context.takeScreenshot("metallium-reglass-pause");
+        context.runOnClient(client -> client.setScreenAndShow(new net.minecraft.client.gui.screens.options.OptionsScreen(
+                new net.minecraft.client.gui.screens.PauseScreen(true), client.options)));
+        context.waitTicks(30);
+        context.takeScreenshot("metallium-reglass-options");
+        context.runOnClient(client -> client.setScreenAndShow(null));
+        context.waitTicks(10);
+        line("reglass screens: opened HUD, inventory, pause, options");
     }
 
     /** Sodium's own section statistics (via reflection, Sodium is optional): built vs visible sections. */
