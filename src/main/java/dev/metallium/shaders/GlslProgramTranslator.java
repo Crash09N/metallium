@@ -555,8 +555,98 @@ public final class GlslProgramTranslator {
     private static final Pattern VULKAN_ONLY_KEYWORDS = Pattern.compile(
             "\\b(sampler|samplerShadow|length_squared|distance_squared|saturate|max3|min3|median3|powr|rsqrt|new|delete|this|template|typename|namespace|operator|friend|virtual|explicit|mutable|private|protected|public|kernel|device|thread|threadgroup|register|bias|level|min_lod_clamp|nullptr|constexpr|decltype|noexcept|throw|try|catch|alignas|alignof|static_assert|thread_local|export|typeid|dynamic_cast|static_cast|const_cast|reinterpret_cast)\\b");
 
+    /**
+     * Built-in functions (name -> number of genType parameters) that old ({@code #version 120}) packs define themselves
+     * because their GLSL version lacks them: Bliss has {@code float tanh(float)} and {@code float fma(float, float, float)}.
+     * Iris raises such programs to {@code #version 330}, where the definition duplicates the built-in and glslang rejects
+     * it ("'highp' : overloaded functions must have the same parameter precision qualifiers").
+     */
+    private static final Map<String, Integer> REDEFINABLE_BUILTINS = Map.of(
+            "tanh", 1, "sinh", 1, "cosh", 1, "asinh", 1, "acosh", 1, "atanh", 1, "round", 1, "roundEven", 1, "trunc", 1, "fma", 3);
+    private static final Pattern BUILTIN_REDEFINITION = Pattern.compile(
+            "\\b(float|vec[234])\\s+(" + String.join("|", REDEFINABLE_BUILTINS.keySet()) + ")\\s*\\(([^)]*)\\)\\s*\\{");
+    private static final List<String> GEN_TYPES = List.of("float", "vec2", "vec3", "vec4");
+
+    /**
+     * Renames a pack's own definitions of built-ins ({@link #REDEFINABLE_BUILTINS}) and every call of that name to
+     * {@code metallium_<name>}; overloads the pack does not define forward to the built-in, so calls with other types
+     * still reach it. Only definitions whose signature equals a built-in overload ({@code T f(T, ...)}) are renamed.
+     */
+    static String renameBuiltinRedefinitions(final String source) {
+        Map<String, java.util.Set<String>> defined = new LinkedHashMap<>();
+        Map<String, Integer> firstDefinition = new LinkedHashMap<>();
+        Matcher m = BUILTIN_REDEFINITION.matcher(source);
+        while (m.find()) {
+            String type = m.group(1);
+            String name = m.group(2);
+            String[] params = m.group(3).split(",");
+            if (params.length != REDEFINABLE_BUILTINS.get(name)) {
+                continue;
+            }
+            boolean sameType = true;
+            for (String param : params) {
+                String[] words = param.trim().split("\\s+");
+                // [const] [in] T name
+                if (words.length < 2 || !words[words.length - 2].equals(type)) {
+                    sameType = false;
+                    break;
+                }
+            }
+            if (sameType) {
+                defined.computeIfAbsent(name, k -> new java.util.LinkedHashSet<>()).add(type);
+                firstDefinition.putIfAbsent(name, m.start());
+            }
+        }
+        if (defined.isEmpty()) {
+            return source;
+        }
+        // Forwarders go right before the first renamed definition (global scope, before any use of the new name).
+        java.util.TreeMap<Integer, StringBuilder> inserts = new java.util.TreeMap<>();
+        for (Map.Entry<String, java.util.Set<String>> entry : defined.entrySet()) {
+            String name = entry.getKey();
+            int arity = REDEFINABLE_BUILTINS.get(name);
+            StringBuilder forwards = inserts.computeIfAbsent(firstDefinition.get(name), k -> new StringBuilder());
+            for (String type : GEN_TYPES) {
+                if (entry.getValue().contains(type)) {
+                    continue;
+                }
+                StringBuilder params = new StringBuilder();
+                StringBuilder args = new StringBuilder();
+                for (int i = 0; i < arity; i++) {
+                    params.append(i > 0 ? ", " : "").append(type).append(" a").append(i);
+                    args.append(i > 0 ? ", " : "").append('a').append(i);
+                }
+                // fma is a built-in only from #version 400 (or gpu_shader5): forward to the expression instead.
+                String body = name.equals("fma") ? "a0 * a1 + a2" : name + "(" + args + ")";
+                forwards.append(type).append(" metallium_").append(name).append('(').append(params).append(") { return ").append(body).append("; }\n");
+            }
+        }
+        String renamed = source;
+        // Insert from the back so earlier offsets stay valid, then rename (forwarders call the built-in by its own name).
+        StringBuilder out = new StringBuilder(source);
+        for (Map.Entry<Integer, StringBuilder> insert : inserts.descendingMap().entrySet()) {
+            out.insert(insert.getKey(), "\u0000" + insert.getValue() + "\u0001");
+        }
+        renamed = out.toString();
+        Pattern calls = Pattern.compile("\\b(" + String.join("|", defined.keySet()) + ")(\\s*\\()");
+        StringBuilder result = new StringBuilder();
+        int from = 0;
+        while (from < renamed.length()) {
+            int start = renamed.indexOf('\u0000', from);
+            int end = start < 0 ? renamed.length() : start;
+            result.append(calls.matcher(renamed.substring(from, end)).replaceAll("metallium_$1$2"));
+            if (start < 0) {
+                break;
+            }
+            int close = renamed.indexOf('\u0001', start);
+            result.append(renamed, start + 1, close);
+            from = close + 1;
+        }
+        return result.toString();
+    }
+
     static ByteBuffer compileToSpirv(final String programName, final Stage stage, final String glslSource) throws TranslationException {
-        String source = VULKAN_ONLY_KEYWORDS.matcher(glslSource).replaceAll("metallium_$1");
+        String source = renameBuiltinRedefinitions(VULKAN_ONLY_KEYWORDS.matcher(glslSource).replaceAll("metallium_$1"));
         if (!VERSION.matcher(source).find()) {
             throw new TranslationException(programName + "/" + stage + ": missing #version directive");
         }

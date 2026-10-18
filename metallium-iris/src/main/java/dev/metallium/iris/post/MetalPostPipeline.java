@@ -337,8 +337,9 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
         if (programDirectives.getBlendModeOverride().isPresent()) {
             problems.add(name + ": blend override not supported yet (blending off)");
         }
+        Map<PatchShaderType, String> transformed = null;
         try {
-            Map<PatchShaderType, String> transformed = TransformPatcher.patchComposite(name,
+            transformed = TransformPatcher.patchComposite(name,
                     source.getVertexSource().orElseThrow(), null, source.getFragmentSource().orElseThrow(), stage, getTextureMap(), getTextureOverrides(stage));
             PostProgram program = PostProgram.compile(name, transformed.get(PatchShaderType.VERTEX), transformed.get(PatchShaderType.FRAGMENT), formats,
                     storageValidator());
@@ -351,6 +352,7 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
             String message = e.getMessage() == null ? e.toString() : e.getMessage().lines().findFirst().orElse(e.toString());
             problems.add(name + ": failed to translate (" + message + ")");
             MetalliumIris.LOGGER.warn("[metallium-iris] Program {} could not be translated for Metal", name, e);
+            GbufferState.dumpSources(name, transformed);
             return null;
         }
     }

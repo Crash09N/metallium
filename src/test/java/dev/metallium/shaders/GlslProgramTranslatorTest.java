@@ -337,6 +337,31 @@ class GlslProgramTranslatorTest {
     }
 
     @Test
+    void ownDefinitionsOfNewerBuiltinsAreRenamed() throws Exception {
+        // Bliss (#version 120, raised to 330 by Iris): float tanh(float) and float fma(float, float, float) duplicate
+        // built-ins; other overloads must still reach the built-in.
+        Map<Stage, String> sources = new EnumMap<>(Stage.class);
+        sources.put(Stage.FRAGMENT, """
+                #version 330 core
+                layout(location = 0) out vec4 color;
+                float tanh(float x){
+                	return (exp(x) - exp(-x))/(exp(x) + exp(-x));
+                }
+                float fma(float a,float b,float c){ return a * b + c; }
+                void main() { color = vec4(tanh(0.5), fma(1.0, 2.0, 3.0), tanh(vec2(0.25)).x, 1.0); }
+                """);
+        Program program = GlslProgramTranslator.translate("tanh", sources);
+        compileWithMetalIfAvailable(program);
+        String renamed = GlslProgramTranslator.renameBuiltinRedefinitions("float tanh(float x) { return x; }\nvoid main() { tanh(1.0); tanh(vec3(1.0)); }");
+        assertTrue(renamed.contains("float metallium_tanh(float x)"), renamed);
+        assertTrue(renamed.contains("vec3 metallium_tanh(vec3 a0) { return tanh(a0); }"), renamed);
+        assertTrue(renamed.contains("metallium_tanh(vec3(1.0))"), renamed);
+        // A different signature is a legal overload: left alone.
+        String overload = "float round(float x, float step) { return x; }\nvoid main() { round(1.0, 2.0); }";
+        assertEquals(overload, GlslProgramTranslator.renameBuiltinRedefinitions(overload));
+    }
+
+    @Test
     void structVaryingsTakeOneLocationPerMember() throws Exception {
         // Photon: "flat out CloudsParameters clouds_params;" next to plain varyings.
         String common = "struct Params { vec2 coverage; vec2 detail; float height; };\n";

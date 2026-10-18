@@ -587,7 +587,7 @@ final class GbufferState implements AutoCloseable {
     }
 
     /** Writes the Iris-patched GLSL of a program that failed to translate to {@code <game dir>/metallium-iris-debug/}. */
-    private static void dumpSources(final String name, @Nullable final Map<PatchShaderType, String> transformed) {
+    static void dumpSources(final String name, @Nullable final Map<PatchShaderType, String> transformed) {
         if (transformed == null) {
             return;
         }
