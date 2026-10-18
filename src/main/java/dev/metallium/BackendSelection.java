@@ -22,6 +22,7 @@ public final class BackendSelection {
     public static synchronized Decision decision() {
         if (decision == null) {
             decision = decide();
+            dev.metallium.compat.CrashGuard.recordMetal(decision.offerMetal());
         }
         return decision;
     }
@@ -63,7 +64,7 @@ public final class BackendSelection {
         }
 
         if (!forced && dev.metallium.compat.CrashGuard.safeMode()) {
-            return new Decision(false, "the last session crashed in Metallium or a mod running through metallium-gl; OpenGL this session");
+            return new Decision(false, "crash recovery: the last session crashed in Metallium, a mod running through metallium-gl, or during start-up on Metal; OpenGL this session");
         }
 
         FabricLoader loader = FabricLoader.getInstance();

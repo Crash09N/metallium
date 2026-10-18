@@ -79,6 +79,46 @@ class CrashGuardTest {
         assertTrue(r.suspects().isEmpty());
     }
 
+    private static final CrashGuard.RoutedMod PHYSICS = new CrashGuard.RoutedMod("physics", "Physics", List.of("com.example.physics"), "/mods/physics.jar", true);
+
+    private static CrashGuard.Marker marker(final boolean metal, final boolean started) {
+        CrashGuard.Marker marker = new CrashGuard.Marker();
+        marker.start = System.currentTimeMillis() - 60_000;
+        marker.routed = List.of(MAP, PHYSICS);
+        marker.metal = metal;
+        marker.started = started;
+        return marker;
+    }
+
+    @Test
+    void silentDeathDuringMetalStartupGivesSafeMode(@TempDir final Path game) {
+        // e.g. LWJGL "No context is current" abort: no crash report, no hs_err, start-up never finished.
+        CrashGuard.Recovery r = CrashGuard.evaluate(marker(true, false), game);
+        assertNotNull(r);
+        assertTrue(r.startup());
+        assertTrue(r.safeMode());
+        assertEquals(List.of(PHYSICS), r.suspects(), "routed mods that also use Minecraft's OpenGL backend are the likely cause");
+    }
+
+    @Test
+    void silentDeathAfterStartupOrWithoutMetalIsIgnored(@TempDir final Path game) {
+        assertNull(CrashGuard.evaluate(marker(true, true), game), "killed after start-up (e.g. force quit) is not a Metal problem");
+        assertNull(CrashGuard.evaluate(marker(false, false), game), "OpenGL session");
+    }
+
+    @Test
+    void startupCrashWithUnrelatedCrashReportIsIgnored(@TempDir final Path game) throws IOException {
+        Files.createDirectories(game.resolve("crash-reports"));
+        Files.writeString(game.resolve("crash-reports/crash-startup.txt"), """
+                ---- Minecraft Crash Report ----
+                Description: Initializing game
+
+                java.lang.RuntimeException: broken config
+                \tat org.unrelated.ConfigLoader.load(ConfigLoader.java:10)
+                """);
+        assertNull(CrashGuard.evaluate(marker(true, false), game), "a Java crash with a report names its cause itself");
+    }
+
     @Test
     void evaluateFindsNewestEvidenceSinceStart(@TempDir final Path game) throws IOException {
         CrashGuard.Marker marker = new CrashGuard.Marker();
