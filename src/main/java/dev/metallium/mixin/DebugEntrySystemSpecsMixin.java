@@ -24,6 +24,7 @@ abstract class DebugEntrySystemSpecsMixin {
     private Collection<String> metallium$addStatusLine(final Collection<String> lines) {
         List<String> result = new ArrayList<>(lines);
         result.add(metallium$statusLine());
+        result.addAll(MetalliumRuntime.statusLines());
         return result;
     }
 
