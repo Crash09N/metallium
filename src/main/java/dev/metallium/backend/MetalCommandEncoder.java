@@ -95,6 +95,22 @@ final class MetalCommandEncoder implements CommandEncoderBackend {
         return fence;
     }
 
+    /**
+     * metallium-gl (GL readbacks such as glGetBufferSubData): commits the work recorded so far and waits for it; the
+     * frame continues in a new command buffer. Per-frame bookkeeping (fences, semaphores, transient memory) stays tied to
+     * the frame's final submit.
+     */
+    void commitAndWait() {
+        if (commandBuffer == null) {
+            return;
+        }
+        endEncoder();
+        commandBuffer.commit();
+        commandBuffer.waitUntilCompleted();
+        commandBuffer.release();
+        commandBuffer = null;
+    }
+
     MTLBlitCommandEncoder blitCommandEncoder() {
         endEncoder();
         MTLCommandBuffer buffer = commandBuffer();

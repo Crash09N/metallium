@@ -96,6 +96,14 @@ public final class MetalliumInterop {
         return metal.metalTexture();
     }
 
+    /**
+     * Commits everything encoded so far in the current frame and waits until the GPU finished it (synchronous GL
+     * readbacks). Expensive: only for rare, explicit waits. Encoding then continues in a new command buffer.
+     */
+    public static void submitAndWait() {
+        require().createCommandEncoder().commitAndWait();
+    }
+
     /** The Metal pixel format Metallium uses for a renderpearl {@link GpuFormat} (for textures created directly in Metal). */
     public static MTLPixelFormat pixelFormat(final GpuFormat format) {
         return MetalConversions.pixelFormat(format);

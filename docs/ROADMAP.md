@@ -41,7 +41,8 @@ Status legend: ✅ done · 🔄 in progress · ⏳ planned · 🔬 needs researc
   OpenGL fallback bridges, per-mod unimplemented-function log, GL state tracker + Metal device for buffers (persistent
   mapping), 2D textures, FBOs, GLSL 330+ programs, VAOs, draws, blend/depth/cull state, fences; unit tests incl. real
   Metal readback; game test `-PwithGl` (raw-GL test mod renders on Metal, pixel-checked)
-- ⏳ Next for Voxy: compute, SSBO + atomics, image load/store, indirect + indirect-count draws, UBOs, DSA (design §12)
+- ✅ Voxy runs unmodified through metallium-gl and renders its LOD terrain (explicit opt-in `-Dmetallium.gl.mods=voxy`;
+  compute, SSBO + atomics, image load/store, indirect + indirect-count draws, UBOs, DSA — design §12)
 - Calls to `org.lwjgl.opengl.*` in mod code are redirected at load time to Metallium's layer
 - Emulated GL state (textures, buffers, framebuffers, programs, blend/depth) with synthetic GL names → Metal objects
 - Draws are recorded into Metallium's current render pass; GLSL goes through `GlslProgramTranslator`

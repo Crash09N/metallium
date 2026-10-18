@@ -25,6 +25,8 @@ import java.util.concurrent.atomic.AtomicInteger;
  * before any mod entrypoint, so mod classes cannot be loaded un-retargeted.
  */
 public final class MetalliumGlBootstrap {
+    /** System property listing the mod ids whose GL calls are retargeted (comma separated). */
+    public static final String ROUTED_MODS_PROPERTY = "metallium.gl.routedMods";
     private static boolean installed;
     private static boolean hooked;
     private static OptInMods optIn;
@@ -46,6 +48,8 @@ public final class MetalliumGlBootstrap {
         MetalGLLog.setFailFast(failFast != null ? Boolean.parseBoolean(failFast) : FabricLoader.getInstance().isDevelopmentEnvironment());
         GlContext.setDeviceFactory(() -> new MetalGlDevice(new GameMetalHost()));
         optIn = OptInMods.discover();
+        // Read by core compat code (e.g. the Voxy safe-disable mixin) that must step aside for routed mods.
+        System.setProperty(ROUTED_MODS_PROPERTY, String.join(",", optIn.mods().keySet()));
         MetalliumRuntime.registerStatusLine(MetalliumGlBootstrap::statusLine);
         dev.metallium.compat.GlRouting.setUnimplementedSource(MetalGLLog::unimplementedCalls);
         if (optIn.mods().isEmpty()) {
@@ -93,11 +97,14 @@ public final class MetalliumGlBootstrap {
 
     private static byte[] retarget(final String className, final byte[] bytes) {
         String mod = optIn.modFor(className);
-        if (mod == null) {
-            return bytes;
+        if (mod == null && (className.startsWith("dev.metallium.") || className.startsWith("org.objectweb.asm.")
+                || className.startsWith("org.spongepowered.") || className.startsWith("java"))) {
+            return bytes; // never other classes of the hook itself (circular class loading)
         }
         try {
-            GlCallRetargeter.Result result = GlCallRetargeter.transform(mod, bytes);
+            // Classes of other mods: only methods an opted-in mod's mixins merged into them (e.g. Voxy's Sodium hooks).
+            GlCallRetargeter.Result result = mod != null ? GlCallRetargeter.transform(mod, bytes)
+                    : GlCallRetargeter.transformMerged(bytes, optIn::modFor);
             if (result.methodReferences() > 0) {
                 MetalGLLog.warn(className + " uses " + result.methodReferences() + " GL method references (lambdas); these are not retargeted yet");
             }
@@ -134,7 +141,9 @@ public final class MetalliumGlBootstrap {
         }
         long missing = MetalGLLog.unimplementedCalls().size();
         return "metallium-gl: " + optIn.mods().size() + " mod(s), " + CLASSES.get() + " classes / " + CALL_SITES.get()
-                + " GL call sites retargeted, " + missing + " unimplemented functions seen";
+                + " GL call sites retargeted, " + missing + " unimplemented functions seen; dispatches=" + dev.metallium.gl.GlCompute.DISPATCHES.get()
+                + " indirect draw calls=" + dev.metallium.gl.GlCompute.INDIRECT_DRAW_CALLS.get() + " (GPU counts seen: "
+                + dev.metallium.gl.GlCompute.INDIRECT_COUNT_SUM.get() + ")";
     }
 
     public static int retargetedClasses() {

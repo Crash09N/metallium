@@ -58,16 +58,26 @@ public final class GlContext {
 
     // Bindings
     @Nullable Buffer arrayBuffer;
-    private @Nullable Buffer copyReadBuffer;
-    private @Nullable Buffer copyWriteBuffer;
+    @Nullable Buffer copyReadBuffer;
+    @Nullable Buffer copyWriteBuffer;
     private @Nullable Buffer pixelUnpackBuffer;
     private @Nullable Buffer pixelPackBuffer;
     private @Nullable Buffer uniformBuffer;
-    private int activeTexture;
+    /** Generic bindings of GL 4.x buffer targets (SSBO, indirect, parameter, ...). */
+    final java.util.Map<Integer, Buffer> otherBuffers = new java.util.HashMap<>();
+    /** Indexed binding points, image units, sampler objects (GL 4.x). */
+    final GlBindings bindings = new GlBindings(this);
+    /** Compute, indirect draws, GPU-ordered buffer operations (GL 4.3+). */
+    final GlCompute compute = new GlCompute(this);
+    /** Direct state access (GL 4.5). */
+    final GlDsa dsa = new GlDsa(this);
+    final GlQueries queries = new GlQueries(this);
+    final GlExternalTextures externalTextures = new GlExternalTextures(this);
+    int activeTexture;
     final @Nullable Texture[] bound2D = new Texture[MAX_TEXTURE_UNITS];
-    private @Nullable Framebuffer drawFramebuffer;
-    private @Nullable Framebuffer readFramebuffer;
-    private @Nullable Texture boundRenderbuffer;
+    @Nullable Framebuffer drawFramebuffer;
+    @Nullable Framebuffer readFramebuffer;
+    @Nullable Texture boundRenderbuffer;
     private final VertexArray defaultVertexArray = new VertexArray(0);
     VertexArray vertexArray = defaultVertexArray;
     @Nullable Program program;
@@ -75,7 +85,7 @@ public final class GlContext {
 
     // Fixed-function state
     final int[] viewport = {0, 0, 0, 0};
-    private final int[] scissorBox = {0, 0, 0, 0};
+    final int[] scissorBox = {0, 0, 0, 0};
     private boolean viewportInitialised;
     boolean scissorTest;
     final boolean[] blendEnabled = new boolean[MAX_COLOR_ATTACHMENTS];
@@ -96,16 +106,29 @@ public final class GlContext {
     float polygonOffsetUnits;
     int polygonMode = GL_FILL;
     boolean stencilTest;
+    /** glClipControl depth mode: true = GL_ZERO_TO_ONE (no clip-space depth remap). */
+    boolean clipDepthZeroToOne;
+    int stencilFunc = GL_ALWAYS;
+    int stencilRef;
+    int stencilValueMask = 0xFF;
+    int stencilWriteMask = 0xFF;
+    int stencilFail = GL_KEEP;
+    int stencilDepthFail = GL_KEEP;
+    int stencilDepthPass = GL_KEEP;
     final float[] clearColor = new float[4];
     float clearDepth = 1f;
     int clearStencil;
     float lineWidth = 1f;
     GlPixels.Unpack unpack = GlPixels.Unpack.DEFAULT;
     int packAlignment = 4;
+    int packRowLength;
+    int packSkipRows;
+    int packSkipPixels;
     final float[][] currentAttrib = new float[MAX_VERTEX_ATTRIBS][];
 
     public GlContext(final GlDevice device) {
         this.device = device;
+        this.clipDepthZeroToOne = device.engineDepthZeroToOne();
         for (int i = 0; i < MAX_COLOR_ATTACHMENTS; i++) {
             blendFunc[i] = new int[]{GL_ONE, GL_ZERO, GL_ONE, GL_ZERO};
             blendEquation[i] = new int[]{GL_FUNC_ADD, GL_FUNC_ADD};
@@ -182,6 +205,8 @@ public final class GlContext {
         for (VertexAttribState attrib : vertexArray.attribs) {
             if (attrib.buffer == buffer) attrib.buffer = null;
         }
+        otherBuffers.values().removeIf(b -> b == buffer);
+        bindings.forget(buffer);
         releaseStore(buffer);
     }
 
@@ -211,10 +236,24 @@ public final class GlContext {
             case GL_PIXEL_PACK_BUFFER -> pixelPackBuffer = buffer;
             case GL_UNIFORM_BUFFER -> uniformBuffer = buffer;
             default -> {
-                MetalGLLog.unsupported("glBindBuffer target 0x" + Integer.toHexString(target));
-                error(GL_INVALID_ENUM);
+                if (!isOtherBufferTarget(target)) {
+                    MetalGLLog.unsupported("glBindBuffer target 0x" + Integer.toHexString(target));
+                    error(GL_INVALID_ENUM);
+                } else if (buffer == null) {
+                    otherBuffers.remove(target);
+                } else {
+                    otherBuffers.put(target, buffer);
+                }
             }
         }
+    }
+
+    static boolean isOtherBufferTarget(final int target) {
+        return switch (target) {
+            case GL_SHADER_STORAGE_BUFFER, GL_DRAW_INDIRECT_BUFFER, GL_DISPATCH_INDIRECT_BUFFER, GL_PARAMETER_BUFFER, GL_QUERY_BUFFER,
+                 GL_TEXTURE_BUFFER, GL_ATOMIC_COUNTER_BUFFER, GL_TRANSFORM_FEEDBACK_BUFFER -> true;
+            default -> false;
+        };
     }
 
     @Nullable Buffer boundBuffer(final int target) {
@@ -226,11 +265,11 @@ public final class GlContext {
             case GL_PIXEL_UNPACK_BUFFER -> pixelUnpackBuffer;
             case GL_PIXEL_PACK_BUFFER -> pixelPackBuffer;
             case GL_UNIFORM_BUFFER -> uniformBuffer;
-            default -> null;
+            default -> otherBuffers.get(target);
         };
     }
 
-    private @Nullable Buffer requireBound(final int target) {
+    @Nullable Buffer requireBound(final int target) {
         if (!isBufferTarget(target)) {
             error(GL_INVALID_ENUM);
             return null;
@@ -246,7 +285,7 @@ public final class GlContext {
         return switch (target) {
             case GL_ARRAY_BUFFER, GL_ELEMENT_ARRAY_BUFFER, GL_COPY_READ_BUFFER, GL_COPY_WRITE_BUFFER, GL_PIXEL_UNPACK_BUFFER,
                  GL_PIXEL_PACK_BUFFER, GL_UNIFORM_BUFFER -> true;
-            default -> false;
+            default -> isOtherBufferTarget(target);
         };
     }
 
@@ -296,7 +335,7 @@ public final class GlContext {
         }
     }
 
-    private void allocate(final Buffer buffer, final long size) {
+    void allocate(final Buffer buffer, final long size) {
         releaseStore(buffer);
         buffer.store = device.createBuffer(Math.max(size, 4));
         buffer.size = size;
@@ -327,6 +366,12 @@ public final class GlContext {
             error(GL_INVALID_OPERATION);
             return;
         }
+        if ((buffer.gpuWritten || buffer.size > RENAME_LIMIT) && !buffer.persistent() && buffer.store.inUseByGpu()) {
+            // The GPU writes this buffer (SSBO / copy target) in pending work: renaming would lose those writes, so the
+            // update is a GPU-ordered upload instead.
+            device.uploadBuffer(buffer.store, offset, data);
+            return;
+        }
         ensureWritable(buffer);
         MemoryUtil.memCopy(MemoryUtil.memAddress(data), MemoryUtil.memAddress(buffer.store.contents()) + offset, length);
     }
@@ -336,9 +381,12 @@ public final class GlContext {
      * the buffer gets fresh storage (contents copied) instead of being overwritten ("renaming"). Persistent buffers are
      * synchronised by the application (fences), as in GL.
      */
-    private void ensureWritable(final Buffer buffer) {
+    /** Buffers above this size are never renamed (a copy of a multi-GiB buffer per update would exhaust memory). */
+    static final long RENAME_LIMIT = 16L << 20;
+
+    void ensureWritable(final Buffer buffer) {
         GlDevice.BufferStore store = buffer.store;
-        if (store == null || buffer.persistent() || !store.inUseByGpu()) {
+        if (store == null || buffer.persistent() || buffer.gpuWritten || buffer.size > RENAME_LIMIT || !store.inUseByGpu()) {
             return;
         }
         GlDevice.BufferStore fresh = device.createBuffer(store.size());
@@ -425,11 +473,12 @@ public final class GlContext {
         for (int i = 0; i < bound2D.length; i++) {
             if (bound2D[i] == texture) bound2D[i] = null;
         }
+        bindings.forget(texture);
         detachEverywhere(texture);
-        if (texture.store != null) {
+        if (texture.store != null && !texture.external) {
             device.release(texture.store);
-            texture.store = null;
         }
+        texture.store = null;
     }
 
     private void detachEverywhere(final Texture texture) {
@@ -482,7 +531,7 @@ public final class GlContext {
         bound2D[activeTexture] = texture;
     }
 
-    private @Nullable Texture boundTexture(final int target) {
+    @Nullable Texture boundTexture(final int target) {
         if (target != GL_TEXTURE_2D) {
             MetalGLLog.unsupported("texture target 0x" + Integer.toHexString(target));
             error(GL_INVALID_ENUM);
@@ -566,7 +615,7 @@ public final class GlContext {
         return 32 - Integer.numberOfLeadingZeros(Math.max(1, Math.max(width, height)));
     }
 
-    private void allocateTexture(final Texture texture, final TexFormat format, final int internalFormat, final int width, final int height, final int levels) {
+    void allocateTexture(final Texture texture, final TexFormat format, final int internalFormat, final int width, final int height, final int levels) {
         if (texture.store != null) {
             device.release(texture.store);
         }
@@ -691,6 +740,10 @@ public final class GlContext {
             case GL_TEXTURE_COMPARE_MODE -> texture.compareMode = value;
             case GL_TEXTURE_COMPARE_FUNC -> texture.compareFunc = value;
             case GL_TEXTURE_MAX_ANISOTROPY -> texture.maxAnisotropy = Math.max(1, value);
+            case GL_DEPTH_STENCIL_TEXTURE_MODE -> {
+                // Metal samples the depth of a depth-stencil texture, which is GL's default (GL_DEPTH_COMPONENT).
+                if (value != GL_DEPTH_COMPONENT) MetalGLLog.unsupported("GL_DEPTH_STENCIL_TEXTURE_MODE = GL_STENCIL_INDEX");
+            }
             default -> {
                 MetalGLLog.unsupported("glTexParameter pname 0x" + Integer.toHexString(pname));
                 return;
@@ -799,6 +852,12 @@ public final class GlContext {
             case GL_UNPACK_SKIP_ROWS -> unpack = new GlPixels.Unpack(unpack.alignment(), unpack.rowLength(), value, unpack.skipPixels());
             case GL_UNPACK_SKIP_PIXELS -> unpack = new GlPixels.Unpack(unpack.alignment(), unpack.rowLength(), unpack.skipRows(), value);
             case GL_PACK_ALIGNMENT -> packAlignment = value;
+            case GL_PACK_ROW_LENGTH -> packRowLength = Math.max(0, value);
+            case GL_PACK_SKIP_ROWS -> packSkipRows = Math.max(0, value);
+            case GL_PACK_SKIP_PIXELS -> packSkipPixels = Math.max(0, value);
+            case GL_PACK_IMAGE_HEIGHT, GL_PACK_SKIP_IMAGES, GL_UNPACK_IMAGE_HEIGHT, GL_UNPACK_SKIP_IMAGES -> {
+                if (value != 0) MetalGLLog.unsupported("glPixelStorei pname 0x" + Integer.toHexString(pname) + " = " + value);
+            }
             default -> MetalGLLog.unsupported("glPixelStorei pname 0x" + Integer.toHexString(pname));
         }
     }
@@ -909,7 +968,7 @@ public final class GlContext {
         if (readFramebuffer == fb) readFramebuffer = null;
     }
 
-    private @Nullable Framebuffer framebufferFor(final int target, final boolean[] valid) {
+    @Nullable Framebuffer framebufferFor(final int target, final boolean[] valid) {
         valid[0] = true;
         return switch (target) {
             case GL_FRAMEBUFFER, GL_DRAW_FRAMEBUFFER -> drawFramebuffer;
@@ -971,7 +1030,7 @@ public final class GlContext {
         return fb == null ? GL_FRAMEBUFFER_COMPLETE : status(fb);
     }
 
-    private static int status(final Framebuffer fb) {
+    static int status(final Framebuffer fb) {
         boolean any = false;
         for (Attachment a : fb.color) {
             if (a == null) continue;
@@ -993,12 +1052,8 @@ public final class GlContext {
         if (!any) {
             return GL_FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT;
         }
-        for (int buffer : fb.drawBuffers) {
-            int index = buffer - GL_COLOR_ATTACHMENT0;
-            if (buffer != GL_NONE && (index < 0 || index >= MAX_COLOR_ATTACHMENTS || fb.color[index] == null)) {
-                return GL_FRAMEBUFFER_INCOMPLETE_DRAW_BUFFER;
-            }
-        }
+        // GL 4.1+ (and so the 4.6 metallium-gl reports) dropped INCOMPLETE_DRAW_BUFFER / READ_BUFFER: a draw buffer
+        // without an attachment just discards its writes (e.g. depth-only framebuffers with the default draw buffer).
         return GL_FRAMEBUFFER_COMPLETE;
     }
 
@@ -1036,7 +1091,11 @@ public final class GlContext {
 
     /** The draw framebuffer's attachments, or null (with the GL error set) if nothing can be drawn. */
     private GlDevice.@Nullable RenderTargets drawTargets() {
-        Framebuffer fb = drawFramebuffer;
+        return targetsOf(drawFramebuffer);
+    }
+
+    /** Attachments of {@code fb} (null: framebuffer 0) through its draw buffers; null (GL error set) if incomplete. */
+    GlDevice.@Nullable RenderTargets targetsOf(final @Nullable Framebuffer fb) {
         if (fb == null) {
             GlDevice.RenderTargets targets = device.defaultFramebuffer();
             if (targets == null || defaultDrawBuffers[0] == GL_NONE) {
@@ -1132,6 +1191,7 @@ public final class GlContext {
         attrib.stride = stride;
         attrib.offset = offset;
         attrib.buffer = arrayBuffer;
+        attrib.binding = -1;
     }
 
     public void vertexAttribDivisor(final int index, final int divisor) {
@@ -1153,8 +1213,8 @@ public final class GlContext {
     // ---------------------------------------------------------------------------------------------- shaders & programs
 
     public int createShader(final int type) {
-        if (type != GL_VERTEX_SHADER && type != GL_FRAGMENT_SHADER) {
-            if (type == GL_GEOMETRY_SHADER || type == GL_COMPUTE_SHADER || type == GL_TESS_CONTROL_SHADER || type == GL_TESS_EVALUATION_SHADER) {
+        if (type != GL_VERTEX_SHADER && type != GL_FRAGMENT_SHADER && type != GL_COMPUTE_SHADER) {
+            if (type == GL_GEOMETRY_SHADER || type == GL_TESS_CONTROL_SHADER || type == GL_TESS_EVALUATION_SHADER) {
                 MetalGLLog.unsupported("shader type 0x" + Integer.toHexString(type));
             }
             error(GL_INVALID_ENUM);
@@ -1195,8 +1255,11 @@ public final class GlContext {
         if (shader == null) {
             return;
         }
-        String log = GlProgramLinker.checkCompile("shader" + name, shader.type == GL_VERTEX_SHADER
-                ? GlslProgramTranslator.Stage.VERTEX : GlslProgramTranslator.Stage.FRAGMENT, shader.source);
+        String log = GlProgramLinker.checkCompile("shader" + name, switch (shader.type) {
+            case GL_VERTEX_SHADER -> GlslProgramTranslator.Stage.VERTEX;
+            case GL_COMPUTE_SHADER -> GlslProgramTranslator.Stage.COMPUTE;
+            default -> GlslProgramTranslator.Stage.FRAGMENT;
+        }, shader.source);
         shader.compiled = log == null;
         shader.log = log == null ? "" : log;
     }
@@ -1276,9 +1339,15 @@ public final class GlContext {
         program.linked = false;
         Shader vertex = null;
         Shader fragment = null;
+        Shader compute = null;
         for (Shader shader : program.shaders) {
             if (shader.type == GL_VERTEX_SHADER) vertex = shader;
             else if (shader.type == GL_FRAGMENT_SHADER) fragment = shader;
+            else if (shader.type == GL_COMPUTE_SHADER) compute = shader;
+        }
+        if (compute != null) {
+            linkCompute(program, compute, vertex != null || fragment != null);
+            return;
         }
         if (vertex == null || fragment == null || !vertex.compiled || !fragment.compiled) {
             program.log = vertex == null || fragment == null ? "metallium-gl: a program needs a vertex and a fragment shader"
@@ -1296,6 +1365,24 @@ public final class GlContext {
         } catch (GlProgramLinker.LinkException | GlDevice.DeviceException e) {
             program.log = String.valueOf(e.getMessage());
             MetalGLLog.warn("link of program " + name + " failed: " + program.log);
+        }
+    }
+
+    private void linkCompute(final Program program, final Shader compute, final boolean mixed) {
+        if (mixed || !compute.compiled) {
+            program.log = mixed ? "metallium-gl: a compute program cannot have other stages" : "metallium-gl: attached shader is not compiled";
+            return;
+        }
+        try {
+            GlProgramLinker.Linked linked = GlProgramLinker.linkCompute("program" + program.name, compute.source);
+            GlDevice.ProgramStore store = device.createComputeProgram("program" + program.name,
+                    new GlDevice.StageCode(linked.vertex().msl(), linked.vertex().entryPoint()), linked.localSize());
+            installLinked(program, linked, store);
+            program.log = "";
+            program.linked = true;
+        } catch (GlProgramLinker.LinkException | GlDevice.DeviceException e) {
+            program.log = String.valueOf(e.getMessage());
+            MetalGLLog.warn("link of compute program " + program.name + " failed: " + program.log);
         }
     }
 
@@ -1318,6 +1405,7 @@ public final class GlContext {
         }
         for (GlProgramLinker.Sampler s : linked.samplers()) program.samplerByLocation[s.location()] = s;
         program.samplerUnits = new int[locations];
+        for (GlProgramLinker.Sampler s : linked.samplers()) program.samplerUnits[s.location()] = Math.min(s.unit(), MAX_TEXTURE_UNITS - 1);
     }
 
     private static void freeUniforms(final Program program) {
@@ -1428,6 +1516,7 @@ public final class GlContext {
             case GL_ATTACHED_SHADERS -> program.shaders.size();
             case GL_ACTIVE_UNIFORMS -> linked == null ? 0 : linked.uniforms().size() + linked.samplers().size();
             case GL_ACTIVE_ATTRIBUTES -> linked == null ? 0 : linked.attributes().size();
+            case GL_COMPUTE_WORK_GROUP_SIZE -> linked == null || linked.localSize() == null ? 0 : linked.localSize()[0];
             default -> {
                 error(GL_INVALID_ENUM);
                 yield 0;
@@ -1617,10 +1706,7 @@ public final class GlContext {
             case GL_CULL_FACE -> cullFace = on;
             case GL_SCISSOR_TEST -> scissorTest = on;
             case GL_POLYGON_OFFSET_FILL -> polygonOffsetFill = on;
-            case GL_STENCIL_TEST -> {
-                stencilTest = on;
-                if (on) MetalGLLog.unsupported("GL_STENCIL_TEST");
-            }
+            case GL_STENCIL_TEST -> stencilTest = on;
             case GL_MULTISAMPLE, GL_DITHER, GL_LINE_SMOOTH, GL_POLYGON_SMOOTH, GL_PROGRAM_POINT_SIZE, GL_TEXTURE_CUBE_MAP_SEAMLESS,
                  GL_FRAMEBUFFER_SRGB, GL_DEBUG_OUTPUT, GL_DEBUG_OUTPUT_SYNCHRONOUS, GL_PRIMITIVE_RESTART_FIXED_INDEX, GL_DEPTH_CLAMP -> {
                 // No-op on Metal (always on / handled elsewhere) or diagnostics only.
@@ -1730,6 +1816,36 @@ public final class GlContext {
         }
     }
 
+    public void stencilFunc(final int func, final int ref, final int mask) {
+        if (func < GL_NEVER || func > GL_ALWAYS) {
+            error(GL_INVALID_ENUM);
+            return;
+        }
+        stencilFunc = func;
+        stencilRef = ref;
+        stencilValueMask = mask;
+    }
+
+    public void stencilOp(final int sfail, final int dpfail, final int dppass) {
+        for (int op : new int[]{sfail, dpfail, dppass}) {
+            switch (op) {
+                case GL_KEEP, GL_ZERO, GL_REPLACE, GL_INCR, GL_INCR_WRAP, GL_DECR, GL_DECR_WRAP, GL_INVERT -> {
+                }
+                default -> {
+                    error(GL_INVALID_ENUM);
+                    return;
+                }
+            }
+        }
+        stencilFail = sfail;
+        stencilDepthFail = dpfail;
+        stencilDepthPass = dppass;
+    }
+
+    public void stencilMask(final int mask) {
+        stencilWriteMask = mask;
+    }
+
     public void depthFunc(final int func) {
         if (func < GL_NEVER || func > GL_ALWAYS) {
             error(GL_INVALID_ENUM);
@@ -1812,6 +1928,12 @@ public final class GlContext {
     }
 
     public void drawElements(final int mode, final int count, final int type, final long offset, final int instances, final int baseVertex) {
+        drawElementsBase(mode, count, type, offset, instances, baseVertex, 0);
+    }
+
+    /** glDrawElements* with base vertex and base instance (GL 4.2). */
+    public void drawElementsBase(final int mode, final int count, final int type, final long offset, final int instances, final int baseVertex,
+                                 final int baseInstance) {
         if (!isPrimitive(mode)) {
             error(GL_INVALID_ENUM);
             return;
@@ -1838,10 +1960,10 @@ public final class GlContext {
             return;
         }
         if (type == GL_UNSIGNED_BYTE || needsIndexConversion(mode) || offset % size != 0) {
-            drawConverted(mode, readIndices(elements.store.contents(), offset, count, type), baseVertex, instances, 0);
+            drawConverted(mode, readIndices(elements.store.contents(), offset, count, type), baseVertex, instances, baseInstance);
             return;
         }
-        submitDraw(mode, elements.store, offset, type == GL_UNSIGNED_INT, 0, count, instances, baseVertex, 0);
+        submitDraw(mode, elements.store, offset, type == GL_UNSIGNED_INT, 0, count, instances, baseVertex, baseInstance);
     }
 
     /** glDrawElements with indices in client memory (LWJGL's buffer overloads). */
@@ -1927,14 +2049,23 @@ public final class GlContext {
 
     private void submitDraw(final int mode, final GlDevice.@Nullable BufferStore indexBuffer, final long indexOffset, final boolean index32,
                             final int first, final int count, final int instances, final int baseVertex, final int baseInstance) {
+        GlDevice.DrawOp op = resolveDraw(mode, indexBuffer, indexOffset, index32, first, count, instances, baseVertex, baseInstance);
+        if (op != null) {
+            device.draw(op);
+        }
+    }
+
+    /** Resolves the current state into a draw; null (GL error set where GL sets one) if nothing can be drawn. */
+    GlDevice.@Nullable DrawOp resolveDraw(final int mode, final GlDevice.@Nullable BufferStore indexBuffer, final long indexOffset, final boolean index32,
+                                          final int first, final int count, final int instances, final int baseVertex, final int baseInstance) {
         Program program = this.program;
-        if (program == null || !program.linked || program.store == null) {
+        if (program == null || !program.linked || program.store == null || program.linkedProgram.compute()) {
             error(GL_INVALID_OPERATION);
-            return;
+            return null;
         }
         GlDevice.RenderTargets targets = drawTargets();
         if (targets == null) {
-            return;
+            return null;
         }
         GlProgramLinker.Linked linked = program.linkedProgram;
         List<GlDevice.VertexAttrib> attributes = new ArrayList<>();
@@ -1944,7 +2075,7 @@ public final class GlContext {
             if (state.enabled) {
                 if (state.buffer == null || state.buffer.store == null) {
                     error(GL_INVALID_OPERATION);
-                    return;
+                    return null;
                 }
                 int stride = state.stride != 0 ? state.stride : state.size * GlPixels.componentBytes(state.type);
                 attributes.add(new GlDevice.VertexAttrib(location, state.size, state.type, state.normalized, state.integer,
@@ -1953,19 +2084,26 @@ public final class GlContext {
                 attributes.add(new GlDevice.VertexAttrib(location, 4, GL_FLOAT, false, false, null, 0, 16, 0, currentAttrib[location].clone()));
             }
         }
-        List<GlDevice.TextureBinding> vsTextures = new ArrayList<>();
-        List<GlDevice.TextureBinding> fsTextures = new ArrayList<>();
-        for (GlProgramLinker.Sampler sampler : linked.samplers()) {
-            Texture texture = bound2D[program.samplerUnits[sampler.location()]];
-            GlDevice.TextureStore store = texture == null ? null : texture.store;
-            GlDevice.SamplerState state = texture == null ? GlDevice.SamplerState.DEFAULT : texture.sampler();
-            if (sampler.vertexTexture() >= 0) vsTextures.add(new GlDevice.TextureBinding(sampler.vertexTexture(), sampler.vertexSampler(), store, state));
-            if (sampler.fragmentTexture() >= 0) fsTextures.add(new GlDevice.TextureBinding(sampler.fragmentTexture(), sampler.fragmentSampler(), store, state));
+        writeDepthRange(program);
+        GlDevice.StageBindings vertex = bindings.resolve(program, linked.vertexInterface(), program.vertexUniforms, linked.vertexBlockIndex(),
+                bindings.textures(program, true));
+        GlDevice.StageBindings fragment = bindings.resolve(program, linked.fragmentInterface(), program.fragmentUniforms, linked.fragmentBlockIndex(),
+                bindings.textures(program, false));
+        return new GlDevice.DrawOp(program.store, targets, mode, attributes.toArray(GlDevice.VertexAttrib[]::new),
+                indexBuffer, indexOffset, index32, first, count, instances, baseVertex, baseInstance, vertex, fragment, rasterState(targets));
+    }
+
+    /** Fills the uniforms that stand in for GL's gl_DepthRange (see GlProgramLinker.glCompat). */
+    private void writeDepthRange(final Program program) {
+        for (GlProgramLinker.Uniform u : program.linkedProgram.uniforms()) {
+            if (!u.name().startsWith("metallium_DepthRange")) continue;
+            float value = switch (u.name()) {
+                case GlProgramLinker.DEPTH_RANGE_NEAR -> depthNear;
+                case GlProgramLinker.DEPTH_RANGE_FAR -> depthFar;
+                default -> depthFar - depthNear;
+            };
+            uniform(u.location(), 1, 1, false, false, null, new float[]{value});
         }
-        GlDevice.StageBindings vertex = new GlDevice.StageBindings(program.vertexUniforms, linked.vertexBlockIndex(), vsTextures.toArray(GlDevice.TextureBinding[]::new));
-        GlDevice.StageBindings fragment = new GlDevice.StageBindings(program.fragmentUniforms, linked.fragmentBlockIndex(), fsTextures.toArray(GlDevice.TextureBinding[]::new));
-        device.draw(new GlDevice.DrawOp(program.store, targets, mode, attributes.toArray(GlDevice.VertexAttrib[]::new),
-                indexBuffer, indexOffset, index32, first, count, instances, baseVertex, baseInstance, vertex, fragment, rasterState(targets)));
     }
 
     private GlDevice.RasterState rasterState(final GlDevice.RenderTargets targets) {
@@ -1987,7 +2125,22 @@ public final class GlContext {
         }
         return new GlDevice.RasterState(viewport.clone(), depthNear, depthFar, scissorTest ? scissorBox.clone() : null, blend,
                 blendColor.clone(), depthTest, depthFunc, depthTest && depthMask, cullFace ? cullFaceMode : GL_NONE,
-                frontFace == GL_CCW, polygonOffsetFill, polygonOffsetFactor, polygonOffsetUnits, polygonMode == GL_LINE);
+                frontFace == GL_CCW, polygonOffsetFill, polygonOffsetFactor, polygonOffsetUnits, polygonMode == GL_LINE,
+                stencilTest && targets.depthHasStencil()
+                        ? new GlDevice.StencilState(true, stencilFunc, stencilRef, stencilValueMask, stencilWriteMask, stencilFail, stencilDepthFail, stencilDepthPass)
+                        : GlDevice.StencilState.DISABLED, clipDepthZeroToOne);
+    }
+
+    /** glClipControl (GL 4.5): origin must stay GL_LOWER_LEFT; depth GL_NEGATIVE_ONE_TO_ONE or GL_ZERO_TO_ONE. */
+    public void clipControl(final int origin, final int depth) {
+        if ((origin != GL_LOWER_LEFT && origin != GL_UPPER_LEFT) || (depth != GL_NEGATIVE_ONE_TO_ONE && depth != GL_ZERO_TO_ONE)) {
+            error(GL_INVALID_ENUM);
+            return;
+        }
+        if (origin == GL_UPPER_LEFT) {
+            MetalGLLog.unsupported("glClipControl(GL_UPPER_LEFT)");
+        }
+        clipDepthZeroToOne = depth == GL_ZERO_TO_ONE;
     }
 
     /** glReadPixels of the read framebuffer into RGBA8 (the only format supported so far). */
@@ -2022,6 +2175,13 @@ public final class GlContext {
 
     // ---------------------------------------------------------------------------------------------- sync
 
+    /** glFinish: once the device waited for all GPU work, every existing sync object is signaled. */
+    public void finish() {
+        if (device.finish()) {
+            syncs.values().forEach(sync -> sync.signaled = true);
+        }
+    }
+
     public long fenceSync(final int condition, final int flags) {
         if (condition != GL_SYNC_GPU_COMMANDS_COMPLETE || flags != 0) {
             error(condition != GL_SYNC_GPU_COMMANDS_COMPLETE ? GL_INVALID_ENUM : GL_INVALID_VALUE);
@@ -2044,6 +2204,12 @@ public final class GlContext {
         }
         if (timeoutNs > 0 && sync.use.await(timeoutNs)) {
             sync.signaled = true;
+            return GL_CONDITION_SATISFIED;
+        }
+        if (timeoutNs > 0 && device.finish()) {
+            // Work of the frame being recorded cannot complete before the frame is submitted: the application waits,
+            // so commit what is recorded so far and wait (GL semantics; costs a mid-frame submit).
+            syncs.values().forEach(other -> other.signaled = true);
             return GL_CONDITION_SATISFIED;
         }
         return GL_TIMEOUT_EXPIRED;
@@ -2127,6 +2293,41 @@ public final class GlContext {
             case GL_FRONT_FACE -> out[0] = frontFace;
             case GL_DEPTH_WRITEMASK -> out[0] = depthMask ? 1 : 0;
             case GL_BLEND, GL_DEPTH_TEST, GL_CULL_FACE, GL_SCISSOR_TEST, GL_POLYGON_OFFSET_FILL, GL_STENCIL_TEST -> out[0] = isEnabled(pname) ? 1 : 0;
+            case GL_SHADER_STORAGE_BUFFER_OFFSET_ALIGNMENT -> out[0] = 16;
+            case GL_UNIFORM_BUFFER_OFFSET_ALIGNMENT -> out[0] = 256;
+            case GL_MAX_SHADER_STORAGE_BUFFER_BINDINGS, GL_MAX_UNIFORM_BUFFER_BINDINGS -> out[0] = GlBindings.MAX_BUFFER_BINDINGS;
+            case GL_MAX_COMPUTE_SHADER_STORAGE_BLOCKS, GL_MAX_COMBINED_SHADER_STORAGE_BLOCKS, GL_MAX_FRAGMENT_SHADER_STORAGE_BLOCKS,
+                 GL_MAX_VERTEX_SHADER_STORAGE_BLOCKS -> out[0] = 16;
+            case GL_MAX_IMAGE_UNITS -> out[0] = GlBindings.MAX_IMAGE_UNITS;
+            case GL_MAX_COMPUTE_WORK_GROUP_INVOCATIONS -> out[0] = 1024;
+            case GL_MAX_COMPUTE_SHARED_MEMORY_SIZE -> out[0] = 32768;
+            case GL_MAX_SHADER_STORAGE_BLOCK_SIZE -> out[0] = Integer.MAX_VALUE;
+            case GL_SHADER_STORAGE_BUFFER_BINDING, GL_DRAW_INDIRECT_BUFFER_BINDING, GL_DISPATCH_INDIRECT_BUFFER_BINDING,
+                 GL_PARAMETER_BUFFER_BINDING, GL_COPY_READ_BUFFER_BINDING, GL_COPY_WRITE_BUFFER_BINDING, GL_PIXEL_PACK_BUFFER_BINDING -> {
+                Buffer b = switch (pname) {
+                    case GL_SHADER_STORAGE_BUFFER_BINDING -> otherBuffers.get(GL_SHADER_STORAGE_BUFFER);
+                    case GL_DRAW_INDIRECT_BUFFER_BINDING -> otherBuffers.get(GL_DRAW_INDIRECT_BUFFER);
+                    case GL_DISPATCH_INDIRECT_BUFFER_BINDING -> otherBuffers.get(GL_DISPATCH_INDIRECT_BUFFER);
+                    case GL_PARAMETER_BUFFER_BINDING -> otherBuffers.get(GL_PARAMETER_BUFFER);
+                    case GL_COPY_READ_BUFFER_BINDING -> copyReadBuffer;
+                    case GL_COPY_WRITE_BUFFER_BINDING -> copyWriteBuffer;
+                    default -> pixelPackBuffer;
+                };
+                out[0] = b == null ? 0 : b.name;
+            }
+            case GL_CLIP_DEPTH_MODE -> out[0] = clipDepthZeroToOne ? GL_ZERO_TO_ONE : GL_NEGATIVE_ONE_TO_ONE;
+            case GL_CLIP_ORIGIN -> out[0] = GL_LOWER_LEFT;
+            case GL_STENCIL_FUNC -> out[0] = stencilFunc;
+            case GL_STENCIL_REF -> out[0] = stencilRef;
+            case GL_STENCIL_VALUE_MASK -> out[0] = stencilValueMask;
+            case GL_STENCIL_WRITEMASK -> out[0] = stencilWriteMask;
+            case GL_STENCIL_FAIL -> out[0] = stencilFail;
+            case GL_STENCIL_PASS_DEPTH_FAIL -> out[0] = stencilDepthFail;
+            case GL_STENCIL_PASS_DEPTH_PASS -> out[0] = stencilDepthPass;
+            case GL_SAMPLER_BINDING -> {
+                GlBindings.SamplerObject sampler = bindings.samplerUnits[activeTexture];
+                out[0] = sampler == null ? 0 : sampler.name;
+            }
             default -> {
                 MetalGLLog.unsupported("glGetInteger pname 0x" + Integer.toHexString(pname));
                 error(GL_INVALID_ENUM);
@@ -2134,6 +2335,34 @@ public final class GlContext {
             }
         }
         return n;
+    }
+
+    /** glGetInteger64v (GL 3.2): 64-bit limits; everything else as glGetIntegerv. */
+    public long getInteger64(final int pname) {
+        return switch (pname) {
+            case GL_MAX_SHADER_STORAGE_BLOCK_SIZE -> 1L << 31;
+            case GL_TIMESTAMP -> System.nanoTime();
+            case GL_MAX_SERVER_WAIT_TIMEOUT -> Long.MAX_VALUE;
+            default -> {
+                int[] out = new int[4];
+                getInteger(pname, out);
+                yield out[0];
+            }
+        };
+    }
+
+    /** glGetIntegeri_v: indexed bindings. */
+    public int getIntegeri(final int pname, final int index) {
+        return switch (pname) {
+            case GL_SHADER_STORAGE_BUFFER_BINDING, GL_UNIFORM_BUFFER_BINDING -> bindings.bufferBinding(pname, index);
+            case GL_MAX_COMPUTE_WORK_GROUP_COUNT -> index >= 0 && index < 3 ? 65535 : 0;
+            case GL_MAX_COMPUTE_WORK_GROUP_SIZE -> index == 2 ? 64 : 1024;
+            default -> {
+                MetalGLLog.unsupported("glGetIntegeri pname 0x" + Integer.toHexString(pname));
+                error(GL_INVALID_ENUM);
+                yield 0;
+            }
+        };
     }
 
     public float getFloat(final int pname) {

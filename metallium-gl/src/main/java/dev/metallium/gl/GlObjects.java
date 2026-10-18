@@ -67,6 +67,8 @@ final class GlObjects {
         long mapOffset;
         long mapLength;
         int mapAccess;
+        /** Written by the GPU (SSBO, copy / clear destination): CPU updates must be GPU-ordered, not renamed. */
+        boolean gpuWritten;
 
         Buffer(final int name) {
             this.name = name;
@@ -103,6 +105,10 @@ final class GlObjects {
         int compareFunc = GL_LEQUAL;
         float maxAnisotropy = 1f;
         GlDevice.@Nullable SamplerState samplerCache;
+        /** Storage owned by someone else (Minecraft's textures, views): never released by GL. */
+        boolean external;
+        /** A texture view (glTextureView): the texture whose storage it shares. */
+        @Nullable Texture viewOf;
 
         Texture(final int name) {
             this.name = name;
@@ -148,12 +154,20 @@ final class GlObjects {
         long offset;
         @Nullable Buffer buffer;
         int divisor;
+        /** GL 4.3 separate format (DSA): vertex buffer binding point, -1 = set through glVertexAttribPointer. */
+        int binding = -1;
+        int relativeOffset;
     }
 
     static final class VertexArray {
         final int name;
         final VertexAttribState[] attribs = new VertexAttribState[GlContext.MAX_VERTEX_ATTRIBS];
         @Nullable Buffer elementBuffer;
+        /** Vertex buffer binding points (glVertexArrayVertexBuffer). */
+        final @Nullable Buffer[] bindingBuffer = new Buffer[GlContext.MAX_VERTEX_ATTRIBS];
+        final long[] bindingOffset = new long[GlContext.MAX_VERTEX_ATTRIBS];
+        final int[] bindingStride = new int[GlContext.MAX_VERTEX_ATTRIBS];
+        final int[] bindingDivisor = new int[GlContext.MAX_VERTEX_ATTRIBS];
 
         VertexArray(final int name) {
             this.name = name;

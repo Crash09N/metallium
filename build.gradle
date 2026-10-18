@@ -115,6 +115,15 @@ loom.runs.clientGameTest {
 	if (project.hasProperty('perfCounters')) vmArg '-Dmetallium.perfCounters=true'
 	// -PperfTrace (with -PperfCounters): log every encoder of one submit per counter window and why it was opened.
 	if (project.hasProperty('perfTrace')) vmArg '-Dmetallium.perfTrace=true'
+	// -PglMods=voxy (with -PwithGl): retarget these mods' GL calls to metallium-gl; -PglFailFast=false logs instead of throwing.
+	if (project.hasProperty('glMods')) vmArg "-Dmetallium.gl.mods=${project.property('glMods')}"
+	if (project.hasProperty('glFailFast')) vmArg "-Dmetallium.gl.failFast=${project.property('glFailFast')}"
+	// -PglTrace=N [-PglTraceAfter=S]: log N metallium-gl device operations after S seconds (diagnostics).
+	if (project.hasProperty('glTrace')) vmArg "-Dmetallium.gl.trace=${project.property('glTrace')}"
+	if (project.hasProperty('glTraceAfter')) vmArg "-Dmetallium.gl.traceAfter=${project.property('glTraceAfter')}"
+	// -PvoxyScenario: run the Voxy camera scenario without Voxy (reference screenshots).
+	if (project.hasProperty('voxyScenario')) vmArg '-Dmetallium.gametest.voxyScenario=true'
+	if (project.hasProperty('glDump')) vmArg "-Dmetallium.gl.dump=${project.property('glDump')}"
 	if (project.hasProperty('benchPower')) vmArg '-Dmetallium.bench.power=true'
 	// A crashed earlier test run must not put the next one into crash-recovery mode (OpenGL + dialog).
 	vmArg "-Dmetallium.crashRecovery=${project.hasProperty('crashRecovery') ? 'on' : 'off'}"
@@ -213,6 +222,10 @@ if (project.hasProperty('withVoxy')) {
 	dependencies {
 		gametestRuntimeOnly "maven.modrinth:sodium:${project.sodium_version}"
 		gametestRuntimeOnly files(project.property('withVoxy'))
+		// The 263 Voxy build bundles RocksDB / LWJGL-zstd without macOS natives (its storage fails on world join):
+		// dev-only natives from Maven Central so the test can create Voxy's world storage on macOS.
+		gametestRuntimeOnly 'org.rocksdb:rocksdbjni:10.2.1'
+		gametestRuntimeOnly 'org.lwjgl:lwjgl-zstd:3.4.1:natives-macos-arm64'
 	}
 }
 
