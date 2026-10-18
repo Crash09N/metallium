@@ -49,3 +49,9 @@ Next steps:
    Apple GPUs (Asahi/Honeykrisp; Mesa is MIT, credit in README if code is adapted) as the route to packs that need `.gsh`.
    Rejected: Zink (OpenGL→Vulkan) + MoltenVK under unmodified Iris — three translation layers, missing Vulkan features
    on MoltenVK, expected slower than Apple's OpenGL.
+
+### Note on VSync-off frame rates (2026-10-18)
+With VSync off, Metallium uses mailbox semantics: every frame is rendered and submitted, but a frame is only handed to
+the display once the previous one was shown (CAMetalLayer returns drawables at display refresh). FPS counters therefore
+count **rendered** frames, not displayed frames — the same as Vulkan MAILBOX, and comparable to macOS OpenGL with
+swap interval 0 (the compositor also shows at most one frame per refresh). Benchmark comparisons must say this.
