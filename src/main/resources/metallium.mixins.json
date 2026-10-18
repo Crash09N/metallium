@@ -4,8 +4,13 @@
   "compatibilityLevel": "JAVA_25",
   "client": [
     "DebugEntrySystemSpecsMixin",
+    "FramerateLimitTrackerMixin",
+    "GuiMixin",
+    "MinecraftMixin",
     "OptionsMixin",
-    "PreferredGraphicsApiMixin"
+    "PreferredGraphicsApiCaptionMixin",
+    "PreferredGraphicsApiMixin",
+    "VideoSettingsScreenMixin"
   ],
   "injectors": {
     "defaultRequire": 1

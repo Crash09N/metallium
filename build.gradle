@@ -106,12 +106,26 @@ loom.runs.clientGameTest {
 	// -Pshaderpack=/abs/path/pack.zip (with -PwithIris): also load that pack in the game test. Copied into the run
 	// directory at runtime only; never commit third-party packs.
 	if (project.hasProperty('shaderpack')) vmArg "-Dmetallium.gametest.shaderpack=${project.property('shaderpack')}"
+	// -PshaderpackOptions=COLORED_LIGHTING=128,FOO=1: pack options for that pack (written to Iris's <pack>.txt).
+	// -PirisHideMacOs: packs do not see MC_OS_MAC on Metal (they gate compute/voxel features on it; see iris-stage5-compute.md)
+	if (project.hasProperty('irisHideMacOs')) vmArg '-Dmetallium.iris.hideMacOs=true'
+	if (project.hasProperty('shaderpackOptions')) vmArg "-Dmetallium.gametest.shaderpackOptions=${project.property('shaderpackOptions')}"
 	if (project.hasProperty('benchSeconds')) vmArg "-Dmetallium.bench.seconds=${project.property('benchSeconds')}"
 	if (project.hasProperty('benchScene')) vmArg "-Dmetallium.bench.scene=${project.property('benchScene')}"
 	if (project.hasProperty('perfCounters')) vmArg '-Dmetallium.perfCounters=true'
 	// -PglMods=voxy (with -PwithGl): retarget these mods' GL calls to metallium-gl; -PglFailFast=false logs instead of throwing.
 	if (project.hasProperty('glMods')) vmArg "-Dmetallium.gl.mods=${project.property('glMods')}"
 	if (project.hasProperty('glFailFast')) vmArg "-Dmetallium.gl.failFast=${project.property('glFailFast')}"
+	if (project.hasProperty('benchPower')) vmArg '-Dmetallium.bench.power=true'
+	// A crashed earlier test run must not put the next one into crash-recovery mode (OpenGL + dialog).
+	vmArg "-Dmetallium.crashRecovery=${project.hasProperty('crashRecovery') ? 'on' : 'off'}"
+	if (project.hasProperty('playSeconds')) vmArg "-Dmetallium.gametest.playSeconds=${project.property('playSeconds')}"
+	// The run directory is recreated for every game test, so keep the shader cache next to it: the second run is warm.
+	// -PshaderCache=false disables it; delete that directory for a cold run.
+	vmArg "-Dmetallium.shaderCache.dir=${layout.buildDirectory.get().asFile}/run/metallium-shader-cache"
+	if (project.hasProperty('shaderCache')) vmArg "-Dmetallium.shaderCache=${project.property('shaderCache')}"
+	// -PbenchVsync: run the benchmark with VSync on (default off) to compare presented vs rendered frames.
+	if (project.hasProperty('benchVsync')) vmArg '-Dmetallium.bench.vsync=true'
 }
 
 // ./gradlew runClientGameTest -PwithSodium  → runs the game tests with Sodium loaded.
@@ -180,5 +194,25 @@ if (project.hasProperty('withVoxy')) {
 		// dev-only natives from Maven Central so the test can create Voxy's world storage on macOS.
 		gametestRuntimeOnly 'org.rocksdb:rocksdbjni:10.2.1'
 		gametestRuntimeOnly 'org.lwjgl:lwjgl-zstd:3.4.1:natives-macos-arm64'
+	}
+}
+
+// ./gradlew runClientGameTest -PwithGl -PcrashRecovery  → simulates "the last session crashed in a metallium-gl-routed
+// mod": seeds a session marker and a crash report into the run directory, so this run must start on OpenGL and show the
+// crash-recovery screen before the title screen.
+if (project.hasProperty('crashRecovery')) {
+	tasks.matching { it.name == 'runClientGameTest' }.configureEach {
+		doFirst {
+			def run = file('build/run/clientGameTest')
+			def start = System.currentTimeMillis() - 60_000
+			file("$run/config/metallium").mkdirs()
+			file("$run/config/metallium/session.json").text = """{"start": $start, "engine": "METAL", "routed": [{"id": "metallium-gametest", "name": "Metallium client game tests", "packages": ["dev.metallium.gametest.gl"]}]}"""
+			file("$run/crash-reports").mkdirs()
+			file("$run/crash-reports/crash-simulated-client.txt").text = '---- Minecraft Crash Report ----\n' +
+					'Description: Rendering overlay (simulated by -PcrashRecovery)\n\n' +
+					'java.lang.UnsupportedOperationException: metallium-gl: unimplemented GL11.glAccum(IF)V (called by metallium-gametest)\n' +
+					'\tat dev.metallium.gl.MetalGLLog.unimplemented(MetalGLLog.java:44)\n' +
+					'\tat dev.metallium.gametest.gl.RawGlQuads.render(RawGlQuads.java:1)\n'
+		}
 	}
 }

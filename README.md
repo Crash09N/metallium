@@ -17,8 +17,13 @@ Build: `./gradlew build` (JDK 25). Metal smoke test on a Mac: `./gradlew metalSm
 Metallium plugs a Metal backend into Minecraft 26.3's own GPU abstraction (`com.mojang.renderpearl`), so vanilla,
 Sodium, Sodium Extra, Reese's Sodium Options and Fabric rendering mods run on Metal **unmodified**. Iris shader packs
 are supported through a separate adapter that reuses Iris's pack loading and shader transformation and executes the
-passes natively on Metal. Mods that call OpenGL directly can opt into `metallium-gl`, a GL → Metal translation layer
-(foundation stage, [`docs/design/metallium-gl.md`](docs/design/metallium-gl.md)). See the report for evidence, trade-offs and limits (e.g. geometry-shader packs).
+passes natively on Metal. Mods that call OpenGL directly are detected by a start-up scan and run through
+`metallium-gl`, a GL → Metal translation layer, automatically when it is installed (foundation stage,
+[`docs/design/metallium-gl.md`](docs/design/metallium-gl.md)); if that crashes, the next start runs on OpenGL and asks
+what to do. A status screen (Video Settings → Metallium) lists which mods run natively and which are translated.
+See the report for evidence, trade-offs and limits (e.g. geometry-shader packs).
+
+- Mod authors: [`docs/MOD-AUTHORS.md`](docs/MOD-AUTHORS.md) — make a mod Metal-ready without writing Metal code.
 
 ## Using Metallium's code — credit required
 
@@ -47,12 +52,12 @@ project's code may legally be copied. Rows will be updated whenever code is actu
 | Project | Authors | License | Role |
 |---|---|---|---|
 | [Sodium](https://github.com/CaffeineMC/sodium) | CaffeineMC (JellySquid, IMS and contributors) | PolyForm Shield 1.0.0 | Terrain renderer, Fabric Rendering API implementation, config UI. Metallium contains **no Sodium code** (license forbids competing derivatives). |
-| [Iris](https://github.com/IrisShaders/Iris) | IrisShaders (coderbot, IMS and contributors) | LGPL-3.0 | Runtime dependency of the `metallium-iris` adapter (LGPL-3.0 module): pack loading, GLSL transformation and uniform providers are called unchanged; the adapter's Metal post pipeline follows the pass order and buffer-flip logic of Iris's `CompositeRenderer`/`FinalPassRenderer`, and its gbuffers path calls Iris's `IrisPipelines`, `ProgramFallbackResolver` and `TransformPatcher` unchanged and follows `ShaderCreator`/`ExtendedShader` (uniform setup, blend overrides, extended Sodium vertex format) (ideas and structure, no copied code). **Adapted code:** `metallium-iris/.../post/MetalShadowRenderer.java` is adapted from Iris's `ShadowRenderer` (shadow pass steps, frustum setup; OpenGL state removed), with Iris's LGPL-3.0 notice kept in the file; it uses Iris's shadow frustums, `ShadowMatrices` and Sodium shadow-render-list mixins unchanged. |
+| [Iris](https://github.com/IrisShaders/Iris) | IrisShaders (coderbot, IMS and contributors) | LGPL-3.0 | Runtime dependency of the `metallium-iris` adapter (LGPL-3.0 module): pack loading, GLSL transformation and uniform providers are called unchanged; the adapter's Metal post pipeline follows the pass order and buffer-flip logic of Iris's `CompositeRenderer`/`FinalPassRenderer`, and its gbuffers path calls Iris's `IrisPipelines`, `ProgramFallbackResolver` and `TransformPatcher` unchanged and follows `ShaderCreator`/`ExtendedShader` (uniform setup, blend overrides, extended Sodium vertex format); its compute passes, SSBOs and custom images follow `ComputeProgram` (work-group rules), `ShaderStorageBufferHolder`, `GlImage` and `IrisImages` (ideas and structure, no copied code). **Adapted code:** `metallium-iris/.../post/MetalShadowRenderer.java` is adapted from Iris's `ShadowRenderer` (shadow pass steps, frustum setup; OpenGL state removed), with Iris's LGPL-3.0 notice kept in the file; it uses Iris's shadow frustums, `ShadowMatrices` and Sodium shadow-render-list mixins unchanged. |
 | [Sodium Extra](https://github.com/FlashyReese/sodium-extra-fabric) | FlashyReese and contributors | LGPL-3.0 | Extra options; runs unchanged on Metallium. |
 | [Reese's Sodium Options](https://github.com/FlashyReese/reeses-sodium-options) | FlashyReese and contributors | MIT | Options screen; runs unchanged on Metallium. |
 | [Fabric API](https://github.com/FabricMC/fabric) | FabricMC | Apache-2.0 | Rendering events and APIs. |
 | [LWJGL](https://github.com/LWJGL/lwjgl3) | LWJGL contributors | BSD-3-Clause | Ships with Minecraft. `metallium-gl`'s `MetalGL` mirrors the names and signatures of LWJGL's `org.lwjgl.opengl` entry points so opted-in mods' calls can be retargeted (API compatibility only, no code copied). |
-| [ASM](https://asm.ow2.io/) | OW2 | BSD-3-Clause | Ships with Fabric Loader; `metallium-gl` uses it to rewrite GL call sites at class-load time. |
+| [ASM](https://asm.ow2.io/) | OW2 | BSD-3-Clause | Ships with Fabric Loader; `metallium-gl` uses it to rewrite GL call sites at class-load time, and the core's start-up mod scan uses it to find direct OpenGL calls (read-only bytecode inspection). |
 | [SPIRV-Cross](https://github.com/KhronosGroup/SPIRV-Cross), [glslang](https://github.com/KhronosGroup/glslang) / shaderc | Khronos Group and contributors | Apache-2.0 / BSD-family | Shader translation, via the LWJGL natives Minecraft already ships. |
 
 ### Code that may be adapted (licenses permit reuse with attribution)

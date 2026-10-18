@@ -25,6 +25,7 @@ import com.mojang.renderpearl.backend.api.BackendRenderPipeline;
 import com.mojang.renderpearl.backend.api.GpuDeviceBackend;
 import com.mojang.renderpearl.backend.api.GpuSurfaceBackend;
 import com.mojang.renderpearl.util.ShaderCompileException;
+import dev.metallium.shadercache.ShaderCacheStats;
 import io.github.kokodio.metaljvm.foundation.NSObject;
 import io.github.kokodio.metaljvm.metal.*;
 import io.github.kokodio.metaljvm.quartzcore.CAMetalLayer;
@@ -35,6 +36,8 @@ import org.jspecify.annotations.Nullable;
 
 import java.nio.ByteBuffer;
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Supplier;
 import java.util.function.BooleanSupplier;
 
@@ -45,8 +48,10 @@ final class MetalDevice implements GpuDeviceBackend {
     private final MetalCommandEncoder commandEncoder;
     private final DeviceInfo deviceInfo;
     public final MTLCommandQueue commandQueue;
-    private final Map<MslFunctionKey, MTLFunction> functionCache = new HashMap<>();
+    /** Compiled (or compiling) MSL functions; pipelines compile on renderpearl's worker threads, so this is shared. */
+    private final Map<MslFunctionKey, CompletableFuture<@Nullable MTLFunction>> functionCache = new ConcurrentHashMap<>();
     private final Map<Long, MTLDepthStencilState> depthStencilStates = new HashMap<>();
+    private final MetalPipelineCache pipelineCache;
 
     MetalDevice(
             final GpuDebugOptions debugOptions,
@@ -59,6 +64,7 @@ final class MetalDevice implements GpuDeviceBackend {
         MetalUtilities.init(this.metalDevice);
         this.commandEncoder = new MetalCommandEncoder(this);
         this.deviceInfo = buildDeviceInfo(deviceName);
+        this.pipelineCache = MetalPipelineCache.open(this.metalDevice, deviceName);
         MetalliumInterop.attach(this);
     }
 
@@ -136,32 +142,60 @@ final class MetalDevice implements GpuDeviceBackend {
     public BackendRenderPipeline.@NonNull Pending compilePipeline(final BackendRenderPipeline.@NonNull CreateInfo createInfo) {
         MetalCrossShaderCompiler.Compiled compiled;
         try {
-            compiled = MetalCrossShaderCompiler.compile(createInfo);
+            compiled = MetalCrossShaderCompiler.compile(createInfo, this.pipelineCache);
         } catch (ShaderCompileException e) {
             Metallium.LOGGER.error("[metallium] Failed to cross-compile pipeline {}", createInfo.name(), e);
             return BackendRenderPipeline.Pending.NULL;
         }
 
-        return () -> {
-            MetalCompiledRenderPipeline pipeline = new MetalCompiledRenderPipeline(this, createInfo, compiled);
-            if (!pipeline.isValid()) {
-                pipeline.close();
-                return null;
-            }
-            return pipeline;
-        };
+        // Everything (MSL compile, pipeline state) happens here: renderpearl calls compilePipeline on its background
+        // executor for the bulk (re)load, and Metal object creation is thread-safe, so the render thread only picks up
+        // the finished pipeline in finishCompile (like the Vulkan backend). Callers that need the pipeline at once
+        // (ad-hoc pipelines, the Iris adapter) call finishCompile right away and get the same result.
+        MetalCompiledRenderPipeline pipeline = new MetalCompiledRenderPipeline(this, createInfo, compiled);
+        if (!pipeline.isValid() && this.pipelineCache.archiveInUse()) {
+            // Corruption safety: never let a bad binary archive break a pipeline. Stop using (and later discard) the
+            // archive, drop the functions taken from it and build this pipeline again from MSL source.
+            pipeline.close();
+            Metallium.LOGGER.warn("[metallium] Pipeline {} failed with the binary archive; disabling it and compiling from source", createInfo.name());
+            this.pipelineCache.discardArchive();
+            this.evictFunction(compiled.vertexSource(), compiled.vertexEntryPoint());
+            this.evictFunction(compiled.fragmentSource(), compiled.fragmentEntryPoint());
+            pipeline = new MetalCompiledRenderPipeline(this, createInfo, compiled);
+        }
+        if (!pipeline.isValid()) {
+            pipeline.close();
+            return () -> null;
+        }
+        MetalCompiledRenderPipeline result = pipeline;
+        return () -> result;
+    }
+
+    private void evictFunction(final String msl, final String entryPoint) {
+        // Not released: another compile thread may be using it right now (only happens once, on a bad archive).
+        this.functionCache.remove(new MslFunctionKey(msl, entryPoint));
     }
 
     void clearFunctionCache() {
         this.waitForSubmittedGpuWork();
-        this.functionCache.values().forEach(MTLFunction::release);
+        for (CompletableFuture<@Nullable MTLFunction> future : this.functionCache.values()) {
+            MTLFunction function = future.getNow(null);
+            if (function != null) {
+                function.release();
+            }
+        }
         this.functionCache.clear();
+    }
+
+    MetalPipelineCache pipelineCache() {
+        return this.pipelineCache;
     }
 
     @Override
     public void close() {
         this.waitForSubmittedGpuWork();
         this.commandEncoder.close();
+        this.pipelineCache.close();
         this.clearFunctionCache();
         MetalUtilities.close();
         this.commandQueue.release();
@@ -195,7 +229,7 @@ final class MetalDevice implements GpuDeviceBackend {
         return this.metalDevice;
     }
 
-    MTLDepthStencilState depthStencilState(final MTLCompareFunction compareFunction, final boolean writeDepth) {
+    synchronized MTLDepthStencilState depthStencilState(final MTLCompareFunction compareFunction, final boolean writeDepth) {
         long key = (compareFunction.value << 1) | (writeDepth ? 1L : 0L);
         MTLDepthStencilState cached = depthStencilStates.get(key);
         if (cached != null) {
@@ -220,12 +254,43 @@ final class MetalDevice implements GpuDeviceBackend {
 
     @Nullable
     MTLFunction getOrCompileFunction(final String msl, final String entryPoint, final String name) {
-        return this.functionCache.computeIfAbsent(new MslFunctionKey(msl, entryPoint), key -> this.compileFunction(key, name));
+        MslFunctionKey key = new MslFunctionKey(msl, entryPoint);
+        CompletableFuture<@Nullable MTLFunction> existing = this.functionCache.get(key);
+        if (existing == null) {
+            CompletableFuture<@Nullable MTLFunction> mine = new CompletableFuture<>();
+            existing = this.functionCache.putIfAbsent(key, mine);
+            if (existing == null) {
+                MTLFunction function = null;
+                try {
+                    function = this.compileFunction(key, name);
+                } finally {
+                    if (function == null) {
+                        this.functionCache.remove(key, mine); // failures are retried by the next request
+                    }
+                    mine.complete(function);
+                }
+                return function;
+            }
+        }
+        return existing.join();
     }
 
     @Nullable
     private MTLFunction compileFunction(final MslFunctionKey key, final String name) {
+        // Functions of pipelines from earlier sessions come straight out of the binary archive (its file doubles as a
+        // metallib): no MSL front-end compile. Entry point names are unique per translated stage, see
+        // MetalCrossShaderCompiler.entryPointName.
+        MTLFunction archived = this.pipelineCache.archivedFunction(key.entryPoint());
+        if (archived != null) {
+            if (this.useLabels()) {
+                archived.setLabel(name);
+            }
+            return archived;
+        }
+        long start = System.nanoTime();
         MTLLibrary library = MetalUtilities.newLibrary(this.metalDevice, key.msl());
+        ShaderCacheStats.libraryCompiles.increment();
+        ShaderCacheStats.libraryNs.add(System.nanoTime() - start);
         if (library == null) {
             return null;
         }

@@ -51,6 +51,7 @@ public final class MetalliumGlBootstrap {
         // Read by core compat code (e.g. the Voxy safe-disable mixin) that must step aside for routed mods.
         System.setProperty(ROUTED_MODS_PROPERTY, String.join(",", optIn.mods().keySet()));
         MetalliumRuntime.registerStatusLine(MetalliumGlBootstrap::statusLine);
+        dev.metallium.compat.GlRouting.setUnimplementedSource(MetalGLLog::unimplementedCalls);
         if (optIn.mods().isEmpty()) {
             MetalGLLog.LOGGER.info("[metallium-gl] no mods opted in; class loading is not hooked");
             return;
@@ -62,6 +63,7 @@ public final class MetalliumGlBootstrap {
         try {
             hookKnot();
             hooked = true;
+            dev.metallium.compat.GlRouting.markHooked();
         } catch (ReflectiveOperationException | RuntimeException e) {
             MetalGLLog.LOGGER.error("[metallium-gl] could not hook class loading; opted-in mods run without retargeting", e);
         }

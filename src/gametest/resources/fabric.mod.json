@@ -5,10 +5,9 @@
   "name": "Metallium client game tests",
   "environment": "client",
   "entrypoints": {
-    "fabric-client-gametest": ["dev.metallium.gametest.MetalliumClientGameTest"]
-  },
-  "custom": {
-    "metallium-gl": {"packages": ["dev.metallium.gametest.gl"]}
+    "fabric-client-gametest": [
+      "dev.metallium.gametest.MetalliumClientGameTest"
+    ]
   },
   "depends": {
     "metallium": "*",

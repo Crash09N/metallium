@@ -64,7 +64,7 @@ final class MetalGpuTexture extends BaseGpuTexture {
         }
         descriptor.setTextureType(this.textureType);
         descriptor.setMipmapLevelCount(Math.max(mipLevels, 1));
-        descriptor.setUsage(toMtlTextureUsage(usage));
+        descriptor.setUsage(toMtlTextureUsage(usage, format));
         descriptor.setStorageMode(MTLStorageMode.Private);
         descriptor.setHazardTrackingMode(MTLHazardTrackingMode.Untracked);
         this.metalTexture = MetalUtilities.nonNil(device.metalDevice().newTexture(descriptor), "newTextureWithDescriptor:");
@@ -72,6 +72,20 @@ final class MetalGpuTexture extends BaseGpuTexture {
         if (!label.isEmpty()) {
             this.metalTexture.setLabel(label);
         }
+    }
+
+    /**
+     * Metallium extension: wraps a texture created directly in Metal (e.g. a 3D storage image of the Iris adapter) so
+     * renderpearl render passes can sample it. Takes over the caller's reference; closing releases it.
+     */
+    MetalGpuTexture(final MetalDevice device, final MTLTexture texture, final String label, final GpuFormat format) {
+        super(GpuTexture.USAGE_TEXTURE_BINDING | MetalliumInterop.TEXTURE_USAGE_STORAGE, label, format,
+                (int) texture.width(), (int) texture.height(), (int) Math.max(1, texture.depth()), (int) Math.max(1, texture.mipmapLevelCount()));
+        this.device = device;
+        this.mtlPixelFormat = texture.pixelFormat();
+        this.textureType = texture.textureType();
+        this.sliceCount = 1;
+        this.metalTexture = texture;
     }
 
     int pixelSize() {
@@ -150,8 +164,15 @@ final class MetalGpuTexture extends BaseGpuTexture {
         return this.closed;
     }
 
-    private static long toMtlTextureUsage(@GpuTexture.Usage final int usage) {
+    private static long toMtlTextureUsage(@GpuTexture.Usage final int usage, final GpuFormat format) {
         long result = 0L;
+        if ((usage & MetalliumInterop.TEXTURE_USAGE_STORAGE) != 0) {
+            // Metallium extension: compute image load/store (and native image atomics on 32-bit integer formats).
+            result |= MTLTextureUsage.ShaderRead | MTLTextureUsage.ShaderWrite;
+            if (format == GpuFormat.R32_UINT || format == GpuFormat.R32_SINT) {
+                result |= MTLTextureUsage.ShaderAtomic;
+            }
+        }
         if ((usage & GpuTexture.USAGE_TEXTURE_BINDING) != 0 || (usage & GpuTexture.USAGE_COPY_DST) != 0 || (usage & GpuTexture.USAGE_COPY_SRC) != 0) {
             result |= MTLTextureUsage.ShaderRead;
         }

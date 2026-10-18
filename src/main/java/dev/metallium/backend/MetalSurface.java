@@ -21,31 +21,46 @@ import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
 import org.jspecify.annotations.NonNull;
 import io.github.kokodio.metaljvm.objc.AutoreleasePool;
-import io.github.kokodio.metaljvm.objc.ObjCBlock;
 import io.github.kokodio.metaljvm.quartzcore.CAMetalDrawable;
 import org.jspecify.annotations.Nullable;
 import org.lwjgl.sdl.SDLError;
 import org.lwjgl.sdl.SDLMetal;
 
+import io.github.kokodio.metaljvm.metal.MTLDrawable;
+
+import java.lang.foreign.Arena;
+import java.lang.foreign.FunctionDescriptor;
+import java.lang.foreign.Linker;
+import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
+import java.lang.invoke.MethodHandle;
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.MethodType;
 import java.util.Collection;
 import java.util.EnumSet;
 import java.util.Set;
 import java.util.concurrent.Semaphore;
-import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.LockSupport;
 
 @Environment(EnvType.CLIENT)
 final class MetalSurface implements GpuSurfaceBackend {
     private static final long PRESENT_PENDING_TIMEOUT_NS = 100_000_000L;
+    /**
+     * VSync off: presents allowed to wait for their presented handler at once. Measured 2026-10-18 (light bench,
+     * exclusive GPU, window visible): 1 → 3918 rendered / 179 shown per s, 2 → 3427 / 83, 3 → 963 / 74,
+     * 100 → 381 / 63. More presents in flight make the layer drop frames and stall rendering, so keep 1.
+     */
+    private static final int MAX_PRESENTS_IN_FLIGHT = 1;
     private static final Set<GpuSurface.PresentMode> SUPPORTED_PRESENT_MODES = EnumSet.of(GpuSurface.PresentMode.IMMEDIATE, GpuSurface.PresentMode.FIFO, GpuSurface.PresentMode.MAILBOX);
     private final long metalView;
     private final CAMetalLayer metalLayer;
     private MetalCommandEncoder pendingPresentEncoder;
     private final DrawablePrefetcher prefetcher = new DrawablePrefetcher();
-    /** Set while a vsync-off present has not reached the display yet; cleared by the drawable's presented handler. */
-    private final AtomicBoolean presentPending = new AtomicBoolean();
-    private final long presentedHandler = ObjCBlock.withRunnable(() -> presentPending.set(false));
+    /** Presents not yet reported by their drawable's presented handler (shown or dropped). */
+    private final AtomicInteger presentsInFlight = new AtomicInteger();
+    private final long presentedHandler = presentedHandlerBlock(this);
     private long lastPresentNs;
     private boolean displaySync = true;
     private int width;
@@ -62,6 +77,7 @@ final class MetalSurface implements GpuSurfaceBackend {
             throw new IllegalStateException("Failed to get Metal layer: " + SDLError.SDL_GetError());
         }
 
+        PresentStats.windowHandle = windowHandle;
         this.metalLayer = new CAMetalLayer(layerHandle);
         this.metalLayer.setDevice(metalDevice);
         this.metalLayer.setFramebufferOnly(false);
@@ -85,7 +101,7 @@ final class MetalSurface implements GpuSurfaceBackend {
         this.metalLayer.setDisplaySyncEnabled(this.displaySync);
         this.width = config.width();
         this.height = config.height();
-        this.presentPending.set(false);
+        this.presentsInFlight.set(0);
     }
 
     @Override
@@ -110,35 +126,97 @@ final class MetalSurface implements GpuSurfaceBackend {
             drawable = null;
         }
         if (this.displaySync) {
-            // vsync: acquiring the drawable on the render thread is the frame pacing.
-            if (drawable != null) {
-                metalEncoder.presentTextureToDrawable(drawable, textureView, 0L);
-                drawable.release();
-            } else {
-                metalEncoder.presentTextureToDrawable(metalLayer, textureView);
+            // vsync (FIFO): acquiring the drawable on the render thread is the frame pacing.
+            if (drawable == null) {
+                drawable = acquireBlocking();
+                if (drawable == null) {
+                    return; // no valid drawable size
+                }
             }
+            present(metalEncoder, drawable, textureView, System.nanoTime());
             return;
         }
-        // No vsync: a windowed CAMetalLayer only hands drawables back at the display refresh, so a blocking
-        // nextDrawable() would cap the frame rate at the refresh rate. Instead a frame is presented only when the
-        // previous present has reached the display (presented handler; 100 ms safety valve) and a drawable acquired
-        // by the helper thread is ready; otherwise the drawable blit is skipped (the frame itself is still rendered),
-        // like a mailbox swapchain dropping frames. Presenting no more than the display shows also keeps the GPU from
-        // waiting on drawables the compositor still holds.
+        // No vsync (mailbox): a windowed CAMetalLayer only hands drawables back at the display refresh, so a blocking
+        // nextDrawable() would cap the frame rate at the refresh rate. Instead a helper thread acquires drawables and
+        // the newest rendered frame is presented whenever a drawable is ready and fewer than MAX_PRESENTS_IN_FLIGHT
+        // presents still wait for the display (presented handler; 100 ms safety valve). Otherwise the drawable blit is
+        // skipped (the frame itself is still rendered), like a mailbox swapchain dropping frames. Not queueing behind an
+        // unshown present keeps the GPU from waiting on drawables the compositor still holds.
         long now = System.nanoTime();
-        if (this.presentPending.get() && now - this.lastPresentNs < PRESENT_PENDING_TIMEOUT_NS) {
+        if (this.presentsInFlight.get() >= MAX_PRESENTS_IN_FLIGHT && now - this.lastPresentNs < PRESENT_PENDING_TIMEOUT_NS) {
             if (drawable != null) {
                 this.prefetcher.putBack(drawable);
             }
+            PresentStats.skipped.incrementAndGet();
             return;
         }
         if (drawable != null) {
-            this.presentPending.set(true);
-            this.lastPresentNs = now;
-            metalEncoder.presentTextureToDrawable(drawable, textureView, this.presentedHandler);
-            drawable.release();
+            present(metalEncoder, drawable, textureView, now);
+        } else {
+            PresentStats.skipped.incrementAndGet();
         }
         this.prefetcher.request();
+    }
+
+    /**
+     * Encodes the present of a retained drawable and drops the caller's reference (the command buffer keeps its own).
+     * The drawable must not outlive the command buffer in Java: releasing the last reference of a drawable whose
+     * presented handler has not run yet makes Quartz call the handler synchronously inside that (critical) downcall,
+     * which crashes the JVM ("wrong thread state for upcall").
+     */
+    private void present(final MetalCommandEncoder encoder, final CAMetalDrawable drawable, final GpuTextureView textureView, final long now) {
+        this.presentsInFlight.incrementAndGet();
+        this.lastPresentNs = now;
+        PresentStats.submitted.incrementAndGet();
+        encoder.presentTextureToDrawable(drawable, textureView, this.presentedHandler);
+        drawable.release();
+    }
+
+    /**
+     * Presented handler (Quartz dispatch thread): the drawable reached the display ({@code presentedTime > 0}) or was
+     * dropped by the layer in favour of a newer one (VSync off). Only a read-only property call here, no release.
+     */
+    private void onPresented(final MemorySegment block, final MemorySegment drawable) {
+        this.presentsInFlight.updateAndGet(n -> n > 0 ? n - 1 : 0);
+        boolean shown = drawable.address() != 0L && new MTLDrawable(drawable.address()).presentedTime() > 0.0;
+        (shown ? PresentStats.presented : PresentStats.dropped).incrementAndGet();
+    }
+
+    /**
+     * A global Objective-C block {@code void (^)(id<MTLDrawable>)} calling {@link #onPresented} (Apple block ABI:
+     * isa, flags, reserved, invoke, descriptor{reserved, size}); metal-jvm's runnable blocks don't pass the argument.
+     */
+    private static long presentedHandlerBlock(final MetalSurface surface) {
+        try {
+            MethodHandle target = MethodHandles.lookup().findVirtual(MetalSurface.class, "onPresented",
+                    MethodType.methodType(void.class, MemorySegment.class, MemorySegment.class)).bindTo(surface);
+            Arena arena = Arena.global(); // one block per surface; surfaces live as long as the window
+            MemorySegment invoke = Linker.nativeLinker().upcallStub(target,
+                    FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.ADDRESS), arena);
+            MemorySegment descriptor = arena.allocate(16, 8);
+            descriptor.set(ValueLayout.JAVA_LONG, 0, 0L);
+            descriptor.set(ValueLayout.JAVA_LONG, 8, 32L);
+            MemorySegment block = arena.allocate(32, 8);
+            block.set(ValueLayout.ADDRESS, 0, Linker.nativeLinker().defaultLookup().findOrThrow("_NSConcreteGlobalBlock"));
+            block.set(ValueLayout.JAVA_INT, 8, 1 << 28); // BLOCK_IS_GLOBAL
+            block.set(ValueLayout.JAVA_INT, 12, 0);
+            block.set(ValueLayout.ADDRESS, 16, invoke);
+            block.set(ValueLayout.ADDRESS, 24, descriptor);
+            return block.address();
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    @Nullable
+    private CAMetalDrawable acquireBlocking() {
+        try (AutoreleasePool _ = AutoreleasePool.push()) {
+            CAMetalDrawable drawable = this.metalLayer.nextDrawable();
+            if (drawable != null) {
+                drawable.retain();
+            }
+            return drawable;
+        }
     }
 
     private boolean matchesSize(final CAMetalDrawable drawable) {
@@ -160,6 +238,7 @@ final class MetalSurface implements GpuSurfaceBackend {
     @Override
     public void close() {
         this.prefetcher.stop();
+        PresentStats.windowHandle = 0L;
         SDLMetal.SDL_Metal_DestroyView(this.metalView);
     }
 

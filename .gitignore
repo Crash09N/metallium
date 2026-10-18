@@ -6,3 +6,7 @@ out/
 .idea/
 .claude/
 logs/
+minecraft/
+run-instance/
+.DS_Store
+.metallium-cache/

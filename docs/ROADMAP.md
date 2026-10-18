@@ -57,7 +57,7 @@ Status legend: ✅ done · 🔄 in progress · ⏳ planned · 🔬 needs researc
 - ✅ Shader translator: Iris-style GLSL → SPIR-V → Metal with uniform/binding reflection
 - ✅ Stage 1: game starts on Metal with Iris + adapter
 - ✅ Stage 2: begin/prepare/deferred/composite/final passes run on Metal over the vanilla/Sodium scene
-  (`MetalPostPipeline`, design: `docs/design/iris-stage2-post-pipeline.md`). Open items: mipmapped buffers,
+  (`MetalPostPipeline`, design: `docs/design/iris-stage2-post-pipeline.md`). Open items:
   viewport scale, composite blend overrides, custom textures, `size.buffer.*`, explicit uniform blocks
 - 🔄 Stage 3: gbuffers programs render the world into the pack's colortex buffers (design:
   `docs/design/iris-stage3-gbuffers.md`): Sodium terrain (solid/cutout/translucent), sky, particles, entities, hand,
@@ -67,9 +67,15 @@ Status legend: ✅ done · 🔄 in progress · ⏳ planned · 🔬 needs researc
 - 🔄 Stage 4: shadow pass on Metal (design: `docs/design/iris-stage4-shadows.md`): Iris's shadow pass (adapted
   `ShadowRenderer`) retargeted to shadowtex0/1 + shadowcolorN, pack `shadow*` programs (cull off, forward-Z depth),
   shadow samplers incl. `sampler2DShadow` via a Metal depth-compare sampler, prepare passes after the shadow pass.
-  Verified with a synthetic shadow pack and Complementary (matches Iris/OpenGL). Open items: shadowcomp passes,
+  Verified with a synthetic shadow pack and Complementary (matches Iris/OpenGL). Open items:
   mipmapped shadow maps, DH shadows, `ShadowRenderCallbacks`
-- ⏳ Stage 5: compute, image load/store, SSBO (packs that macOS OpenGL 4.1 cannot run today)
+- 🔄 Stage 5: compute, image load/store, SSBO (packs that macOS OpenGL 4.1 cannot run today; design:
+  `docs/design/iris-stage5-compute.md`): compute passes in every Iris stage (setup, shadow, shadowcomp, begin/prepare/
+  deferred/composite incl. compute-only, final; indirect dispatch) as Metal compute encoders inside Metallium's frame,
+  colorimg/shadowcolorimg/custom 2D/3D images with atomics, persistent SSBOs with `.length()`, images/SSBOs/3D custom
+  samplers in gbuffers/shadow/fullscreen programs, shadowcomp fragment passes, mipmapped buffers. Verified with a
+  synthetic compute pack. Open items: custom textures (`texture.*`, Photon's 3D noise), `size.buffer.*`, voxelization
+  in geometry shaders (stage 6), shadowcolor mipmaps
 - ⏳ Stage 6: geometry/tessellation shaders via compute emulation, learning from Mesa's Apple-GPU emulation (MIT)
 - Unsupported features are detected at pack load and reported; never a crash or black screen
 - **Pack sweep** (regression test after every Iris stage): a local corpus of popular packs (BSL, Complementary
@@ -93,31 +99,37 @@ Status legend: ✅ done · 🔄 in progress · ⏳ planned · 🔬 needs researc
   **Meshelium** (mesh-shader terrain; must be installable alongside Metallium; evaluate its ideas for Metal mesh shaders),
   **Light Overlay**, **Cull Leaves**, **More Culling**. Each gets a game-test scenario once supported.
 - ⏳ Rule of thumb verified in CI: mods that work on vanilla's Vulkan backend should work on Metallium
-- ⏳ Automatic fallback: detect a mod Metallium cannot handle → OpenGL at next start, with message
+- ✅ Automatic fallback: detect a mod Metallium cannot handle → OpenGL at next start, with message (Phase 6c)
 
 ## Phase 6b — Apple-native features ⏳ / 🔬
 - 🔬 **MetalFX upscaling** (research: `docs/research/notes/metalfx-upscaling.md`): spatial upscaler first (render scale
   option, UI at native resolution), then temporal upscaler (needs camera jitter + motion vectors + depth)
 - ⏳ **MetalFX frame interpolation** (frame generation) after temporal upscaling works; depends on macOS version
 - ⏳ **Game Mode**: launcher wrapper `.app` with game category so macOS enables Game Mode
-- ⏳ **Low Power / efficiency mode** (owner request): detect macOS Low Power Mode (`NSProcessInfo.isLowPowerModeEnabled` +
+- 🔄 **Low Power / efficiency mode** (owner request; done: mode setting, macOS Low Power Mode/battery/thermal detection
+  via FFM polled every 5 s, live FPS cap — bench light scene 10 s: Performance 269 fps, Low Power 30.0 fps): detect macOS Low Power Mode (`NSProcessInfo.isLowPowerModeEnabled` +
   power-state change notification), thermal state and battery vs. AC; switch live, no restart. Measures, by expected
   savings: FPS cap + VSync; lower internal resolution + MetalFX upscaling; worker/chunk-builder threads at a lower QoS
   class so they run on efficiency cores; fewer frames in flight; optionally reduced shader-pack cost (shadow resolution).
   Measure watts (powermetrics / Metal HUD) per mode in the benchmark stage.
-- ⏳ **"Metallium" settings tab** (Sodium config API → also shown by Reese's Sodium Options): Graphics Engine, Power mode
+- ✅ **"Metallium" settings tab** (MetalFX/validation options still to come) (Sodium config API → also shown by Reese's Sodium Options): Graphics Engine, Power mode
   (Automatic / Performance / Balanced / Low Power), FPS limit on battery, MetalFX options (later), Display P3, diagnostics
   (Metal HUD toggle, validation).
 - ⏳ Later, optional: hardware ray-traced effects (M3+), and a Metal-native GPU-driven terrain path (owner may start a
   separate Nvidium-style project)
 
-## Phase 6c — Compatibility center 🔄
-- Startup scan of all mods for direct OpenGL use → status per mod: native on Metal / via metallium-gl / partial / disabled
-- Order: native Metal first → automatic routing through metallium-gl → if it fails or crashes: dialog "Disable mod X /
-  Switch Metallium to OpenGL / Ignore" (no crash loops; crash detection on next start)
-- Status screen (Sodium on Metal?, Iris adapter, DH, per-mod table, power state) + "Metallium" settings tab
-- `docs/MOD-AUTHORS.md`: make mods Metal-ready without Metal code (use renderpearl instead of raw OpenGL)
-- Power mode "Performance" ignores macOS Low Power Mode (full performance on battery if the user wants it)
+## Phase 6c — Compatibility center ✅ (first version, 2026-10-18)
+- ✅ Startup scan of all mods for direct OpenGL use (ASM, cached) → status per mod: native on Metal / via metallium-gl /
+  partial (unimplemented GL functions seen) / will not render on Metal / disabled jars
+- ✅ Order: native Metal first → automatic routing through metallium-gl (per-mod override, author opt-out) → on a crash
+  in a routed mod, metallium-gl or the Metal backend: next start on OpenGL + screen "Disable mod (rename jar) / OpenGL
+  this session / always OpenGL / try Metal again" (no crash loops). Game test `-PwithGl -PcrashRecovery` simulates it
+- ✅ Status screen (engine, Sodium on Metal, Iris adapter, DH, Voxy, per-mod table with overrides, power state; from the
+  Sodium tab or vanilla Video Settings) + "Metallium" Sodium tab (General + Power pages)
+- ✅ `docs/MOD-AUTHORS.md`
+- ✅ Power mode "Performance" ignores macOS Low Power Mode
+- ⏳ metallium-gl is still a separate jar (not jar-in-jar in the core); GL calls from mod *mixins* merged into Minecraft
+  classes are not attributed/retargeted; scan does not look into reflection-based GL use
 
 ## Phase 7 — Benchmarks and comparison ⏳
 **Engine shootout (fixed test stage, owner requirement: Metal must prove it is the fastest engine on Apple Silicon)**

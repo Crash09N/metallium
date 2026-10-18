@@ -23,6 +23,7 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
     private static final int BENCH_SECONDS = Integer.getInteger("metallium.bench.seconds", 30);
 
     private static final String BENCH_SCENE = System.getProperty("metallium.bench.scene", "light");
+    private static final boolean BENCH_VSYNC = Boolean.getBoolean("metallium.bench.vsync");
 
     // Per-frame timing: a HUD element is extracted exactly once per rendered frame, so the gap between two calls is the
     // frame time (frame start to next frame start; includes any wait for the GPU/present). This counts RENDERED
@@ -58,6 +59,15 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
         recording = true;
     }
 
+    /** Metal surface present counters: submitted, presented (shown), dropped, skipped (cumulative). */
+    private static long[] presentCounters() {
+        return new long[]{
+                dev.metallium.backend.PresentStats.submitted(),
+                dev.metallium.backend.PresentStats.presented(),
+                dev.metallium.backend.PresentStats.dropped(),
+                dev.metallium.backend.PresentStats.skipped()};
+    }
+
     private static List<Double> stopRecording() {
         recording = false;
         synchronized (FRAME_LOCK) {
@@ -90,7 +100,7 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
             return;
         }
         context.runOnClient(client -> {
-            client.options.enableVsync().set(false);
+            client.options.enableVsync().set(BENCH_VSYNC);
             client.options.framerateLimit().set(260); // 260 = unlimited
             client.options.chunkSectionFadeInTime().set(0.0);
             // Vanilla drops to 30 fps when there is no input for a while ("AFK"); a benchmark has no input.
@@ -149,6 +159,8 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
             double x = 0;
             double blocksPerTick = Double.parseDouble(System.getProperty("metallium.bench.flightSpeed", "60")) / 20.0;
             long startNs = System.nanoTime();
+            long[] present0 = presentCounters();
+            java.util.Set<String> windowStates = new java.util.TreeSet<>(); // sampled once per second
             startRecording();
             for (int second = 0; second < BENCH_SECONDS; second++) {
                 for (int tick = 0; tick < 20; tick++) {
@@ -159,9 +171,12 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
                     context.waitTick();
                 }
                 fpsSamples.add(context.computeOnClient(Minecraft::getFps));
+                windowStates.add(context.computeOnClient(c -> dev.metallium.backend.PresentStats.windowState()));
             }
             List<Double> frameMs = stopRecording();
+            long[] present1 = presentCounters();
             double seconds = (System.nanoTime() - startNs) / 1e9;
+            float refreshHz = context.computeOnClient(c -> dev.metallium.backend.PresentStats.displayRefreshHz());
             if (frameMs.isEmpty()) {
                 throw new AssertionError("no frames recorded");
             }
@@ -174,9 +189,16 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
             long heapMb = (Runtime.getRuntime().totalMemory() - Runtime.getRuntime().freeMemory()) >> 20;
             line(String.format("bench: Minecraft fps counter: avg=%.1f min=%d median=%d",
                     fpsSamples.stream().mapToInt(Integer::intValue).average().orElse(0), fpsSamples.get(0), fpsSamples.get(fpsSamples.size() / 2)));
-            line(String.format("bench: rendered frames counted=%d in %.1f s (per rendered frame via HUD hook; presented/displayed frames are not counted)", frameMs.size(), seconds));
+            line(String.format("bench: rendered frames counted=%d in %.1f s (per rendered frame via HUD hook)", frameMs.size(), seconds));
+            line(String.format(java.util.Locale.ROOT,
+                    "bench-present: vsync=%s display_refresh_hz=%.1f rendered_fps=%.1f submitted_fps=%.1f presented_fps=%.1f dropped=%d skipped=%d window=%s (Metal surface counters; 0 on OpenGL)",
+                    BENCH_VSYNC, refreshHz, frameMs.size() / seconds, (present1[0] - present0[0]) / seconds, (present1[1] - present0[1]) / seconds,
+                    present1[2] - present0[2], present1[3] - present0[3], String.join("|", windowStates)));
             line(String.format("bench-result: scene=%s avg_fps=%.1f low1_fps=%.1f p50_ms=%.2f p95_ms=%.2f p99_ms=%.2f max_ms=%.2f frames=%d heap_mb=%d",
                     BENCH_SCENE, avgFps, low1, pct(frameMs, 0.50), pct(frameMs, 0.95), pct(frameMs, 0.99), frameMs.get(frameMs.size() - 1), frameMs.size(), heapMb));
+            if (Boolean.getBoolean("metallium.bench.power")) {
+                powerBench(context);
+            }
             line("result: PASS");
         }
     }
@@ -187,6 +209,9 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
     private static final String[] GBUFFER_PACK_FILES = {"gbuffers_terrain.vsh", "gbuffers_terrain.fsh", "composite.vsh", "composite.fsh"};
     private static final String SHADOW_PACK = "metallium-shadowpack";
     private static final String[] SHADOW_PACK_FILES = {"gbuffers_terrain.vsh", "gbuffers_terrain.fsh", "shadow.vsh", "shadow.fsh", "composite.vsh", "composite.fsh"};
+    private static final String COMPUTE_PACK = "metallium-computepack";
+    private static final String[] COMPUTE_PACK_FILES = {"shaders.properties", "setup.csh", "composite.csh", "composite1.csh", "composite2.vsh", "composite2.fsh",
+            "composite3.vsh", "composite3.fsh"};
 
     /**
      * Iris shader packs (needs -PwithIris): with a fixed view, compares a shaders-off screenshot with one taken with the
@@ -210,6 +235,7 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
             installTestPack(context, TEST_PACK, TEST_PACK_FILES);
             installTestPack(context, GBUFFER_PACK, GBUFFER_PACK_FILES);
             installTestPack(context, SHADOW_PACK, SHADOW_PACK_FILES);
+            installTestPack(context, COMPUTE_PACK, COMPUTE_PACK_FILES);
         } catch (IOException e) {
             failures.add("could not install test shader pack: " + e);
             return;
@@ -228,10 +254,16 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
         checkGbufferMarker(context.takeScreenshot("metallium-iris-gbufferpack"));
 
         shadowPackScenario(context, world);
+        computePackScenario(context);
 
         String external = externalPack(context);
         if (external != null) {
+            long packStart = System.nanoTime();
+            long[] beforePack = dev.metallium.shadercache.ShaderCacheStats.snapshot();
             line("external pack " + external + ": pipeline=" + context.computeOnClient(client -> irisSelectPack(external, true)));
+            context.waitTicks(1);
+            line(String.format("timing: external pack load (reload + first frame) ms=%.0f", (System.nanoTime() - packStart) / 1e6));
+            line("shader work during external pack load: " + dev.metallium.shadercache.ShaderCacheStats.summary(dev.metallium.shadercache.ShaderCacheStats.delta(beforePack)));
             context.waitTicks(100);
             context.takeScreenshot("metallium-iris-external-pack");
             line("external pack: still running after 100 ticks");
@@ -256,8 +288,18 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
             clearChat(context);
             context.takeScreenshot("metallium-iris-external-pack-shadows");
             tryCommand(world, "execute as @p at @s run fill ^-4 ^ ^6 ^5 ^5 ^10 minecraft:air");
+            // Night with coloured light sources (stage 5: packs' voxel/floodfill coloured lighting runs in compute).
+            tryCommand(world, "time set 18000");
+            tryCommand(world, "execute as @p at @s run setblock ^-2 ^-1 ^5 minecraft:redstone_lamp[lit=true]");
+            tryCommand(world, "execute as @p at @s run setblock ^2 ^-1 ^5 minecraft:soul_lantern");
+            tryCommand(world, "execute as @p at @s run setblock ^ ^-1 ^7 minecraft:glowstone");
+            context.waitTicks(80);
+            clearChat(context);
+            context.takeScreenshot("metallium-iris-external-pack-night-lights");
+            tryCommand(world, "execute as @p at @s run fill ^-2 ^-1 ^5 ^2 ^-1 ^7 minecraft:air");
             tryCommand(world, "time set 6000");
             context.waitTicks(40);
+            playerModelScene(context, world);
         }
 
         line("iris shaders off: pipeline=" + context.computeOnClient(client -> irisSelectPack(TEST_PACK, false)));
@@ -269,6 +311,70 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
         if (same < 0.80) {
             failures.add(String.format("shaders off after a pack differs from vanilla (match %.2f)", same));
         }
+    }
+
+    /**
+     * External pack, local player model (entity_translucent pipeline -> gbuffers_entities / gbuffers_hand): third person
+     * (F5) from behind, then first person with the empty hand. The player's skin must be visible: the body/hand area must
+     * not be mostly near-white (white texture / overlay) nor show the sky through it. Same scene with -Pengine=OPENGL.
+     */
+    private void playerModelScene(ClientGameTestContext context, TestSingleplayerContext world) {
+        tryCommand(world, "gamemode creative @a");
+        tryCommand(world, "clear @a");
+        tryCommand(world, "execute as @p at @s run tp @s ~ ~ ~ ~ 10");
+        tryCommand(world, "execute as @p at @s run summon minecraft:mannequin ^1.5 ^ ^2 {profile:{texture:\"minecraft:entity/player/slim/alex\",model:\"slim\"}}");
+        tryCommand(world, "execute as @p at @s run summon minecraft:mannequin ^-1.5 ^ ^2 {profile:{texture:\"minecraft:entity/player/wide/steve\"}}");
+        context.runOnClient(client -> client.options.setCameraType(net.minecraft.client.CameraType.THIRD_PERSON_BACK));
+        context.waitTicks(40);
+        clearChat(context);
+        Path third = context.takeScreenshot("metallium-iris-external-pack-player-f5");
+        context.runOnClient(client -> client.options.setCameraType(net.minecraft.client.CameraType.FIRST_PERSON));
+        context.waitTicks(20);
+        clearChat(context);
+        Path first = context.takeScreenshot("metallium-iris-external-pack-player-hand");
+        tryCommand(world, "kill @e[type=minecraft:mannequin]");
+        tryCommand(world, "execute as @p at @s run tp @s ~ ~ ~ ~ 0");
+        tryCommand(world, "gamemode spectator @a");
+        try {
+            java.awt.image.BufferedImage body = javax.imageio.ImageIO.read(third.toFile());
+            java.awt.image.BufferedImage hand = javax.imageio.ImageIO.read(first.toFile());
+            // Third person from behind: the body is the central column of the screen; first person: the right arm
+            // reaches into the lower right corner.
+            double[] bodyStats = paleAndSkyFraction(body, 0.47, 0.75, 0.47, 0.53);
+            double[] handStats = paleAndSkyFraction(hand, 0.72, 0.95, 0.70, 0.90);
+            line(String.format("external pack player model: f5 body near-white=%.2f sky-blue=%.2f; first-person hand near-white=%.2f sky-blue=%.2f",
+                    bodyStats[0], bodyStats[1], handStats[0], handStats[1]));
+            if (bodyStats[0] > 0.35 || handStats[0] > 0.35 || bodyStats[1] > 0.20) {
+                failures.add(String.format("player model looks white/untextured or see-through with the external pack (f5 %.2f near-white, %.2f sky; hand %.2f near-white)",
+                        bodyStats[0], bodyStats[1], handStats[0]));
+            }
+        } catch (IOException e) {
+            failures.add("could not analyse player model screenshots: " + e);
+        }
+    }
+
+    /** Fractions of {near-white (all channels > 200, low saturation), sky-like blue} pixels in a screen rectangle. */
+    private static double[] paleAndSkyFraction(java.awt.image.BufferedImage image, double fromY, double toY, double fromX, double toX) {
+        int w = image.getWidth();
+        int h = image.getHeight();
+        int total = 0;
+        int pale = 0;
+        int sky = 0;
+        for (int y = (int) (h * fromY); y < (int) (h * toY); y += 2) {
+            for (int x = (int) (w * fromX); x < (int) (w * toX); x += 2) {
+                int rgb = image.getRGB(x, y);
+                int r = (rgb >> 16) & 0xFF, g = (rgb >> 8) & 0xFF, b = rgb & 0xFF;
+                total++;
+                int max = Math.max(r, Math.max(g, b));
+                int min = Math.min(r, Math.min(g, b));
+                if (min > 200 && max - min < 30) {
+                    pale++;
+                } else if (b > r + 40 && b > 150) {
+                    sky++;
+                }
+            }
+        }
+        return new double[] {(double) pale / Math.max(1, total), (double) sky / Math.max(1, total)};
     }
 
     /**
@@ -303,6 +409,57 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
         }
     }
 
+    /**
+     * Stage 5: the compute test pack's setup pass fills an SSBO, composite.csh writes its colour into the left half of
+     * colortex2 (colorimg2) and counts every pixel with an image atomic, the compute-only composite1.csh checks counter,
+     * SSBO and {@code .length()} and paints colortex3 green or red, composite2.fsh (colortex2 mipmapped) shows: top band
+     * = that verdict (left third), its own check of SSBO + a 3D custom image read from a fragment program (middle) and
+     * an image it stored from the fragment program, shown by composite3.fsh (right); bottom band = green if the
+     * smallest mip of colortex2 averages to half magenta; middle = magenta on the left half only.
+     */
+    private void computePackScenario(ClientGameTestContext context) {
+        line("iris compute test pack: pipeline=" + context.computeOnClient(client -> irisSelectPack(COMPUTE_PACK, true)));
+        context.waitTicks(60);
+        clearChat(context);
+        Path shot = context.takeScreenshot("metallium-iris-computepack");
+        try {
+            java.awt.image.BufferedImage image = javax.imageio.ImageIO.read(shot.toFile());
+            double verdict = colorFraction(image, 0.02, 0.08, 0.02, 0.31, 0x00FF00);
+            double fragmentReads = colorFraction(image, 0.02, 0.08, 0.36, 0.64, 0x00FF00);
+            double fragmentStores = colorFraction(image, 0.02, 0.08, 0.69, 0.98, 0x00FF00);
+            double mips = colorFraction(image, 0.92, 0.98, 0.05, 0.95, 0x00FF00);
+            double left = magentaFraction(image, 0.30, 0.70, 0.05, 0.45);
+            double right = magentaFraction(image, 0.30, 0.70, 0.55, 0.95);
+            line(String.format("iris compute test pack: compute verdict green=%.2f, fragment SSBO/3D-image reads green=%.2f, fragment image stores green=%.2f, "
+                    + "mipmap band green=%.2f, magenta left half=%.2f, right half=%.2f", verdict, fragmentReads, fragmentStores, mips, left, right));
+            if (verdict < 0.90 || fragmentReads < 0.90 || fragmentStores < 0.90 || mips < 0.90 || left < 0.90 || right > 0.10) {
+                failures.add(String.format("compute/SSBO/image/mipmap test pack check failed (verdict %.2f, fragment reads %.2f, fragment stores %.2f, mips %.2f, left %.2f, right %.2f)",
+                        verdict, fragmentReads, fragmentStores, mips, left, right));
+            }
+        } catch (IOException e) {
+            failures.add("could not analyse compute pack screenshot: " + e);
+        }
+    }
+
+    /** Fraction of pixels (in a screen-relative box, y from the top) within 40 per channel of {@code rgb}. */
+    private static double colorFraction(java.awt.image.BufferedImage image, double fromY, double toY, double fromX, double toX, int rgb) {
+        int w = image.getWidth();
+        int h = image.getHeight();
+        int total = 0;
+        int match = 0;
+        for (int y = (int) (h * fromY); y < (int) (h * toY); y += 2) {
+            for (int x = (int) (w * fromX); x < (int) (w * toX); x += 2) {
+                int c = image.getRGB(x, y);
+                total++;
+                if (Math.abs(((c >> 16) & 0xFF) - ((rgb >> 16) & 0xFF)) < 40 && Math.abs(((c >> 8) & 0xFF) - ((rgb >> 8) & 0xFF)) < 40
+                        && Math.abs((c & 0xFF) - (rgb & 0xFF)) < 40) {
+                    match++;
+                }
+            }
+        }
+        return (double) match / Math.max(1, total);
+    }
+
     private static void installTestPack(ClientGameTestContext context, String pack, String[] files) throws IOException {
         Path packDir = context.computeOnClient(client -> irisShaderpacksDirectory()).resolve(pack).resolve("shaders");
         Files.createDirectories(packDir);
@@ -324,6 +481,15 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
             Path target = context.computeOnClient(client -> irisShaderpacksDirectory()).resolve(source.getFileName().toString());
             if (!Files.exists(target)) {
                 Files.copy(source, target);
+            }
+            // Pack options (Iris reads <pack>.txt next to the pack), e.g. to turn on a pack's compute/voxel features.
+            String options = System.getProperty("metallium.gametest.shaderpackOptions", "");
+            Path optionsFile = target.resolveSibling(source.getFileName() + ".txt");
+            if (!options.isEmpty()) {
+                Files.writeString(optionsFile, String.join("\n", options.split(",")) + "\n");
+                line("external pack options: " + options);
+            } else {
+                Files.deleteIfExists(optionsFile);
             }
             return source.getFileName().toString();
         } catch (IOException e) {
@@ -379,6 +545,13 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
      */
     private void metalliumGlScenario(ClientGameTestContext context) {
         boolean metal = backendIsMetal(context);
+        // No opt-in in fabric.mod.json: the start-up scan must find the raw-GL classes and route them automatically.
+        dev.metallium.compat.GlRouting.Decision routing = dev.metallium.compat.GlRouting.plan().get("metallium-gametest");
+        line("metallium-gl: gametest mod routing=" + (routing == null ? "none" : routing.status() + (routing.automatic() ? " (automatic)" : "")
+                + " classes=" + routing.classes() + " reason=" + routing.reason()) + ", hooked=" + dev.metallium.compat.GlRouting.hooked());
+        if (metal && (routing == null || !routing.routed() || !routing.automatic() || !dev.metallium.compat.GlRouting.hooked())) {
+            failures.add("metallium-gl: gametest mod was not routed automatically: " + routing);
+        }
         dev.metallium.gametest.gl.RawGlQuads.enabled = true;
         context.waitTicks(20);
         Path shot = context.takeScreenshot("metallium-gl-hud");
@@ -519,6 +692,8 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
     }
 
     private static final int SETTLE_TICKS = Integer.getInteger("metallium.gametest.settleTicks", 200);
+    /** Minimum play time in the first world before the shader-work counters are reported (-PplaySeconds=60). */
+    private static final int PLAY_SECONDS = Integer.getInteger("metallium.gametest.playSeconds", 0);
     private final List<String> report = new ArrayList<>();
     private final List<String> failures = new ArrayList<>();
 
@@ -534,13 +709,20 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
             return info.backendName() + " | " + info.name() + " | " + info.driverInfo();
         });
         line("backend: " + backend);
+        line("timing: startup-to-title ms=" + java.lang.management.ManagementFactory.getRuntimeMXBean().getUptime());
+        line("shader work until title: " + dev.metallium.shadercache.ShaderCacheStats.summary());
         line("sodium loaded: " + net.fabricmc.loader.api.FabricLoader.getInstance().isModLoaded("sodium"));
         line("iris loaded: " + net.fabricmc.loader.api.FabricLoader.getInstance().isModLoaded("iris")
                 + ", adapter: " + net.fabricmc.loader.api.FabricLoader.getInstance().isModLoaded("metallium-iris"));
         for (String mod : new String[] {"distanthorizons", "voxy", "reglass", "cullleaves", "moreculling"}) {
             line(mod + " loaded: " + net.fabricmc.loader.api.FabricLoader.getInstance().isModLoaded(mod));
         }
+        if (dev.metallium.compat.CrashGuard.recovery() != null) {
+            crashRecoveryRun(context, backend);
+            return;
+        }
         context.takeScreenshot("metallium-title");
+        graphicsApiLabelsTest(context);
 
         if ("bench".equals(System.getProperty("metallium.gametest.mode"))) {
             try {
@@ -562,12 +744,19 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
             return;
         }
         try {
+            long joinStart = System.nanoTime();
+            long[] beforeJoin = dev.metallium.shadercache.ShaderCacheStats.snapshot();
             try (TestSingleplayerContext world = context.worldBuilder().create()) {
                 world.getConnection().waitForChunksRender();
+                long joined = System.nanoTime();
+                line(String.format("timing: first world join (create + chunks rendered) ms=%.0f", (joined - joinStart) / 1e6));
+                line("shader work during join: " + dev.metallium.shadercache.ShaderCacheStats.summary(dev.metallium.shadercache.ShaderCacheStats.delta(beforeJoin)));
+                long[] afterJoin = dev.metallium.shadercache.ShaderCacheStats.snapshot();
                 // Sodium builds sections asynchronously after vanilla reports chunks as rendered; give it time.
                 context.waitTicks(SETTLE_TICKS);
                 checkTerrainVisible(context.takeScreenshot("metallium-flat-world"), "flat world");
                 measure(context, "flat world");
+                compatCenterScenario(context);
                 if (net.fabricmc.loader.api.FabricLoader.getInstance().isModLoaded("reglass")) {
                     reglassScreens(context);
                 }
@@ -581,6 +770,12 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
                     failures.remove(failures.size() - 1); // diagnostic only
                 }
                 context.runOnClient(client -> client.options.chunkSectionFadeInTime().set(0.75));
+                long playNs = PLAY_SECONDS * 1_000_000_000L - (System.nanoTime() - joined);
+                if (playNs > 0) {
+                    context.waitTicks((int) (playNs / 50_000_000L));
+                }
+                line(String.format("shader work during first %.0f s of play: %s", (System.nanoTime() - joined) / 1e9,
+                        dev.metallium.shadercache.ShaderCacheStats.summary(dev.metallium.shadercache.ShaderCacheStats.delta(afterJoin))));
                 if (net.fabricmc.loader.api.FabricLoader.getInstance().isModLoaded("metallium-gl")) {
                     metalliumGlScenario(context);
                 }
@@ -782,6 +977,65 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
         return out.toString();
     }
 
+    /** Graphics API labels: vanilla caption() and (with Sodium) Sodium's option element names / tooltip + screenshot. */
+    private void graphicsApiLabelsTest(ClientGameTestContext context) {
+        boolean relabel = dev.metallium.GraphicsApiLabels.relabelDefault();
+        String metal = "Metal (via Metallium)";
+        for (net.minecraft.client.PreferredGraphicsApi api : net.minecraft.client.PreferredGraphicsApi.values()) {
+            String vanilla = context.computeOnClient(client -> api.caption().getString());
+            line("graphicsApi vanilla caption " + api + ": " + vanilla);
+            boolean expectMetal = relabel && api == net.minecraft.client.PreferredGraphicsApi.DEFAULT;
+            if (expectMetal != vanilla.equals(metal)) {
+                failures.add("vanilla Graphics API caption for " + api + " wrong: " + vanilla);
+            }
+        }
+        if (!net.fabricmc.loader.api.FabricLoader.getInstance().isModLoaded("sodium")) {
+            return;
+        }
+        String result = context.computeOnClient(client -> {
+            try {
+                Class<?> manager = Class.forName("net.caffeinemc.mods.sodium.client.config.ConfigManager");
+                Object config = manager.getField("CONFIG").get(null);
+                Object id = net.minecraft.resources.Identifier.parse("sodium:general.graphics_api");
+                Object option = config.getClass().getMethod("getOption", id.getClass()).invoke(config, id);
+                java.lang.reflect.Method name = null;
+                for (java.lang.reflect.Method method : option.getClass().getMethods()) {
+                    if (method.getName().equals("getElementName")) {
+                        name = method;
+                    }
+                }
+                StringBuilder out = new StringBuilder();
+                for (net.minecraft.client.PreferredGraphicsApi api : net.minecraft.client.PreferredGraphicsApi.values()) {
+                    out.append(api).append('=').append(((net.minecraft.network.chat.Component) name.invoke(option, api)).getString()).append(';');
+                }
+                Object tip = option.getClass().getMethod("getTooltip").invoke(option);
+                out.append("tooltip=").append(((net.minecraft.network.chat.Component) tip).getString());
+                return out.toString();
+            } catch (ReflectiveOperationException | RuntimeException e) {
+                return "unavailable: " + e;
+            }
+        });
+        line("graphicsApi sodium option: " + result);
+        String defaultName = result.contains("DEFAULT=") ? result.split("DEFAULT=")[1].split(";")[0] : "";
+        if (result.startsWith("unavailable") || relabel != defaultName.equals(metal)
+                || !result.contains("OPENGL=Prefer OpenGL;") || !result.contains("VULKAN=Prefer Vulkan;")) {
+            failures.add("Sodium Graphics API option names wrong: " + result);
+        }
+        context.runOnClient(client -> {
+            try {
+                Class<?> screen = Class.forName("net.caffeinemc.mods.sodium.client.gui.VideoSettingsScreen");
+                client.setScreenAndShow((net.minecraft.client.gui.screens.Screen) screen
+                        .getMethod("createScreen", net.minecraft.client.gui.screens.Screen.class).invoke(null, (Object) null));
+            } catch (ReflectiveOperationException e) {
+                line("sodium video settings screen unavailable: " + e);
+            }
+        });
+        context.waitTicks(20);
+        context.takeScreenshot("metallium-sodium-video-settings");
+        context.runOnClient(client -> client.setScreenAndShow(null));
+        context.waitTicks(5);
+    }
+
     /** F3 overlay screenshot; with Sodium also the draw-path label Sodium prints ("Terrain Rendering: ..."). */
     private void f3Screenshot(ClientGameTestContext context) {
         if (net.fabricmc.loader.api.FabricLoader.getInstance().isModLoaded("sodium")) {
@@ -887,6 +1141,155 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
         int fps = context.computeOnClient(Minecraft::getFps);
         long frameNs = context.computeOnClient(Minecraft::getFrameTimeNs);
         line(scene + ": fps=" + fps + " lastFrameMs=" + String.format("%.2f", frameNs / 1e6));
+    }
+
+    /**
+     * Compatibility center: the start-up scan must classify the gametest mod (RawGlQuads calls GL11 directly) as raw GL;
+     * screenshots of the status screen and of the crash-recovery screen (synthetic recovery); power mode FPS cap.
+     */
+    private void compatCenterScenario(ClientGameTestContext context) {
+        dev.metallium.compat.ModReport self = dev.metallium.compat.ModScan.report("metallium-gametest");
+        line("compat: scan " + dev.metallium.compat.ModScan.summary() + "; gametest mod rawGl=" + (self != null && self.rawGl())
+                + " classes=" + (self == null ? "-" : self.glClasses()) + " functions=" + (self == null ? "-" : self.functions().size()));
+        if (self == null || !self.glClasses().contains("dev.metallium.gametest.gl.RawGlQuads")) {
+            failures.add("compat: scan did not find RawGlQuads as raw GL: " + self);
+        }
+        for (String row : dev.metallium.compat.CompatStatus.text().split("\n")) {
+            line("compat-status: " + row);
+        }
+        if (net.fabricmc.loader.api.FabricLoader.getInstance().isModLoaded("sodium")) {
+            sodiumMetalliumTab(context);
+        } else {
+            // Vanilla Video Settings: Metallium section (power mode + status button) at the end of the list.
+            context.runOnClient(client -> client.gui.setScreen(
+                    new net.minecraft.client.gui.screens.options.VideoSettingsScreen(null, client, client.options)));
+            context.waitTicks(5);
+            context.runOnClient(client -> client.gui.screen().mouseScrolled(client.gui.screen().width / 2.0,
+                    client.gui.screen().height / 2.0, 0, -1000));
+            context.waitTicks(5);
+            context.takeScreenshot("metallium-vanilla-video-settings");
+        }
+        context.runOnClient(client -> client.gui.setScreen(new dev.metallium.screen.MetalliumStatusScreen(null)));
+        context.waitTicks(10);
+        context.takeScreenshot("metallium-status-screen");
+        context.runOnClient(client -> client.gui.setScreen(new dev.metallium.screen.CrashRecoveryScreen(null,
+                new dev.metallium.compat.CrashGuard.Recovery(java.util.List.of(new dev.metallium.compat.CrashGuard.RoutedMod(
+                        "metallium-gametest", "Metallium client game tests", java.util.List.of("dev.metallium.gametest.gl"), null)),
+                        true, false, "crash-reports/crash-example.txt (synthetic, game test)"))));
+        context.waitTicks(10);
+        context.takeScreenshot("metallium-crash-recovery-screen");
+        context.runOnClient(client -> client.gui.setScreen(null));
+        context.waitTicks(5);
+
+        // Power mode: Low Power must cap the frame rate live; Performance must lift the cap again.
+        dev.metallium.power.PowerMode before = dev.metallium.power.PowerManager.mode();
+        line("compat: " + dev.metallium.power.PowerManager.statusLine());
+        try {
+            dev.metallium.power.PowerManager.setMode(dev.metallium.power.PowerMode.LOW_POWER);
+            context.waitTicks(60);
+            int low = context.computeOnClient(Minecraft::getFps);
+            dev.metallium.power.PowerManager.setMode(dev.metallium.power.PowerMode.PERFORMANCE);
+            context.waitTicks(60);
+            int perf = context.computeOnClient(Minecraft::getFps);
+            line("compat: power fps Low Power=" + low + " (cap " + dev.metallium.power.PowerManager.fpsCap(
+                    dev.metallium.power.PowerMode.LOW_POWER, dev.metallium.MetalliumConfig.INSTANCE.batteryFpsLimit) + "), Performance=" + perf);
+            if (low > dev.metallium.power.PowerManager.LOW_POWER_FPS + 5) {
+                failures.add("power: Low Power did not cap the frame rate (fps " + low + ")");
+            }
+        } finally {
+            dev.metallium.power.PowerManager.setMode(before);
+        }
+    }
+
+    /** -PcrashRecovery: a seeded crash in a routed mod must give OpenGL (safe mode) and the recovery screen. */
+    private void crashRecoveryRun(ClientGameTestContext context, String backend) {
+        try {
+            dev.metallium.compat.CrashGuard.Recovery recovery = dev.metallium.compat.CrashGuard.recovery();
+            line("crash recovery: suspects=" + recovery.suspects().stream().map(dev.metallium.compat.CrashGuard.RoutedMod::id).toList()
+                    + " metallium-gl=" + recovery.metalliumGl() + " evidence=" + recovery.evidence());
+            String screen = context.computeOnClient(client -> String.valueOf(client.gui.screen()));
+            line("crash recovery: screen=" + screen);
+            context.takeScreenshot("metallium-crash-recovery-real");
+            if (!backend.startsWith("OpenGL")) failures.add("crash recovery: expected OpenGL safe mode, got " + backend);
+            if (!screen.contains("CrashRecoveryScreen")) failures.add("crash recovery: recovery screen not shown");
+            if (recovery.suspects().stream().noneMatch(m -> m.id().equals("metallium-gametest"))) failures.add("crash recovery: suspect missing");
+            // "Use OpenGL for this session" -> title screen
+            context.runOnClient(client -> client.gui.screen().onClose());
+            context.waitTicks(10);
+            String after = context.computeOnClient(client -> String.valueOf(client.gui.screen()));
+            line("crash recovery: after 'Use OpenGL for this session': " + after);
+            if (!after.contains("TitleScreen")) failures.add("crash recovery: did not continue to the title screen");
+            line(failures.isEmpty() ? "result: PASS" : "result: FAIL " + failures);
+        } finally {
+            writeReport();
+        }
+        if (!failures.isEmpty()) throw new AssertionError(String.join("; ", failures));
+    }
+
+    /** Screenshots of the Metallium tab's pages in Sodium's video settings (via reflection; Sodium is optional). */
+    private void sodiumMetalliumTab(ClientGameTestContext context) {
+        List<Object> pages = context.computeOnClient(client -> {
+            try {
+                Class<?> manager = Class.forName("net.caffeinemc.mods.sodium.client.config.ConfigManager");
+                Object config = manager.getField("CONFIG").get(null);
+                for (Object mod : (List<?>) config.getClass().getMethod("getModOptions").invoke(config)) {
+                    if ("metallium".equals(mod.getClass().getMethod("configId").invoke(mod))) {
+                        return new ArrayList<Object>((List<?>) mod.getClass().getMethod("pages").invoke(mod));
+                    }
+                }
+                return List.<Object>of();
+            } catch (ReflectiveOperationException e) {
+                line("sodium tab: unavailable: " + e);
+                return List.<Object>of();
+            }
+        });
+        line("sodium tab: metallium pages=" + pages.size());
+        if (pages.size() < 2) failures.add("sodium tab: expected General + Power pages, got " + pages.size());
+        for (int i = 0; i < pages.size(); i++) {
+            Object page = pages.get(i);
+            boolean opened = context.computeOnClient(client -> {
+                try {
+                    Class<?> screen = Class.forName("net.caffeinemc.mods.sodium.client.gui.VideoSettingsScreen");
+                    Class<?> optionPage = Class.forName("net.caffeinemc.mods.sodium.client.config.structure.OptionPage");
+                    if (!optionPage.isInstance(page)) return false;
+                    client.gui.setScreen((net.minecraft.client.gui.screens.Screen) screen.getMethod("createScreen",
+                            net.minecraft.client.gui.screens.Screen.class, optionPage).invoke(null, null, page));
+                    return true;
+                } catch (ReflectiveOperationException e) {
+                    line("sodium tab: could not open page: " + e);
+                    return false;
+                }
+            });
+            if (opened) {
+                context.waitTicks(10);
+                context.takeScreenshot("metallium-sodium-tab-" + i);
+            }
+        }
+        context.runOnClient(client -> client.gui.setScreen(null));
+    }
+
+    /** Bench add-on (-Dmetallium.bench.power=true): 10 s each in Performance and Low Power, same scene. */
+    private void powerBench(ClientGameTestContext context) {
+        dev.metallium.power.PowerMode before = dev.metallium.power.PowerManager.mode();
+        int seconds = Integer.getInteger("metallium.bench.powerSeconds", 10);
+        try {
+            for (dev.metallium.power.PowerMode mode : new dev.metallium.power.PowerMode[] {
+                    dev.metallium.power.PowerMode.PERFORMANCE, dev.metallium.power.PowerMode.LOW_POWER}) {
+                dev.metallium.power.PowerManager.setMode(mode);
+                context.waitTicks(40);
+                long start = System.nanoTime();
+                startRecording();
+                while (System.nanoTime() - start < seconds * 1_000_000_000L) {
+                    context.waitTicks(20);
+                }
+                List<Double> frames = stopRecording();
+                double elapsed = (System.nanoTime() - start) / 1e9;
+                line(String.format("bench-power: mode=%s frames=%d seconds=%.1f avg_fps=%.1f p50_ms=%.2f",
+                        mode, frames.size(), elapsed, frames.size() / elapsed, frames.isEmpty() ? 0 : pct(frames, 0.5)));
+            }
+        } finally {
+            dev.metallium.power.PowerManager.setMode(before);
+        }
     }
 
     private void line(String text) {
