@@ -103,6 +103,25 @@ class MetalGl4DeviceTest {
     }
 
     @Test
+    void declaredButUnusedResourcesAreNotBound() {
+        // SPIRV-Cross gives unused resources no Metal slot (index -1); binding one would crash the driver.
+        int program = computeProgram("""
+                #version 460 core
+                layout(local_size_x = 1) in;
+                layout(binding = 0, std430) buffer Used { uint value; };
+                layout(binding = 1, std430) buffer Unused { uint other[]; };
+                layout(binding = 2) uniform sampler2D unusedSampler;
+                void main() { value = 42u; }
+                """);
+        int used = storageBuffer(4);
+        MetalGL4.glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, used);
+        MetalGL4.glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, storageBuffer(16));
+        MetalGL.glUseProgram(program);
+        MetalGL4.glDispatchCompute(1, 1, 1);
+        assertEquals(42, read(used, 1)[0]);
+    }
+
+    @Test
     void indirectDispatchReadsGroupCountWrittenByAnEarlierDispatch() {
         int setup = computeProgram("""
                 #version 460 core

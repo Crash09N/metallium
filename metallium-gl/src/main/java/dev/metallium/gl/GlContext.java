@@ -734,6 +734,10 @@ public final class GlContext {
             case GL_TEXTURE_COMPARE_MODE -> texture.compareMode = value;
             case GL_TEXTURE_COMPARE_FUNC -> texture.compareFunc = value;
             case GL_TEXTURE_MAX_ANISOTROPY -> texture.maxAnisotropy = Math.max(1, value);
+            case GL_DEPTH_STENCIL_TEXTURE_MODE -> {
+                // Metal samples the depth of a depth-stencil texture, which is GL's default (GL_DEPTH_COMPONENT).
+                if (value != GL_DEPTH_COMPONENT) MetalGLLog.unsupported("GL_DEPTH_STENCIL_TEXTURE_MODE = GL_STENCIL_INDEX");
+            }
             default -> {
                 MetalGLLog.unsupported("glTexParameter pname 0x" + Integer.toHexString(pname));
                 return;

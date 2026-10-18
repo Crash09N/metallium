@@ -239,6 +239,9 @@ final class GlProgramLinker {
         List<BufferSlot> buffers = new ArrayList<>();
         List<ImageSlot> images = new ArrayList<>();
         for (ResourceBinding binding : stage.resources()) {
+            if (binding.metalIndex() < 0) {
+                continue; // declared but unused by the entry point: SPIRV-Cross assigns no Metal slot
+            }
             ExplicitLayout layout = explicit.get(binding.name());
             int glBinding = layout != null && layout.binding() >= 0 ? layout.binding() : 0;
             switch (binding.kind()) {
@@ -284,7 +287,7 @@ final class GlProgramLinker {
             samplerIndex.put(m.group(1), Integer.parseInt(m.group(2)));
         }
         for (ResourceBinding binding : stage.resources()) {
-            if (binding.kind() != ResourceBinding.Kind.SAMPLED_TEXTURE) {
+            if (binding.kind() != ResourceBinding.Kind.SAMPLED_TEXTURE || binding.metalIndex() < 0) {
                 continue;
             }
             int[] slots = out.computeIfAbsent(binding.name(), _ -> new int[]{-1, -1, -1, -1});
