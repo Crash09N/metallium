@@ -86,6 +86,6 @@ project's code may legally be copied. Rows will be updated whenever code is actu
 
 | Project | Authors | License | Role |
 |---|---|---|---|
-| [Physics Mod](https://minecraftphysicsmod.com/) | Haubna | All rights reserved | Compatibility only, no code used. Metallium's `dev.metallium.compat.physicsmod` mixins (written for Metallium, found by bytecode inspection, mod never bundled or redistributed) let verified versions run on Metal. |
+| [Physics Mod](https://minecraftphysicsmod.com/) | Haubna | All rights reserved | Compatibility only, no code used. Metallium's `dev.metallium.compat.physicsmod` mixins (written for Metallium, found by bytecode inspection, mod never bundled or redistributed) let verified versions run on Metal; its OpenGL compute paths run unmodified through metallium-gl. |
 
 Licence obligations are summarised in section K of the research report.

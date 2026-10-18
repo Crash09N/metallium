@@ -93,6 +93,37 @@ final class PhysicsScenario {
         oceanScene(context, tag);
     }
 
+    /**
+     * Average FPS over {@code seconds} (Minecraft's FPS counter, sampled once per second), uncapped and without VSync.
+     * Only meaningful with the GPU to itself ({@code gpu-lock.sh --exclusive}).
+     */
+    private double fps(final ClientGameTestContext context, final int seconds) {
+        context.runOnClient(client -> {
+            client.options.enableVsync().set(false);
+            client.options.framerateLimit().set(260);
+            client.options.inactivityFpsLimit().set(net.minecraft.client.InactivityFpsLimit.MINIMIZED);
+        });
+        context.waitTicks(20);
+        double sum = 0;
+        for (int i = 0; i < seconds; i++) {
+            context.waitTicks(20);
+            sum += context.computeOnClient(client -> client.getFps());
+        }
+        return sum / seconds;
+    }
+
+    /** FPS of the current scene with Physics Mod's GPU feature {@code field} on and off. */
+    private void benchFeature(final ClientGameTestContext context, final String scene, final String field) {
+        if (!Boolean.getBoolean("metallium.gametest.physicsBench")) return;
+        double on = fps(context, 8);
+        setConfig(field, field.equals("oceanRenderer") ? (Object) 0 : (Object) false);
+        context.waitTicks(40);
+        double off = fps(context, 8);
+        setConfig(field, field.equals("oceanRenderer") ? (Object) 1 : (Object) true);
+        context.waitTicks(40);
+        line.accept(String.format("physics: bench %s: %s on %.0f fps, off %.0f fps", scene, field, on, off));
+    }
+
     /** Metallium's status lines (metallium-gl dispatch / draw counters) after a scene. */
     private void status(final ClientGameTestContext context, final String scene) {
         line.accept("physics: status after " + scene + ": " + context.computeOnClient(c -> String.join(" | ", dev.metallium.api.MetalliumRuntime.statusLines())));
@@ -150,6 +181,7 @@ final class PhysicsScenario {
         context.waitTicks(100);
         context.takeScreenshot("physics-" + tag + "-liquid-later");
         status(context, "liquid");
+        benchFeature(context, "liquid", "liquidPhysics");
         command(world, "setblock 28 -60 8 minecraft:campfire");
         command(world, "setblock 32 -60 8 minecraft:campfire");
         context.waitTicks(160);
@@ -158,6 +190,7 @@ final class PhysicsScenario {
         context.waitTicks(60);
         context.takeScreenshot("physics-" + tag + "-smoke-fire");
         status(context, "smoke");
+        benchFeature(context, "smoke", "smokeVolumetricPhysics");
     }
 
     /** FFT ocean: a natural world, above the nearest ocean. */
@@ -191,6 +224,8 @@ final class PhysicsScenario {
             context.waitTicks(200);
             context.takeScreenshot("physics-" + tag + "-ocean-storm");
             status(context, "ocean");
+            command(world, "weather clear");
+            benchFeature(context, "ocean", "oceanRenderer");
             line.accept("physics: ocean scene done");
         }
     }
