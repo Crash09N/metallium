@@ -986,7 +986,7 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
                     .adjustSettings(state -> state.setSeed(System.getProperty("metallium.gametest.seed", "metallium-forest"))).create();
             world.getConnection().waitForChunksRender();
             tryCommand(world, "gamemode spectator @a");
-            tryCommand(world, "tp @a 0 140 0 30 15");
+            tryCommand(world, "tp @a 0 160 0 30 35");
             tryCommand(world, "time set 6000");
             tryCommand(world, "gamerule advance_time false");
             context.runOnClient(client -> client.options.renderDistance().set(16));
@@ -1001,9 +1001,12 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
             clearChat(context);
             checkTerrainVisible(context.takeScreenshot("metallium-voxy-lods-rd4"), "voxy LODs (vanilla rd 4)");
             measure(context, "voxy rd4");
-            tryCommand(world, "tp @a 0 220 0 30 25");
+            tryCommand(world, "tp @a 0 220 0 210 30");
             context.waitTicks(200);
             context.takeScreenshot("metallium-voxy-lods-high");
+            tryCommand(world, "tp @a 0 300 0 120 60");
+            context.waitTicks(200);
+            context.takeScreenshot("metallium-voxy-lods-top");
             f3Screenshot(context);
             line("voxy: final " + glSummary());
             line("voxy debug: " + context.computeOnClient(client -> voxyDebug()));
