@@ -367,6 +367,30 @@ class MetalGl4DeviceTest {
     }
 
     @Test
+    void clipControlZeroToOneSkipsTheDepthRemap() {
+        int p = program(MetalGlDeviceTest.VS, MetalGlDeviceTest.FS_COLOR);
+        MetalGL.glUseProgram(p);
+        MetalGL.glBindVertexArray(MetalGlDeviceTest.quad(-1, -1, 1, 1));
+        MetalGL.glUniform1f(MetalGL.glGetUniformLocation(p, "uDepth"), 0.5f);
+        MetalGL.glUniform4f(MetalGL.glGetUniformLocation(p, "uColor"), 0, 1, 0, 1);
+        MetalGL.glEnable(GL_DEPTH_TEST);
+        MetalGL.glDepthFunc(GL_LESS);
+        MetalGL.glClearColor(0, 0, 0, 1);
+        MetalGL.glClearDepth(0.6);
+        // GL default (-1..1): z 0.5 → depth 0.75, behind the cleared 0.6.
+        MetalGL.glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        MetalGL.glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_SHORT, 0);
+        assertPixel(SIZE / 2, SIZE / 2, 0, 0, 0, "-1..1: depth 0.75 fails LESS 0.6");
+        // GL_ZERO_TO_ONE: depth 0.5, in front.
+        MetalGL4.glClipControl(GL_LOWER_LEFT, GL_ZERO_TO_ONE);
+        MetalGL.glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        MetalGL.glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_SHORT, 0);
+        assertEquals(GL_ZERO_TO_ONE, MetalGL.glGetInteger(GL_CLIP_DEPTH_MODE));
+        assertEquals(GL_NO_ERROR, MetalGL.glGetError());
+        assertPixel(SIZE / 2, SIZE / 2, 0, 255, 0, "0..1: depth 0.5 passes LESS 0.6");
+    }
+
+    @Test
     void glDepthRangeBuiltinFollowsGlDepthRange() {
         int p = program(MetalGlDeviceTest.VS, """
                 #version 330 core

@@ -37,6 +37,11 @@ public interface MetalHost {
     /** The current point in the command stream. */
     GlDevice.GpuUse currentUse();
 
+    /** See {@code GlDevice.engineDepthZeroToOne}. */
+    default boolean engineDepthZeroToOne() {
+        return false;
+    }
+
     /** Commits and waits for all work so far; false if the host cannot (the device then reports the GL op as unsupported). */
     boolean submitAndWait();
 

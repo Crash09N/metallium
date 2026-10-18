@@ -56,6 +56,10 @@ public final class MetalGL4 {
         data[0] = gl().getIntegeri(target, index);
     }
 
+    public static void glClipControl(final int origin, final int depth) {
+        gl().clipControl(origin, depth);
+    }
+
     public static void glProvokingVertex(final int mode) {
         // Metal's provoking vertex for flat varyings is the first vertex (GL_FIRST_VERTEX_CONVENTION).
         if (mode == GL_LAST_VERTEX_CONVENTION) {

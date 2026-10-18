@@ -39,6 +39,7 @@ final class MetalGLStrings {
             "GL_ARB_sampler_objects",
             "GL_ARB_texture_view",
             "GL_ARB_texture_barrier",
+            "GL_ARB_clip_control",
             "GL_ARB_timer_query",
             "GL_KHR_debug",
             "GL_KHR_shader_subgroup"

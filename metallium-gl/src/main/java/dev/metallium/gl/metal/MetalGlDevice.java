@@ -160,12 +160,43 @@ public final class MetalGlDevice implements GlDevice {
         final int id;
         final MTLFunction vertex;
         final MTLFunction fragment;
+        /** MSL of the vertex stage, for the GL_ZERO_TO_ONE variant (compiled on first use). */
+        final @Nullable StageCode vertexCode;
+        @Nullable MTLFunction vertexZeroToOne;
 
-        MetalProgram(final int id, final MTLFunction vertex, final MTLFunction fragment) {
+        MetalProgram(final int id, final MTLFunction vertex, final MTLFunction fragment, final @Nullable StageCode vertexCode) {
             this.id = id;
             this.vertex = vertex;
             this.fragment = fragment;
+            this.vertexCode = vertexCode;
         }
+    }
+
+    /** SPIRV-Cross's GL clip-space depth remap ({@code FIXUP_DEPTH_CONVENTION}) in a vertex entry point. */
+    private static final java.util.regex.Pattern DEPTH_FIXUP = java.util.regex.Pattern.compile(
+            "\\n[ \\t]*out\\.gl_Position\\.z = \\(out\\.gl_Position\\.z \\+ out\\.gl_Position\\.w\\) \\* 0\\.5;[^\\n]*");
+
+    /** The vertex function for the current glClipControl depth mode (GL_ZERO_TO_ONE: without the remap). */
+    private MTLFunction vertexFunction(final MetalProgram program, final boolean zeroToOne) {
+        if (!zeroToOne || program.vertexCode == null) {
+            return program.vertex;
+        }
+        if (program.vertexZeroToOne == null) {
+            String msl = DEPTH_FIXUP.matcher(program.vertexCode.msl()).replaceAll("");
+            try {
+                program.vertexZeroToOne = msl.equals(program.vertexCode.msl()) ? program.vertex
+                        : function("program" + program.id + ".vsh.zeroToOne", new StageCode(msl, program.vertexCode.entryPoint()));
+            } catch (DeviceException e) {
+                MetalGLLog.warn(e.getMessage());
+                program.vertexZeroToOne = program.vertex;
+            }
+        }
+        return program.vertexZeroToOne;
+    }
+
+    @Override
+    public boolean engineDepthZeroToOne() {
+        return host.engineDepthZeroToOne();
     }
 
     @Override
@@ -253,7 +284,7 @@ public final class MetalGlDevice implements GlDevice {
 
     @Override
     public ProgramStore createProgram(final String label, final StageCode vertex, final StageCode fragment) throws DeviceException {
-        return new MetalProgram(nextProgramId++, function(label + ".vsh", vertex), function(label + ".fsh", fragment));
+        return new MetalProgram(nextProgramId++, function(label + ".vsh", vertex), function(label + ".fsh", fragment), vertex);
     }
 
     private MTLFunction function(final String label, final StageCode code) throws DeviceException {
@@ -700,6 +731,7 @@ public final class MetalGlDevice implements GlDevice {
         for (Slot slot : slots) key.append("|s").append(slot.index).append(',').append(slot.buffer == null ? -1 : slot.stride).append(',').append(slot.divisor);
         for (BlendState b : raster.blend()) key.append("|b").append(b);
         if (indirectCommandBuffer) key.append("|icb");
+        if (raster.clipDepthZeroToOne()) key.append("|z01");
         String pipelineKey = key.toString();
         MTLRenderPipelineState pipeline = pipelines.get(pipelineKey);
         if (pipeline == null) {
@@ -1089,7 +1121,7 @@ public final class MetalGlDevice implements GlDevice {
         try (AutoreleasePool _ = AutoreleasePool.push()) {
             MTLRenderPipelineDescriptor descriptor = MTLRenderPipelineDescriptor.alloc().init();
             descriptor.setSupportIndirectCommandBuffers(indirectCommandBuffer);
-            descriptor.setVertexFunction(program.vertex);
+            descriptor.setVertexFunction(vertexFunction(program, op.raster().clipDepthZeroToOne()));
             descriptor.setFragmentFunction(program.fragment);
             MTLVertexDescriptor vertexDescriptor = MTLVertexDescriptor.alloc().init();
             for (int a = 0; a < op.attributes().length; a++) {
@@ -1307,6 +1339,7 @@ public final class MetalGlDevice implements GlDevice {
             case MetalBuffer buffer -> host.releaseAfterGpu(buffer.buffer::release);
             case MetalTexture texture when !texture.external -> host.releaseAfterGpu(texture.texture::release);
             case MetalProgram program -> host.releaseAfterGpu(() -> {
+                if (program.vertexZeroToOne != null && program.vertexZeroToOne != program.vertex) program.vertexZeroToOne.release();
                 program.vertex.release();
                 program.fragment.release();
             });

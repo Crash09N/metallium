@@ -106,6 +106,8 @@ public final class GlContext {
     float polygonOffsetUnits;
     int polygonMode = GL_FILL;
     boolean stencilTest;
+    /** glClipControl depth mode: true = GL_ZERO_TO_ONE (no clip-space depth remap). */
+    boolean clipDepthZeroToOne;
     int stencilFunc = GL_ALWAYS;
     int stencilRef;
     int stencilValueMask = 0xFF;
@@ -126,6 +128,7 @@ public final class GlContext {
 
     public GlContext(final GlDevice device) {
         this.device = device;
+        this.clipDepthZeroToOne = device.engineDepthZeroToOne();
         for (int i = 0; i < MAX_COLOR_ATTACHMENTS; i++) {
             blendFunc[i] = new int[]{GL_ONE, GL_ZERO, GL_ONE, GL_ZERO};
             blendEquation[i] = new int[]{GL_FUNC_ADD, GL_FUNC_ADD};
@@ -2125,7 +2128,19 @@ public final class GlContext {
                 frontFace == GL_CCW, polygonOffsetFill, polygonOffsetFactor, polygonOffsetUnits, polygonMode == GL_LINE,
                 stencilTest && targets.depthHasStencil()
                         ? new GlDevice.StencilState(true, stencilFunc, stencilRef, stencilValueMask, stencilWriteMask, stencilFail, stencilDepthFail, stencilDepthPass)
-                        : GlDevice.StencilState.DISABLED);
+                        : GlDevice.StencilState.DISABLED, clipDepthZeroToOne);
+    }
+
+    /** glClipControl (GL 4.5): origin must stay GL_LOWER_LEFT; depth GL_NEGATIVE_ONE_TO_ONE or GL_ZERO_TO_ONE. */
+    public void clipControl(final int origin, final int depth) {
+        if ((origin != GL_LOWER_LEFT && origin != GL_UPPER_LEFT) || (depth != GL_NEGATIVE_ONE_TO_ONE && depth != GL_ZERO_TO_ONE)) {
+            error(GL_INVALID_ENUM);
+            return;
+        }
+        if (origin == GL_UPPER_LEFT) {
+            MetalGLLog.unsupported("glClipControl(GL_UPPER_LEFT)");
+        }
+        clipDepthZeroToOne = depth == GL_ZERO_TO_ONE;
     }
 
     /** glReadPixels of the read framebuffer into RGBA8 (the only format supported so far). */
@@ -2300,6 +2315,8 @@ public final class GlContext {
                 };
                 out[0] = b == null ? 0 : b.name;
             }
+            case GL_CLIP_DEPTH_MODE -> out[0] = clipDepthZeroToOne ? GL_ZERO_TO_ONE : GL_NEGATIVE_ONE_TO_ONE;
+            case GL_CLIP_ORIGIN -> out[0] = GL_LOWER_LEFT;
             case GL_STENCIL_FUNC -> out[0] = stencilFunc;
             case GL_STENCIL_REF -> out[0] = stencilRef;
             case GL_STENCIL_VALUE_MASK -> out[0] = stencilValueMask;

@@ -155,7 +155,7 @@ public interface GlDevice {
     record RasterState(int[] viewport, float depthNear, float depthFar, int @Nullable [] scissor, BlendState[] blend,
                        float[] blendColor, boolean depthTest, int depthFunc, boolean depthWrite, int cullFace,
                        boolean frontFaceCcw, boolean polygonOffset, float offsetFactor, float offsetUnits,
-                       boolean wireframe, StencilState stencil) {
+                       boolean wireframe, StencilState stencil, boolean clipDepthZeroToOne) {
     }
 
     /** A fully resolved draw. {@code indexBuffer == null}: non-indexed ({@code first} is the first vertex). */
@@ -257,6 +257,15 @@ public interface GlDevice {
     /** A view of {@code texture} reinterpreting it as {@code format} (glTextureView); null if impossible. */
     default @Nullable TextureStore textureView(final TextureStore texture, final TexFormat format, final int minLevel, final int levels) {
         return null;
+    }
+
+    /**
+     * The depth convention of the engine's own GL context: Minecraft's OpenGL backend switches its context to
+     * {@code glClipControl(GL_LOWER_LEFT, GL_ZERO_TO_ONE)} when the device reports zero-to-one depth, and GL mods
+     * rely on that (Voxy's {@code USE_ZERO_ONE_DEPTH}). The emulated context starts in the same state.
+     */
+    default boolean engineDepthZeroToOne() {
+        return false;
     }
 
     /** glTextureBarrier: later draws see earlier render-target writes when sampling. */
