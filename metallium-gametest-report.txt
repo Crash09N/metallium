@@ -1,0 +1,49 @@
+backend: Metal | Apple Paravirtual device | macOS 15.7.9
+timing: startup-to-title ms=33324
+shader work until title: glsl=0 (0 ms, 0 cached) spirv->msl=219 (264 ms, 175 cached) mslLibraries=219 (15022 ms, 0 functions from archive) pso=200 (1314 ms) renderThreadPso=3 (9 ms) archive hit/miss=67/133 prewarmedVariants=0
+sodium loaded: true
+iris loaded: false, adapter: false
+distanthorizons loaded: false
+voxy loaded: false
+reglass loaded: true
+cullleaves loaded: false
+moreculling loaded: false
+graphicsApi vanilla caption DEFAULT: Metal (via Metallium)
+graphicsApi vanilla caption OPENGL: Prefer OpenGL
+graphicsApi vanilla caption VULKAN: Prefer Vulkan (Experimental)
+graphicsApi sodium option: DEFAULT=Metal (via Metallium);OPENGL=Prefer OpenGL;VULKAN=Prefer Vulkan;tooltip=Renders with Apple's Metal through Metallium and falls back to OpenGL if Metal is unavailable. Choose Prefer OpenGL to use vanilla's OpenGL renderer.
+timing: first world join (create + chunks rendered) ms=8508
+shader work during join: glsl=0 (0 ms, 0 cached) spirv->msl=2 (4 ms, 0 cached) mslLibraries=2 (198 ms, 0 functions from archive) pso=2 (15 ms) renderThreadPso=1 (4 ms) archive hit/miss=0/2 prewarmedVariants=0
+flat world: terrain coverage=0.02
+flat world: sodium C: 41/2616 (F) D: 5 | [Pools: Geometry 3/31 MiB, Index 0/16 MiB, Misc 0 MiB, 2 buffers, Transfer Queue: Mapped (30/30 MiB), Chunk Builder: Schd=00 | Busy=00 (0000%) | Total=01, Tasks: N0=000 | N1=000 | Def=000, Recv=000, Duration: Mesh s=61.73,y=0, Sort -, Upload s=0.00,y=0, Size: LOW=-, UNDERGROUND=-, WATER_LEVEL=40960, SURFACE=-, HIGH=-, TS (N0,S) NL=00 TrN=00 TrS=G000/D000, N=00000 SNR=00000 STA=00000 DYN=00000 (DIR=00), QD: put 072/del 000 AC: Idle (avg 0.4ms)]
+flat world: fps=60 lastFrameMs=15.74
+compat: scan 2 scanned, 0 cached, 39 ms; gametest mod rawGl=true classes=[dev.metallium.gametest.gl.RawGlQuads] functions=16
+compat-status: == Engine ==
+compat-status: Metallium 0.1.0-alpha.1: Metal active · Metal · MSL 4.0
+compat-status: Graphics Engine setting: METAL
+compat-status: Power: Automatic → Performance (no FPS cap)
+compat-status:     macOS Low Power Mode off · AC Power · thermal nominal
+compat-status: 
+compat-status: == Key mods ==
+compat-status: Sodium 0.9.2+mc26.3: on Metal (Metallium's Sodium draw backend)
+compat-status: Iris: not installed
+compat-status: metallium-gl: not installed · automatic routing on
+compat-status: 
+compat-status: == Mods (2 scanned, 0 cached, 39 ms) ==
+compat-status: Metallium client game tests (metallium-gametest): calls OpenGL directly: will not render on Metal
+compat-status:     calls OpenGL directly; install metallium-gl
+compat-status:     1 classes call OpenGL: GL33C.glAttachShader, GL33C.glBindAttribLocation, GL33C.glBindVertexArray, GL33C.glCompileShader, GL33C.glCreateProgram, GL33C.glCreateShader, GL33C.glDeleteShader, GL33C.glGenVertexArrays, GL33C.glGetError, GL33C.glGetProgramInfoLog, GL33C.glGetProgrami, GL33C.glGetShaderInfoLog, GL33C.glGetShaderi, GL33C.glGetUniformLocation, GL33C.glLinkProgram, GL33C.glShaderSource
+compat-status: 1 mods native on Metal (Minecraft graphics layer only):
+compat-status:     ReGlass
+sodium tab: metallium pages=2
+compat: Power: Automatic → Performance (no FPS cap) · macOS Low Power Mode off · AC Power · thermal nominal
+compat: power fps Low Power=6 (cap 30), Performance=59
+reglass screens: opened HUD, inventory, pause, options
+flat world (no chunk fade): terrain coverage=0.02
+shader work during first 44 s of play: glsl=0 (0 ms, 0 cached) spirv->msl=0 (0 ms, 2 cached) mslLibraries=0 (0 ms, 0 functions from archive) pso=1 (1 ms) renderThreadPso=0 (0 ms) archive hit/miss=1/0 prewarmedVariants=0
+natural world: terrain coverage=0.02
+natural world: sodium C: 94/2616 (F) D: 5 | [Pools: Geometry 26/31 MiB, Index 0/16 MiB, Misc 0 MiB, 2 buffers, Transfer Queue: Mapped (30/30 MiB), Chunk Builder: Schd=00 | Busy=00 (0000%) | Total=01, Tasks: N0=000 | N1=000 | Def=000, Recv=000, Duration: Mesh s=30.37,y=1950796, Sort -, Upload s=0.00,y=279462, Size: LOW=-, UNDERGROUND=75494, WATER_LEVEL=66668, SURFACE=234783, HIGH=0, TS (N0,S) NL=06 TrN=00 TrS=G000/D000, N=00064 SNR=00005 STA=00000 DYN=00014 (DIR=00), QD: put 096/del 000 AC: Done (avg 0.4ms)]
+natural world: fps=9 lastFrameMs=2.39
+sodium draw backend label: metal_multidraw (sodium, via Metallium)
+WARNING (virtual GPU, not failing): flat world looks empty (terrain coverage 0.02); natural world looks empty (terrain coverage 0.02)
+result: PASS
