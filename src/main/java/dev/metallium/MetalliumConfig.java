@@ -36,9 +36,22 @@ public final class MetalliumConfig {
     public PowerMode powerMode = PowerMode.AUTOMATIC;
     /** FPS cap for Balanced (and Automatic on battery). Low Power uses min(this, 30). */
     public int batteryFpsLimit = 60;
+    /**
+     * Answers to "this mod needs OpenGL" ({@code dev.metallium.compat.OpenGlRequirements}), by mod id. Missing = ask
+     * before the next title screen (and use OpenGL until answered).
+     */
+    public Map<String, OpenGlChoice> openGlChoices = new TreeMap<>();
 
     public enum GraphicsEngine {
         METAL, OPENGL, VULKAN
+    }
+
+    /** What to do with a mod that needs Minecraft's OpenGL backend. */
+    public enum OpenGlChoice {
+        /** Use OpenGL while the mod is installed. */
+        OPENGL,
+        /** Try Metal anyway (experimental: the mod may abort the game at start-up). */
+        METAL
     }
 
     /** How a mod's direct OpenGL calls are handled. */
@@ -96,6 +109,13 @@ public final class MetalliumConfig {
             });
         }
         config.modOverrides = overrides;
+        Map<String, OpenGlChoice> choices = new TreeMap<>();
+        if (config.openGlChoices != null) {
+            config.openGlChoices.forEach((id, value) -> {
+                if (id != null && value != null) choices.put(id, value);
+            });
+        }
+        config.openGlChoices = choices;
         if (config.powerMode == null) {
             config.powerMode = PowerMode.AUTOMATIC;
         }

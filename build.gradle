@@ -214,6 +214,23 @@ if (project.hasProperty('withVoxy')) {
 	}
 }
 
+// ./gradlew runClientGameTest -PwithPhysics=/abs/path/physics-mod-3.2.5-mc-26.3-fabric.jar  → Physics Mod scenario
+// (PhysicsScenario: "needs OpenGL" screen or Metal, block debris, ragdolls, explosion). Physics Mod is closed source and
+// all rights reserved: the jar is only loaded from the given path at test time, never committed or redistributed.
+// Its only dependency (Fabric API) is already in the game-test runtime. Add -PwithGl to also route its raw GL calls.
+if (project.hasProperty('withPhysics')) {
+	def physicsJar = project.property('withPhysics')
+	if (!(physicsJar instanceof String) || physicsJar.isEmpty() || physicsJar == 'true' || !file(physicsJar).isFile()) {
+		throw new GradleException('-PwithPhysics needs the path of a Physics Mod jar, e.g. -PwithPhysics=/abs/physics-mod-3.2.5-mc-26.3-fabric.jar')
+	}
+	dependencies {
+		gametestRuntimeOnly files(physicsJar)
+	}
+	loom.runs.clientGameTest {
+		vmArg '-Dmetallium.gametest.mode=physics'
+	}
+}
+
 // ./gradlew runClientGameTest -PwithGl -PcrashRecovery  → simulates "the last session crashed in a metallium-gl-routed
 // mod": seeds a session marker and a crash report into the run directory, so this run must start on OpenGL and show the
 // crash-recovery screen before the title screen.

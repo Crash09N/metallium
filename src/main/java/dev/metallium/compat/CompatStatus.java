@@ -97,6 +97,13 @@ public final class CompatStatus {
                 rows.add(Row.of("    uses Minecraft's OpenGL backend classes in " + report.backendClasses()
                         + " classes (metallium-gl cannot translate these)", Tone.WARN));
             }
+            OpenGlRequirements.Requirement needsGl = OpenGlRequirements.requirement(report.id());
+            if (needsGl != null) {
+                MetalliumConfig.OpenGlChoice choice = MetalliumConfig.INSTANCE.openGlChoices.get(report.id());
+                rows.add(Row.of("    needs OpenGL: " + needsGl.reason() + " · your choice: "
+                        + (choice == null ? "not asked yet (OpenGL)" : choice == MetalliumConfig.OpenGlChoice.OPENGL ? "OpenGL" : "try Metal anyway")
+                        + " (config/metallium.json openGlChoices)", Tone.WARN));
+            }
             List<String> missing = GlRouting.unimplementedFor(report.id());
             if (!missing.isEmpty()) {
                 rows.add(Row.of("    unimplemented in metallium-gl: " + String.join(", ", missing), Tone.WARN));
