@@ -234,7 +234,12 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
 
         String external = externalPack(context);
         if (external != null) {
+            long packStart = System.nanoTime();
+            long[] beforePack = dev.metallium.shadercache.ShaderCacheStats.snapshot();
             line("external pack " + external + ": pipeline=" + context.computeOnClient(client -> irisSelectPack(external, true)));
+            context.waitTicks(1);
+            line(String.format("timing: external pack load (reload + first frame) ms=%.0f", (System.nanoTime() - packStart) / 1e6));
+            line("shader work during external pack load: " + dev.metallium.shadercache.ShaderCacheStats.summary(dev.metallium.shadercache.ShaderCacheStats.delta(beforePack)));
             context.waitTicks(100);
             context.takeScreenshot("metallium-iris-external-pack");
             line("external pack: still running after 100 ticks");
@@ -529,6 +534,8 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
     }
 
     private static final int SETTLE_TICKS = Integer.getInteger("metallium.gametest.settleTicks", 200);
+    /** Minimum play time in the first world before the shader-work counters are reported (-PplaySeconds=60). */
+    private static final int PLAY_SECONDS = Integer.getInteger("metallium.gametest.playSeconds", 0);
     private final List<String> report = new ArrayList<>();
     private final List<String> failures = new ArrayList<>();
 
@@ -544,6 +551,8 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
             return info.backendName() + " | " + info.name() + " | " + info.driverInfo();
         });
         line("backend: " + backend);
+        line("timing: startup-to-title ms=" + java.lang.management.ManagementFactory.getRuntimeMXBean().getUptime());
+        line("shader work until title: " + dev.metallium.shadercache.ShaderCacheStats.summary());
         line("sodium loaded: " + net.fabricmc.loader.api.FabricLoader.getInstance().isModLoaded("sodium"));
         line("iris loaded: " + net.fabricmc.loader.api.FabricLoader.getInstance().isModLoaded("iris")
                 + ", adapter: " + net.fabricmc.loader.api.FabricLoader.getInstance().isModLoaded("metallium-iris"));
@@ -572,8 +581,14 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
             return;
         }
         try {
+            long joinStart = System.nanoTime();
+            long[] beforeJoin = dev.metallium.shadercache.ShaderCacheStats.snapshot();
             try (TestSingleplayerContext world = context.worldBuilder().create()) {
                 world.getConnection().waitForChunksRender();
+                long joined = System.nanoTime();
+                line(String.format("timing: first world join (create + chunks rendered) ms=%.0f", (joined - joinStart) / 1e6));
+                line("shader work during join: " + dev.metallium.shadercache.ShaderCacheStats.summary(dev.metallium.shadercache.ShaderCacheStats.delta(beforeJoin)));
+                long[] afterJoin = dev.metallium.shadercache.ShaderCacheStats.snapshot();
                 // Sodium builds sections asynchronously after vanilla reports chunks as rendered; give it time.
                 context.waitTicks(SETTLE_TICKS);
                 checkTerrainVisible(context.takeScreenshot("metallium-flat-world"), "flat world");
@@ -592,6 +607,12 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
                     failures.remove(failures.size() - 1); // diagnostic only
                 }
                 context.runOnClient(client -> client.options.chunkSectionFadeInTime().set(0.75));
+                long playNs = PLAY_SECONDS * 1_000_000_000L - (System.nanoTime() - joined);
+                if (playNs > 0) {
+                    context.waitTicks((int) (playNs / 50_000_000L));
+                }
+                line(String.format("shader work during first %.0f s of play: %s", (System.nanoTime() - joined) / 1e9,
+                        dev.metallium.shadercache.ShaderCacheStats.summary(dev.metallium.shadercache.ShaderCacheStats.delta(afterJoin))));
                 if (net.fabricmc.loader.api.FabricLoader.getInstance().isModLoaded("metallium-gl")) {
                     metalliumGlScenario(context);
                 }

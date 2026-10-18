@@ -112,6 +112,11 @@ loom.runs.clientGameTest {
 	if (project.hasProperty('benchPower')) vmArg '-Dmetallium.bench.power=true'
 	// A crashed earlier test run must not put the next one into crash-recovery mode (OpenGL + dialog).
 	vmArg "-Dmetallium.crashRecovery=${project.hasProperty('crashRecovery') ? 'on' : 'off'}"
+	if (project.hasProperty('playSeconds')) vmArg "-Dmetallium.gametest.playSeconds=${project.property('playSeconds')}"
+	// The run directory is recreated for every game test, so keep the shader cache next to it: the second run is warm.
+	// -PshaderCache=false disables it; delete that directory for a cold run.
+	vmArg "-Dmetallium.shaderCache.dir=${layout.buildDirectory.get().asFile}/run/metallium-shader-cache"
+	if (project.hasProperty('shaderCache')) vmArg "-Dmetallium.shaderCache=${project.property('shaderCache')}"
 }
 
 // ./gradlew runClientGameTest -PwithSodium  → runs the game tests with Sodium loaded.

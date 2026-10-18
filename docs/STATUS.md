@@ -59,6 +59,39 @@ Next steps:
    Rejected: Zink (OpenGL→Vulkan) + MoltenVK under unmodified Iris — three translation layers, missing Vulkan features
    on MoltenVK, expected slower than Apple's OpenGL.
 
+### Shader / pipeline cache (2026-10-18)
+
+Owner's Metal HUD flagged "Shader Compiler Activity" (178 pipeline states, 283 shaders compiled at runtime). Findings:
+the MSL front-end compile (`newLibraryWithSource`, ~40–55 ms per library) is the cost; macOS keeps its own per-app
+cache (`$DARWIN_USER_CACHE_DIR/net.java.openjdk.java/com.apple.metal`), shared by every Java app and evicted often
+(cold in 2 of 4 runs here), so we cannot rely on it. Implemented (`dev.metallium.shadercache`, `MetalPipelineCache`):
+
+- `<game dir>/.metallium-cache/env-<hash>/` (versioned by Metallium, Minecraft, macOS, GPU, MSL, LWJGL and a hash of
+  the translator classes; stale environments deleted). Entries: magic + format + length + CRC32, atomic writes, LRU size
+  cap 1 GiB. `-Dmetallium.shaderCache=false` disables, `.maxMB=`, `.dir=` override.
+- SPIR-V→MSL (SPIRV-Cross) and GLSL→SPIR-V (shaderc, Iris adapter / metallium-gl) results cached by content hash.
+- Metal binary archive `pipelines.mtlarchive`: pipeline states are looked up with `FailOnBinaryArchiveMiss`, misses
+  added and the archive re-serialized (every 20 s / on close). The archive file is also a metallib: it is opened as an
+  `MTLLibrary`, and functions found there skip the MSL compile entirely (entry points get unique content-derived names
+  `mtl_vs_/mtl_fs_<key>` so all stages share one namespace). Crash marker discards an archive that was in use when the
+  game died; a pipeline that fails with archive functions is rebuilt from source and the archive dropped.
+- Attachment-layout variants built lazily on the render thread are recorded and built on the compile thread next time.
+- `compilePipeline` now builds the pipeline state on renderpearl's worker thread (`Pending` only returns it).
+
+Measured (M3 Max, `-PwithIris -Pshaderpack=ComplementaryUnbound_r5.6.1 -PplaySeconds=60`, exclusive GPU lock, no other
+client running; numbers from the game-test report lines `timing:` / `shader work`):
+
+| | startup→title | first world join | Complementary load (reload + 1st frame) | MSL compiles until title | render-thread PSOs |
+|---|---|---|---|---|---|
+| cache off, system Metal cache cold | 10.0 s | 4.24 s | 1965 ms | 215 (11.6 s CPU on workers) + 197 PSOs (3.4 s) | 1 at join, 9 at pack load |
+| cache cold, system cache warm | 9.0 s | 3.79 s | 956 ms | 215 (43 ms) | 1 / 9 |
+| cache warm (2 runs) | 8.9 / 9.1 s | 3.88 / 3.82 s | 520 / 551 ms | **0** (215 functions from the archive, 198/198 archive hits) | **0 / 0** |
+
+Runtime compiles in the first 60 s of play: 0 in every configuration (vanilla pipelines are all compiled during
+startup; the stutter sources were the join variant and shader pack reloads, both 0 when warm). The Iris adapter still
+builds a pack's programs synchronously on the render thread; when warm they need no shader compile at all (0 shaderc,
+0 SPIRV-Cross, 0 MSL compiles, 20/20 archive hits). Binary archive after these runs: ~9 MB.
+
 ### Note on VSync-off frame rates (2026-10-18)
 With VSync off, Metallium uses mailbox semantics: every frame is rendered and submitted, but a frame is only handed to
 the display once the previous one was shown (CAMetalLayer returns drawables at display refresh). FPS counters therefore
