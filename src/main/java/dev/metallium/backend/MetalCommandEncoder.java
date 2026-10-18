@@ -150,6 +150,9 @@ final class MetalCommandEncoder implements CommandEncoderBackend {
         }
 
         if (toClose != null) {
+            if (PerfCounters.ENABLED) {
+                PerfCounters.gpuNs += (long) ((toClose.buffer.GPUEndTime() - toClose.buffer.GPUStartTime()) * 1e9);
+            }
             toClose.buffer.release();
         }
 
@@ -428,6 +431,7 @@ final class MetalCommandEncoder implements CommandEncoderBackend {
         MetalGpuBuffer stagingBuffer = (MetalGpuBuffer) staging.buffer();
 
         MTLBlitCommandEncoder blit = blitCommandEncoder();
+        if (PerfCounters.ENABLED) PerfCounters.blitKinds[0]++;
         blit.copyFromBuffer(
                 stagingBuffer.metalBuffer(),
                 staging.offset(),
@@ -477,6 +481,7 @@ final class MetalCommandEncoder implements CommandEncoderBackend {
         MetalGpuBuffer sourceBuffer = (MetalGpuBuffer) source.buffer();
         MetalGpuBuffer targetBuffer = (MetalGpuBuffer) target.buffer();
         MTLBlitCommandEncoder blit = blitCommandEncoder();
+        if (PerfCounters.ENABLED) PerfCounters.blitKinds[1]++;
         blit.copyFromBuffer(
                 sourceBuffer.metalBuffer(),
                 source.offset(),
@@ -507,6 +512,7 @@ final class MetalCommandEncoder implements CommandEncoderBackend {
         GpuBufferSlice slice = transientMemory.uploadStaging(source.duplicate().limit(bytesPerImage), pixelSize, GpuBuffer.USAGE_COPY_SRC);
 
         MTLBlitCommandEncoder blit = blitCommandEncoder();
+        if (PerfCounters.ENABLED) PerfCounters.blitKinds[2]++;
         blit.copyFromBuffer(
                 ((MetalGpuBuffer) slice.buffer()).metalBuffer(),
                 slice.offset(),
@@ -544,6 +550,7 @@ final class MetalCommandEncoder implements CommandEncoderBackend {
         long rowBytes = (long) sourceWidth * texelSize;
 
         MTLBlitCommandEncoder blit = blitCommandEncoder();
+        if (PerfCounters.ENABLED) PerfCounters.blitKinds[3]++;
         blit.copyFromBuffer(
                 ((MetalGpuBuffer) source.buffer()).metalBuffer(),
                 source.offset() + skipBytes,
@@ -583,6 +590,7 @@ final class MetalCommandEncoder implements CommandEncoderBackend {
         int bytesPerImage = rowBytes * height;
 
         MTLBlitCommandEncoder blit = blitCommandEncoder();
+        if (PerfCounters.ENABLED) PerfCounters.blitKinds[4]++;
         blit.copyFromTexture(
                 texture.metalTexture(),
                 0,
@@ -616,6 +624,7 @@ final class MetalCommandEncoder implements CommandEncoderBackend {
         flushPendingClear(srcTexture);
         flushPendingClearForWrite(dstTexture);
         MTLBlitCommandEncoder blit = blitCommandEncoder();
+        if (PerfCounters.ENABLED) PerfCounters.blitKinds[5]++;
         blit.copyFromTexture(
                 srcTexture.metalTexture(),
                 0,
