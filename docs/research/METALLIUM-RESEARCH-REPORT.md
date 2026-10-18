@@ -458,7 +458,7 @@ Source: `notes/iris-shaders-translation.md` §8 (with the Metallium host runtime
 | Image atomics | Supported on MSL ≥ 3.1 | Emulation below 3.1 fragile |
 | Per-buffer blending, alpha-test override, wide lines | Native / fully supported | Per-attachment PSO blend; Iris does alpha test and line widening in shader |
 | `gl_Layer` (VS-only path) | Adapter | VS layer output translates; GS layering doesn't |
-| **Geometry shaders** | **Unsupported (v1)** | SPIRV-Cross has no GS; only bespoke compute/mesh emulation |
+| **Geometry shaders** | **Unsupported (v1)** | SPIRV-Cross has no GS; only bespoke compute/mesh emulation. Later-stage route: Mesa's compute-based GS/tessellation emulation for Apple GPUs (MIT) |
 | **Tessellation** | Native implementation, very high effort — defer | Metal compute-based tessellation; isolines infeasible |
 | **Doubles, 64-bit atomics** | **Infeasible** | Not expressible in MSL via SPIRV-Cross |
 | Logic ops | Infeasible / unused by Iris | No Metal equivalent |
@@ -814,7 +814,7 @@ mods}. Record exact versions; separate "launches" from "functions correctly".
 ### L.4 Performance
 
 - Hardware: at least M1 (base), M1/M2 Pro, M3 or newer (mesh-shader acceleration), an 8 GB machine.
-- Baselines: vanilla GL, vanilla Vulkan (MoltenVK), Sodium on GL, Sodium + Iris on GL — same world, seed, camera path,
+- Baselines: vanilla GL, vanilla Vulkan (MoltenVK; also Mesa KosmicKrisp where available), Sodium on GL, Sodium + Iris on GL — same world, seed, camera path,
   settings, VSync off **with every frame presented** (unlike mcopt's paced present).
 - Scenes: static vista RD 12/32, fly-through with chunk generation, dense forest, city build, modded scene, shaders off/on
   at three pack complexity levels.

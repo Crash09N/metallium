@@ -17,3 +17,9 @@ Next steps:
 1. Owner test on M3 Max (`docs/TESTING-ON-MAC.md`): decides whether the Sodium bug is backend or virtual-GPU specific.
 2. Fix Sodium terrain on Metal.
 3. Iris adapter stage 2 (composite/final passes) per `docs/design/iris-adapter-blueprint.md`, using `GlslProgramTranslator`.
+4. Benchmark baseline: vanilla 26.3's own Vulkan backend on macOS through MoltenVK (and Mesa KosmicKrisp if available),
+   next to OpenGL and Metallium, same world/camera path (see report §L.4). Comparison only; it cannot run Iris.
+5. Later stage, geometry/tessellation shaders for packs: study Mesa's compute-based geometry/tessellation emulation for
+   Apple GPUs (Asahi/Honeykrisp; Mesa is MIT, credit in README if code is adapted) as the route to packs that need `.gsh`.
+   Rejected: Zink (OpenGL→Vulkan) + MoltenVK under unmodified Iris — three translation layers, missing Vulkan features
+   on MoltenVK, expected slower than Apple's OpenGL.
