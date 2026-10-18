@@ -126,6 +126,22 @@ public final class GlslProgramTranslator {
                 }
             }
             if (results.containsKey(Stage.VERTEX) && results.containsKey(Stage.FRAGMENT)) {
+                SpirvStage vertex = results.get(Stage.VERTEX);
+                String missing = missingVertexOutputs(vertex.spirv(), results.get(Stage.FRAGMENT).spirv());
+                if (!missing.isEmpty()) {
+                    // GL tolerates fragment inputs the vertex stage never writes (undefined value): declare them,
+                    // unwritten, in the vertex stage so by-name location matching (and Metal linking) still works.
+                    System.getLogger("metallium.shaders").log(System.Logger.Level.DEBUG,
+                            "{0}: fragment inputs not written by the vertex stage, declaring them there:{1}", programName, missing.replace('\n', ' '));
+                    ByteBuffer patched = compileToSpirv(programName, Stage.VERTEX, sources.get(Stage.VERTEX) + "\n" + missing);
+                    try {
+                        results.put(Stage.VERTEX, reflectDefaultBlock(Stage.VERTEX, patched));
+                    } catch (TranslationException | RuntimeException e) {
+                        MemoryUtil.memFree(patched);
+                        throw e;
+                    }
+                    MemoryUtil.memFree(vertex.spirv());
+                }
                 matchVaryingsByName(programName, results.get(Stage.VERTEX).spirv(), results.get(Stage.FRAGMENT).spirv());
             }
         } catch (TranslationException | RuntimeException e) {
@@ -133,6 +149,72 @@ public final class GlslProgramTranslator {
             throw e;
         }
         return results;
+    }
+
+    /**
+     * GLSL declarations ({@code [flat] [noperspective] [centroid] out <type> name[N];}, one per line) for every
+     * fragment input that has no vertex output of the same name; empty if none.
+     */
+    static String missingVertexOutputs(final ByteBuffer vertex, final ByteBuffer fragment) throws TranslationException {
+        java.util.Set<String> written = new java.util.HashSet<>();
+        for (Varying v : varyings(vertex, Spvc.SPVC_RESOURCE_TYPE_STAGE_OUTPUT)) {
+            written.add(v.name());
+        }
+        StringBuilder out = new StringBuilder();
+        try (MemoryStack stack = MemoryStack.stackPush()) {
+            IntBuffer words = fragment.asIntBuffer();
+            PointerBuffer p = stack.mallocPointer(1);
+            check(Spvc.spvc_context_create(p), "context_create");
+            long context = p.get(0);
+            try {
+                check(Spvc.spvc_context_parse_spirv(context, words, words.remaining(), p), "parse_spirv");
+                long ir = p.get(0);
+                check(Spvc.spvc_context_create_compiler(context, Spvc.SPVC_BACKEND_NONE, ir, Spvc.SPVC_CAPTURE_MODE_TAKE_OWNERSHIP, p), "create_compiler");
+                long compiler = p.get(0);
+                check(Spvc.spvc_compiler_create_shader_resources(compiler, p), "create_shader_resources");
+                for (SpvcReflectedResource resource : list(stack, p.get(0), Spvc.SPVC_RESOURCE_TYPE_STAGE_INPUT)) {
+                    String name = resource.nameString();
+                    if (written.contains(name)) {
+                        continue;
+                    }
+                    long type = Spvc.spvc_compiler_get_type_handle(compiler, resource.type_id());
+                    int size = Spvc.spvc_type_get_vector_size(type);
+                    int columns = Spvc.spvc_type_get_columns(type);
+                    int base = Spvc.spvc_type_get_basetype(type);
+                    boolean integer = base == Spvc.SPVC_BASETYPE_INT32 || base == Spvc.SPVC_BASETYPE_UINT32 || base == Spvc.SPVC_BASETYPE_BOOLEAN;
+                    String glslType;
+                    if (columns > 1) {
+                        glslType = (base == Spvc.SPVC_BASETYPE_FP64 ? "dmat" : "mat") + columns + (columns == size ? "" : "x" + size);
+                    } else {
+                        String prefix = switch (base) {
+                            case Spvc.SPVC_BASETYPE_INT32 -> "i";
+                            case Spvc.SPVC_BASETYPE_UINT32 -> "u";
+                            case Spvc.SPVC_BASETYPE_BOOLEAN -> "b";
+                            case Spvc.SPVC_BASETYPE_FP64 -> "d";
+                            default -> "";
+                        };
+                        glslType = size == 1 ? (prefix.isEmpty() ? "float" : switch (prefix) {
+                            case "i" -> "int";
+                            case "u" -> "uint";
+                            case "b" -> "bool";
+                            default -> "double";
+                        }) : prefix + "vec" + size;
+                    }
+                    StringBuilder dims = new StringBuilder();
+                    for (int d = 0; d < Spvc.spvc_type_get_num_array_dimensions(type); d++) {
+                        dims.append('[').append(Math.max(1, Spvc.spvc_type_get_array_dimension(type, d))).append(']');
+                    }
+                    boolean flat = integer || Spvc.spvc_compiler_get_decoration(compiler, resource.id(), Spv.SpvDecorationFlat) != 0;
+                    out.append(flat ? "flat " : "")
+                            .append(Spvc.spvc_compiler_get_decoration(compiler, resource.id(), Spv.SpvDecorationNoPerspective) != 0 ? "noperspective " : "")
+                            .append(!flat && Spvc.spvc_compiler_get_decoration(compiler, resource.id(), Spv.SpvDecorationCentroid) != 0 ? "centroid " : "")
+                            .append("out ").append(glslType).append(' ').append(name).append(dims).append(";\n");
+                }
+            } finally {
+                Spvc.spvc_context_destroy(context);
+            }
+        }
+        return out.toString();
     }
 
     private record Varying(String name, int locationWordOffset, int slots) {

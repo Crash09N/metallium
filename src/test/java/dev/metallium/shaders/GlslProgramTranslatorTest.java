@@ -161,6 +161,45 @@ class GlslProgramTranslatorTest {
     }
 
     @Test
+    void fragmentInputsMissingInVertexStageStillTranslate() throws Exception {
+        String vs = """
+                #version 330 core
+                in vec3 Position;
+                out vec2 texCoord;
+                void main() { texCoord = Position.xy; gl_Position = vec4(Position, 1.0); }
+                """;
+        String fs = """
+                #version 330 core
+                in vec2 texCoord;
+                in vec3 viewVector;
+                flat in int mode;
+                flat in vec4 tint[2];
+                noperspective in float depthFade;
+                layout(location = 0) out vec4 color;
+                void main() { color = vec4(texCoord, viewVector.x + depthFade, float(mode)) + tint[1]; }
+                """;
+        Map<Stage, GlslProgramTranslator.SpirvStage> stages = GlslProgramTranslator.compileToSpirv("gbuffers_basic", sources(vs, fs));
+        try {
+            Map<String, Integer> out = locations(stages.get(Stage.VERTEX).spirv(), org.lwjgl.util.spvc.Spvc.SPVC_RESOURCE_TYPE_STAGE_OUTPUT);
+            Map<String, Integer> in = locations(stages.get(Stage.FRAGMENT).spirv(), org.lwjgl.util.spvc.Spvc.SPVC_RESOURCE_TYPE_STAGE_INPUT);
+            assertEquals(Set.of("texCoord", "viewVector", "mode", "tint", "depthFade"), out.keySet());
+            assertEquals(out, in);
+            assertFalse(in.containsValue(in.get("tint") + 1), "array slots overlap: " + in);
+        } finally {
+            stages.values().forEach(stage -> org.lwjgl.system.MemoryUtil.memFree(stage.spirv()));
+        }
+    }
+
+    @Test
+    void fragmentInputsMissingInVertexStageStillTranslateMatrixAndUint() throws Exception {
+        String vs = "#version 330 core\nin vec3 Position;\nvoid main() { gl_Position = vec4(Position, 1.0); }\n";
+        String fs = "#version 330 core\nflat in uvec2 ids;\nin mat3 basis;\nlayout(location = 0) out vec4 color;\n"
+                + "void main() { color = vec4(basis[1], float(ids.x)); }\n";
+        Map<Stage, GlslProgramTranslator.SpirvStage> stages = GlslProgramTranslator.compileToSpirv("p", sources(vs, fs));
+        stages.values().forEach(stage -> org.lwjgl.system.MemoryUtil.memFree(stage.spirv()));
+    }
+
+    @Test
     void fragmentOutputsCanBeMovedToOtherAttachments() throws Exception {
         String vs = """
                 #version 330 core
