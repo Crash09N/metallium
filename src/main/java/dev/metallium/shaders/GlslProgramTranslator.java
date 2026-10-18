@@ -519,18 +519,25 @@ public final class GlslProgramTranslator {
     }
 
     /**
-     * Words that GL_KHR_vulkan_glsl (the dialect shaderc compiles for SPIR-V) reserves as types but desktop GLSL leaves
-     * free; packs use them as identifiers, e.g. Photon/Bliss {@code float f(sampler2D sampler, ...)}. A uniform named
-     * like this would be renamed too (none seen in packs).
+     * Identifiers that desktop GLSL allows but a later stage does not, renamed to {@code metallium_<word>} before
+     * compiling (a uniform named like this would be renamed too; none seen in packs):
+     * <ul>
+     *   <li>{@code sampler}, {@code samplerShadow}: types in GL_KHR_vulkan_glsl, the dialect shaderc compiles for SPIR-V
+     *       (Photon/Bliss {@code float f(sampler2D sampler, ...)}: "unexpected SAMPLER, expecting RIGHT_PAREN");</li>
+     *   <li>C++ keywords that are not GLSL reserved words: SPIRV-Cross keeps variable names, and MSL is C++
+     *       (BSL {@code bool new = ...}: "expected unqualified-id").</li>
+     * </ul>
      */
-    private static final Pattern VULKAN_RESERVED = Pattern.compile("(?<![\\w.#])(sampler|samplerShadow)(?!\\w)");
+    private static final Pattern RESERVED_IDENTIFIERS = Pattern.compile("(?<![\\w#])(sampler|samplerShadow|new|delete|operator|typename"
+            + "|virtual|friend|explicit|mutable|private|protected|register|nullptr|constexpr|decltype|noexcept|throw|try|catch"
+            + "|alignas|alignof|static_assert|thread_local|export|this|typeid|dynamic_cast|static_cast|const_cast|reinterpret_cast)(?!\\w)");
 
-    static String renameVulkanReserved(final String source) {
-        return source.contains("sampler") ? VULKAN_RESERVED.matcher(source).replaceAll("metallium_$1") : source;
+    static String renameReservedIdentifiers(final String source) {
+        return RESERVED_IDENTIFIERS.matcher(source).replaceAll("metallium_$1");
     }
 
     static ByteBuffer compileToSpirv(final String programName, final Stage stage, final String rawSource) throws TranslationException {
-        String source = renameVulkanReserved(rawSource);
+        String source = renameReservedIdentifiers(rawSource);
         if (!VERSION.matcher(source).find()) {
             throw new TranslationException(programName + "/" + stage + ": missing #version directive");
         }
