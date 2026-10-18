@@ -4,7 +4,9 @@ A planned Fabric rendering mod for **Minecraft 26.3** that renders through Apple
 aiming for top performance while staying compatible with Sodium, Sodium Extra, Reese's Sodium Options, the Fabric
 Rendering API and Iris shader packs.
 
-**Status: research and architecture phase. There is no implementation code yet.**
+**Status: early alpha (0.1.0-alpha.1). Metal backend boots on Apple Silicon via Minecraft's renderpearl backend; shader-pack (Iris) support is in progress. Not for general use yet.**
+
+Build: `./gradlew build` (JDK 25). Metal smoke test on a Mac: `./gradlew metalSmokeTest`.
 
 - Research report: [`docs/research/METALLIUM-RESEARCH-REPORT.md`](docs/research/METALLIUM-RESEARCH-REPORT.md)
 - Source-level evidence notes: [`docs/research/notes/`](docs/research/notes/)
@@ -36,8 +38,8 @@ project's code may legally be copied. Rows will be updated whenever code is actu
 
 | Project | Authors | License | Planned use |
 |---|---|---|---|
-| [Metallum](https://github.com/kokodio/metallum) | kokodio | MIT | Starting point for the renderpearl Metal backend and SPIR-V→MSL setup. |
-| [metal-jvm](https://github.com/kokodio/metal-jvm) | kokodio | MIT | Java FFM bindings to Metal. |
+| [Metallum](https://github.com/kokodio/metallum) | kokodio | MIT | **Code adapted:** the Metal backend in `dev.metallium.backend` started from Metallum v0.0.25 (`4da72f5`). Files carry the MIT notice; licence text in `LICENSES/MIT-metallum.txt`. |
+| [metal-jvm](https://github.com/kokodio/metal-jvm) | kokodio | MIT | **Bundled dependency** (jar-in-jar, Maven Central `io.github.kokodio:metal-jvm`). Licence text in `LICENSES/MIT-metal-jvm.txt`. |
 | [mcopt](https://github.com/noahdunnagan/mcopt) | noahdunnagan | Apache-2.0 (+ NOTICE) | Metal command-encoding techniques (pass merging, deferred clears, store-action selection). Only code from commit `09fea99` (0.3.0-alpha.1) onward. |
 
 ### Ideas and research only (no code copied)

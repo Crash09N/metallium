@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "id": "metallium",
+  "version": "${version}",
+  "name": "Metallium",
+  "description": "Metal rendering backend for Minecraft on Apple Silicon. Runs vanilla, Sodium and Fabric rendering mods on Metal.",
+  "authors": ["Metallium contributors"],
+  "contributors": ["Based on Metallum by kokodio (MIT)"],
+  "contact": {
+    "sources": "https://github.com/Crash09N/metallium"
+  },
+  "license": "Apache-2.0",
+  "icon": "assets/metallium/icon.png",
+  "environment": "client",
+  "entrypoints": {
+    "client": ["dev.metallium.Metallium"],
+    "sodium:config_api_user": ["dev.metallium.compat.sodium.MetalliumSodiumConfig"]
+  },
+  "mixins": [
+    "metallium.mixins.json",
+    "metallium.distanthorizons.mixins.json"
+  ],
+  "depends": {
+    "fabricloader": ">=0.19.5",
+    "minecraft": "~26.3",
+    "java": ">=25"
+  },
+  "recommends": {
+    "sodium": ">=0.9.2"
+  },
+  "breaks": {
+    "metallum": "*",
+    "mcopt-metal": "*",
+    "metalrender": "*",
+    "minecraft_metal": "*"
+  }
+}

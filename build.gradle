@@ -1,0 +1,65 @@
+plugins {
+	id 'net.fabricmc.fabric-loom' version "${loom_version}"
+}
+
+version = project.mod_version
+group = project.maven_group
+
+base {
+	archivesName = 'metallium'
+}
+
+repositories {
+	maven { url = 'https://api.modrinth.com/maven' }
+}
+
+dependencies {
+	minecraft "com.mojang:minecraft:${project.minecraft_version}"
+
+	implementation "net.fabricmc:fabric-loader:${project.loader_version}"
+	// Sodium is optional at runtime; compiled against for the options page.
+	compileOnly "maven.modrinth:sodium:${project.sodium_version}"
+
+	include(implementation("io.github.kokodio:metal-jvm:${project.metal_jvm_version}"))
+}
+
+processResources {
+	inputs.property 'version', project.version
+	filesMatching('fabric.mod.json') {
+		expand 'version': inputs.properties.version
+	}
+}
+
+tasks.withType(JavaCompile).configureEach {
+	it.options.release = 25
+	it.options.encoding = 'UTF-8'
+}
+
+java {
+	sourceCompatibility = JavaVersion.VERSION_25
+	targetCompatibility = JavaVersion.VERSION_25
+}
+
+jar {
+	from('LICENSE')
+	from('LICENSES') { into 'LICENSES' }
+}
+
+// Standalone Metal smoke test (no Minecraft): ./gradlew metalSmokeTest  — macOS only.
+sourceSets {
+	smoketest {
+		java.srcDir 'src/smoketest/java'
+	}
+}
+
+dependencies {
+	smoketestImplementation "io.github.kokodio:metal-jvm:${project.metal_jvm_version}"
+}
+
+tasks.register('metalSmokeTest', JavaExec) {
+	group = 'verification'
+	description = 'Creates a Metal device, renders offscreen and checks the result (macOS only).'
+	classpath = sourceSets.smoketest.runtimeClasspath
+	mainClass = 'dev.metallium.smoketest.MetalSmokeTest'
+	jvmArgs '--enable-native-access=ALL-UNNAMED'
+}
