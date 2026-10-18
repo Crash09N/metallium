@@ -161,6 +161,29 @@ final class GbufferProgram implements AutoCloseable {
         return out.toString();
     }
 
+    /**
+     * Output locations the fragment shader declares but never assigns (Bliss's weather writes only gl_FragData[1]). GL
+     * leaves such attachments unchanged in practice; in Metal the unwritten output is undefined and, blended, paints
+     * garbage (green rain streaks), so their attachments get an empty write mask.
+     */
+    static Set<Integer> unwrittenOutputs(final String fragment) {
+        Set<Integer> unwritten = new java.util.HashSet<>();
+        java.util.regex.Matcher m = OUTPUT_DECLARATION.matcher(fragment);
+        while (m.find()) {
+            String[] words = m.group(2).replace(";", " ").trim().split("\\s+");
+            String variable = words[words.length - 1];
+            java.util.regex.Matcher uses = java.util.regex.Pattern.compile("\\b" + java.util.regex.Pattern.quote(variable) + "\\b").matcher(fragment);
+            int count = 0;
+            while (uses.find() && count < 2) {
+                count++;
+            }
+            if (count < 2) {
+                unwritten.add(Integer.parseInt(m.group(1)));
+            }
+        }
+        return unwritten;
+    }
+
     static GbufferProgram compile(final Spec spec, final StorageBindings.@Nullable Validator validator) throws Exception {
         StorageBindings storage = new StorageBindings();
         Set<String> available = new LinkedHashSet<>();
@@ -172,6 +195,7 @@ final class GbufferProgram implements AutoCloseable {
         Map<Stage, String> sources = new EnumMap<>(Stage.class);
         sources.put(Stage.VERTEX, defaultMissingInputs(SODIUM_PUSH_CONSTANTS.matcher(spec.vertex).replaceAll("layout(push_constant) uniform iris_SodiumPushConstants"), available));
         sources.put(Stage.FRAGMENT, withoutUnmappedOutputs(spec.fragment, spec.drawBuffers, spec.attachments));
+        Set<Integer> unwritten = unwrittenOutputs(spec.fragment);
         Map<Stage, SpirvStage> stages = GlslProgramTranslator.compileToSpirv(spec.name, sources);
         Set<String> compareSamplers = new LinkedHashSet<>();
 
@@ -305,7 +329,8 @@ final class GbufferProgram implements AutoCloseable {
             for (int i = 0; i < spec.attachments.length; i++) {
                 int buffer = spec.attachments[i];
                 GpuFormat format = spec.attachmentFormats.get(i);
-                boolean written = indexOf(spec.drawBuffers, buffer) >= 0;
+                int location = indexOf(spec.drawBuffers, buffer);
+                boolean written = location >= 0 && !unwritten.contains(location);
                 Optional<BlendFunction> blend = spec.bufferBlends.getOrDefault(buffer, spec.blend);
                 if (isInteger(format)) {
                     blend = Optional.empty();
