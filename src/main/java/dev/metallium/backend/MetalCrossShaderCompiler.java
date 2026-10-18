@@ -21,12 +21,22 @@ import org.lwjgl.system.MemoryStack;
 import org.lwjgl.system.MemoryUtil;
 import org.lwjgl.util.spvc.Spv;
 import org.lwjgl.util.spvc.Spvc;
+import org.lwjgl.util.spvc.SpvcEntryPoint;
 import org.lwjgl.util.spvc.SpvcMslResourceBinding;
 import org.lwjgl.util.spvc.SpvcMslShaderInterfaceVar2;
 import org.lwjgl.util.spvc.SpvcReflectedResource;
 
+import dev.metallium.shadercache.CacheKey;
+
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.ByteBuffer;
 import java.nio.IntBuffer;
+import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -47,17 +57,24 @@ final class MetalCrossShaderCompiler {
     private MetalCrossShaderCompiler() {
     }
 
+    /** {@code vertexCacheKey}/{@code fragmentCacheKey}: the stages' keys in the persistent MSL cache. */
     record Compiled(
             String vertexSource,
             String fragmentSource,
             String vertexEntryPoint,
             String fragmentEntryPoint,
             List<MetalCompiledRenderPipeline.ResourceBinding> resources,
-            MetalCompiledRenderPipeline.@Nullable PushConstants pushConstants
+            MetalCompiledRenderPipeline.@Nullable PushConstants pushConstants,
+            String vertexCacheKey,
+            String fragmentCacheKey
     ) {
     }
 
     static Compiled compile(final BackendRenderPipeline.CreateInfo info) throws ShaderCompileException {
+        return compile(info, null);
+    }
+
+    static Compiled compile(final BackendRenderPipeline.CreateInfo info, final @Nullable MetalPipelineCache cache) throws ShaderCompileException {
         SpvModule vertexSpirv = null;
         SpvModule fragmentSpirv = null;
         for (BackendRenderPipeline.CreateInfo.Shader shader : info.shaders()) {
@@ -74,18 +91,75 @@ final class MetalCrossShaderCompiler {
         List<UniformDescription> uniforms = info.uniforms();
         MetalIndices metalIndices = MetalIndices.of(uniforms);
 
-        long start = System.nanoTime();
-        MslShader vertexMsl = spirvToMsl(vertexSpirv.spv(), metalIndices, vertexAttributeFormats(info), true);
         boolean enableFragDepth = info.depthStencilState() != null;
-        MslShader fragmentMsl = spirvToMsl(fragmentSpirv.spv(), metalIndices, Map.of(), enableFragDepth);
-        ShaderCacheStats.mslTranslations.add(2);
-        ShaderCacheStats.mslNs.add(System.nanoTime() - start);
+        Map<Integer, GpuFormat> attributeFormats = vertexAttributeFormats(info);
+        String vertexKey = mslCacheKey(vertexSpirv.spv(), metalIndices, attributeFormats, true);
+        String fragmentKey = mslCacheKey(fragmentSpirv.spv(), metalIndices, Map.of(), enableFragDepth);
+        MslShader vertexMsl = cachedSpirvToMsl(cache, vertexKey, entryPointName(vertexKey, true), vertexSpirv.spv(), metalIndices, attributeFormats, true);
+        MslShader fragmentMsl = cachedSpirvToMsl(cache, fragmentKey, entryPointName(fragmentKey, false), fragmentSpirv.spv(), metalIndices, Map.of(), enableFragDepth);
 
         String vertexEntryPoint = extractEntryPoint(vertexMsl.source(), VERTEX_ENTRY_PATTERN, "main0");
         String fragmentEntryPoint = extractEntryPoint(fragmentMsl.source(), FRAGMENT_ENTRY_PATTERN, "main0");
         List<MetalCompiledRenderPipeline.ResourceBinding> resources = buildResourceBindings(uniforms, metalIndices, vertexMsl, fragmentMsl);
         MetalCompiledRenderPipeline.PushConstants pushConstants = buildPushConstants(metalIndices, vertexMsl, fragmentMsl);
-        return new Compiled(vertexMsl.source(), fragmentMsl.source(), vertexEntryPoint, fragmentEntryPoint, resources, pushConstants);
+        return new Compiled(vertexMsl.source(), fragmentMsl.source(), vertexEntryPoint, fragmentEntryPoint, resources, pushConstants, vertexKey, fragmentKey);
+    }
+
+    /**
+     * Key of one stage translation: the SPIR-V plus every input of {@link #spirvToMsl} that changes its output. The
+     * translation code itself is covered by the cache environment (a hash of this class).
+     */
+    static String mslCacheKey(
+            final ByteBuffer spirv,
+            final MetalIndices metalIndices,
+            final Map<Integer, GpuFormat> attributeFormats,
+            final boolean enableFragDepth
+    ) {
+        CacheKey key = CacheKey.of("spirv-msl").add(MSL_VERSION_4_0).add(spirv).add(metalIndices.byBinding()).add(metalIndices.pushConstants())
+                .add(enableFragDepth).add(attributeFormats.size());
+        new TreeMap<>(attributeFormats).forEach((location, format) -> key.add(location).add(format.name()));
+        return key.hex();
+    }
+
+    /**
+     * MSL function name of a translated stage. Unique per translation (derived from its cache key, which covers the
+     * SPIR-V and all translation inputs), so all stages can share one binary archive / metallib namespace and a name
+     * found in the archive is guaranteed to be the same code.
+     */
+    static String entryPointName(final String cacheKey, final boolean vertex) {
+        return (vertex ? "mtl_vs_" : "mtl_fs_") + cacheKey.substring(0, 24);
+    }
+
+    private static MslShader cachedSpirvToMsl(
+            final @Nullable MetalPipelineCache cache,
+            final String key,
+            final String entryPointName,
+            final ByteBuffer spirv,
+            final MetalIndices metalIndices,
+            final Map<Integer, GpuFormat> attributeFormats,
+            final boolean enableFragDepth
+    ) throws ShaderCompileException {
+        if (cache != null && cache.enabled()) {
+            byte[] stored = cache.get(MetalPipelineCache.MSL_NAMESPACE, key);
+            MslShader cached = stored == null ? null : MslShader.decode(stored);
+            if (cached != null) {
+                ShaderCacheStats.mslCacheHits.increment();
+                return cached;
+            }
+        }
+        long start = System.nanoTime();
+        MslShader shader = spirvToMsl(spirv, entryPointName, metalIndices, attributeFormats, enableFragDepth);
+        ShaderCacheStats.mslTranslations.increment();
+        ShaderCacheStats.mslNs.add(System.nanoTime() - start);
+        if (cache != null && cache.enabled()) {
+            cache.put(MetalPipelineCache.MSL_NAMESPACE, key, shader.encode());
+        }
+        return shader;
+    }
+
+    /** Entry point name of a vertex or fragment MSL source as emitted by SPIRV-Cross. */
+    static String entryPoint(final String msl, final boolean vertex) {
+        return extractEntryPoint(msl, vertex ? VERTEX_ENTRY_PATTERN : FRAGMENT_ENTRY_PATTERN, "main0");
     }
 
     private static String extractEntryPoint(final String msl, final Pattern pattern, final String fallback) {
@@ -204,6 +278,7 @@ final class MetalCrossShaderCompiler {
 
     private static MslShader spirvToMsl(
             final ByteBuffer spirvBytes,
+            final String entryPointName,
             final MetalIndices metalIndices,
             final Map<Integer, GpuFormat> attributeFormats,
             final boolean enableFragDepth
@@ -224,6 +299,7 @@ final class MetalCrossShaderCompiler {
                         "spvc_context_create_compiler"
                 );
                 long compiler = pCompiler.get(0);
+                renameEntryPoint(stack, compiler, entryPointName);
 
                 PointerBuffer pOptions = stack.mallocPointer(1);
                 checkSpvc(Spvc.spvc_compiler_create_compiler_options(compiler, pOptions), "spvc_compiler_create_compiler_options");
@@ -288,6 +364,18 @@ final class MetalCrossShaderCompiler {
         }
     }
 
+    private static void renameEntryPoint(final MemoryStack stack, final long compiler, final String name) throws ShaderCompileException {
+        PointerBuffer pEntryPoints = stack.mallocPointer(1);
+        PointerBuffer pCount = stack.mallocPointer(1);
+        checkSpvc(Spvc.spvc_compiler_get_entry_points(compiler, pEntryPoints, pCount), "spvc_compiler_get_entry_points");
+        if (pCount.get(0) < 1) {
+            throw new ShaderCompileException("SPIR-V module has no entry point");
+        }
+        SpvcEntryPoint entryPoint = SpvcEntryPoint.create(pEntryPoints.get(0));
+        checkSpvc(Spvc.spvc_compiler_rename_entry_point(compiler, entryPoint.nameString(), name, entryPoint.execution_model()),
+                "spvc_compiler_rename_entry_point");
+    }
+
     private static void remapResourceBindings(final MemoryStack stack, final long compiler, final int[] metalIndices) throws ShaderCompileException {
         PointerBuffer pResources = stack.mallocPointer(1);
         checkSpvc(Spvc.spvc_compiler_create_shader_resources(compiler, pResources), "spvc_compiler_create_shader_resources");
@@ -322,7 +410,7 @@ final class MetalCrossShaderCompiler {
         }
     }
 
-    private record MetalIndices(int[] byBinding, int pushConstants) {
+    record MetalIndices(int[] byBinding, int pushConstants) {
         static MetalIndices of(final List<UniformDescription> uniforms) {
             int[] byBinding = new int[uniforms.size()];
             int buffers = 0;
@@ -335,6 +423,54 @@ final class MetalCrossShaderCompiler {
     }
 
     record MslShader(String source, boolean hasPushConstants, Set<String> activeResources) {
+        private static final int ENCODING = 1;
+
+        byte[] encode() {
+            ByteArrayOutputStream bytes = new ByteArrayOutputStream(this.source.length() + 256);
+            try (DataOutputStream out = new DataOutputStream(bytes)) {
+                out.writeInt(ENCODING);
+                byte[] text = this.source.getBytes(StandardCharsets.UTF_8);
+                out.writeInt(text.length);
+                out.write(text);
+                out.writeBoolean(this.hasPushConstants);
+                out.writeInt(this.activeResources.size());
+                for (String name : new TreeSet<>(this.activeResources)) {
+                    out.writeUTF(name);
+                }
+            } catch (IOException e) {
+                throw new UncheckedIOException(e);
+            }
+            return bytes.toByteArray();
+        }
+
+        /** Null if {@code data} is not a valid encoding (the caller then translates again). */
+        static @Nullable MslShader decode(final byte[] data) {
+            try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(data))) {
+                if (in.readInt() != ENCODING) {
+                    return null;
+                }
+                int length = in.readInt();
+                if (length < 0 || length > data.length) {
+                    return null;
+                }
+                String source = new String(in.readNBytes(length), StandardCharsets.UTF_8);
+                boolean hasPushConstants = in.readBoolean();
+                int count = in.readInt();
+                if (count < 0 || count > data.length) {
+                    return null;
+                }
+                Set<String> names = new HashSet<>();
+                for (int i = 0; i < count; i++) {
+                    names.add(in.readUTF());
+                }
+                if (in.available() != 0) {
+                    return null;
+                }
+                return new MslShader(source, hasPushConstants, names);
+            } catch (IOException | RuntimeException e) {
+                return null;
+            }
+        }
     }
 
     private static Set<String> collectActiveResourceNames(final MemoryStack stack, final long compiler, final long activeSet) throws ShaderCompileException {

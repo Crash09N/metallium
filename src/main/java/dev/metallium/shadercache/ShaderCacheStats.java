@@ -30,8 +30,10 @@ public final class ShaderCacheStats {
     /** Binary archive lookups: hit = the GPU binary came from the archive (no backend compile). */
     public static final LongAdder archiveHits = new LongAdder();
     public static final LongAdder archiveMisses = new LongAdder();
-    /** Attachment-layout variants built ahead of time from the recorded variant index. */
+    /** Attachment-layout variants built ahead of time (on the compile thread) from the recorded variant index. */
     public static final LongAdder prewarmedVariants = new LongAdder();
+    /** MSL functions taken precompiled from the binary archive (no front-end compile). */
+    public static final LongAdder archivedFunctions = new LongAdder();
 
     private ShaderCacheStats() {
     }
@@ -44,7 +46,7 @@ public final class ShaderCacheStats {
                 libraryCompiles.sum(), libraryNs.sum(),
                 pipelineStates.sum(), pipelineStateNs.sum(),
                 renderThreadPipelineStates.sum(), renderThreadPipelineStateNs.sum(),
-                archiveHits.sum(), archiveMisses.sum(), prewarmedVariants.sum()
+                archiveHits.sum(), archiveMisses.sum(), prewarmedVariants.sum(), archivedFunctions.sum()
         };
     }
 
@@ -65,9 +67,9 @@ public final class ShaderCacheStats {
 
     public static String summary(final long[] s) {
         return String.format(
-                "glsl=%d (%.0f ms, %d cached) spirv->msl=%d (%.0f ms, %d cached) mslLibraries=%d (%.0f ms) pso=%d (%.0f ms)"
-                        + " renderThreadPso=%d (%.0f ms) archive hit/miss=%d/%d prewarmedVariants=%d",
-                s[0], s[1] / 1e6, s[2], s[3], s[4] / 1e6, s[5], s[6], s[7] / 1e6, s[8], s[9] / 1e6,
+                "glsl=%d (%.0f ms, %d cached) spirv->msl=%d (%.0f ms, %d cached) mslLibraries=%d (%.0f ms, %d functions from archive)"
+                        + " pso=%d (%.0f ms) renderThreadPso=%d (%.0f ms) archive hit/miss=%d/%d prewarmedVariants=%d",
+                s[0], s[1] / 1e6, s[2], s[3], s[4] / 1e6, s[5], s[6], s[7] / 1e6, s[15], s[8], s[9] / 1e6,
                 s[10], s[11] / 1e6, s[12], s[13], s[14]);
     }
 }

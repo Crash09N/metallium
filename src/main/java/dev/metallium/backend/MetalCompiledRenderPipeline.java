@@ -69,6 +69,8 @@ final class MetalCompiledRenderPipeline implements BackendRenderPipeline {
     private boolean closed;
     /** False while the constructor runs (pipeline compile); later variants are built lazily while encoding. */
     private boolean constructed;
+    /** Key of this pipeline in the persistent variant index (attachment layouts needed at draw time). */
+    private final String variantKey;
 
     MetalCompiledRenderPipeline(
             final MetalDevice device,
@@ -129,8 +131,18 @@ final class MetalCompiledRenderPipeline implements BackendRenderPipeline {
         this.fullLayout = layout;
 
         this.descriptor = vertexFunction == null || fragmentFunction == null ? null : buildDescriptor(device, info, vertexFunction, fragmentFunction, this.firstAvailableVertexBufferSlot);
+        this.variantKey = MetalPipelineCache.variantKey(info.name(), compiled.vertexEntryPoint(), compiled.fragmentEntryPoint(), layout);
         if (this.descriptor != null && getNativePipeline(layout) == null) {
             Metallium.LOGGER.error("[metallium] Pipeline {} failed to build", info.name());
+        } else if (this.descriptor != null) {
+            // Attachment layouts this pipeline was drawn with in earlier sessions: build them now, on the compile
+            // thread, instead of lazily on the render thread when the first such pass encodes it.
+            for (int variant : device.pipelineCache().recordedVariants(this.variantKey)) {
+                if ((variant & layout) == variant && !this.pipelinesByLayout.containsKey(variant)) {
+                    getNativePipeline(variant);
+                    ShaderCacheStats.prewarmedVariants.increment();
+                }
+            }
         }
         this.constructed = true;
     }
@@ -198,13 +210,16 @@ final class MetalCompiledRenderPipeline implements BackendRenderPipeline {
                 }
             }
             long start = System.nanoTime();
-            MTLRenderPipelineState pipeline = MetalUtilities.newRenderPipelineState(device.metalDevice(), variant);
+            MTLRenderPipelineState pipeline = device.pipelineCache().newRenderPipelineState(variant);
             long elapsed = System.nanoTime() - start;
             ShaderCacheStats.pipelineStates.increment();
             ShaderCacheStats.pipelineStateNs.add(elapsed);
             if (this.constructed) {
                 ShaderCacheStats.renderThreadPipelineStates.increment();
                 ShaderCacheStats.renderThreadPipelineStateNs.add(elapsed);
+                if (pipeline != null) {
+                    device.pipelineCache().recordVariant(this.variantKey, layout);
+                }
             }
             variant.release();
             return pipeline;

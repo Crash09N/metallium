@@ -1,5 +1,9 @@
 package dev.metallium.shaders;
 
+import dev.metallium.shadercache.CacheKey;
+import dev.metallium.shadercache.ShaderCache;
+import dev.metallium.shadercache.ShaderCacheStats;
+import dev.metallium.shadercache.ShaderDiskCache;
 import org.jspecify.annotations.Nullable;
 import org.lwjgl.PointerBuffer;
 import org.lwjgl.system.MemoryStack;
@@ -518,9 +522,32 @@ public final class GlslProgramTranslator {
         return source.substring(lineStart, Math.min(source.length(), declarationStart + 1)).contains("layout");
     }
 
+    private static boolean isSpirv(final byte[] bytes) {
+        // SPIR-V magic 0x07230203 in either byte order, whole words, at least the 5-word header.
+        if (bytes.length < 20 || bytes.length % 4 != 0) {
+            return false;
+        }
+        int little = (bytes[0] & 0xFF) | (bytes[1] & 0xFF) << 8 | (bytes[2] & 0xFF) << 16 | (bytes[3] & 0xFF) << 24;
+        return little == 0x07230203 || Integer.reverseBytes(little) == 0x07230203;
+    }
+
     static ByteBuffer compileToSpirv(final String programName, final Stage stage, final String source) throws TranslationException {
         if (!VERSION.matcher(source).find()) {
             throw new TranslationException(programName + "/" + stage + ": missing #version directive");
+        }
+        // Persistent GLSL -> SPIR-V cache (only once the Metal device opened it). The shaderc options below are fixed;
+        // the cache environment includes a hash of this class, so changing them invalidates old entries.
+        ShaderDiskCache cache = ShaderCache.disk();
+        String cacheKey = null;
+        if (cache != null) {
+            cacheKey = CacheKey.of("glsl").add(stage.name()).add(source).hex();
+            byte[] cached = cache.get("glsl", cacheKey);
+            if (cached != null && isSpirv(cached)) {
+                ShaderCacheStats.glslCacheHits.increment();
+                ByteBuffer copy = MemoryUtil.memAlloc(cached.length);
+                copy.put(cached).flip();
+                return copy;
+            }
         }
         long compiler = Shaderc.shaderc_compiler_initialize();
         long options = Shaderc.shaderc_compile_options_initialize();
@@ -543,8 +570,8 @@ public final class GlslProgramTranslator {
             try {
                 result = Shaderc.shaderc_compile_into_spv(compiler, sourceText, stage.shadercKind, fileName, entryPoint, options);
             } finally {
-                dev.metallium.shadercache.ShaderCacheStats.glslCompiles.increment();
-                dev.metallium.shadercache.ShaderCacheStats.glslNs.add(System.nanoTime() - start);
+                ShaderCacheStats.glslCompiles.increment();
+                ShaderCacheStats.glslNs.add(System.nanoTime() - start);
                 MemoryUtil.memFree(sourceText);
                 MemoryUtil.memFree(fileName);
                 MemoryUtil.memFree(entryPoint);
@@ -556,6 +583,11 @@ public final class GlslProgramTranslator {
                 ByteBuffer bytes = Shaderc.shaderc_result_get_bytes(result);
                 ByteBuffer copy = MemoryUtil.memAlloc(bytes.remaining());
                 copy.put(bytes).flip();
+                if (cache != null) {
+                    byte[] stored = new byte[copy.remaining()];
+                    copy.duplicate().get(stored);
+                    cache.put("glsl", cacheKey, stored);
+                }
                 return copy;
             } finally {
                 Shaderc.shaderc_result_release(result);
