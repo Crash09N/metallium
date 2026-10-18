@@ -37,6 +37,19 @@ public interface MetalHost {
     /** The current point in the command stream. */
     GlDevice.GpuUse currentUse();
 
-    /** Commits and waits if the host can (headless); returns false if it cannot (in-game frame). */
+    /** See {@code GlDevice.engineDepthZeroToOne}. */
+    default boolean engineDepthZeroToOne() {
+        return false;
+    }
+
+    /** Commits and waits for all work so far; false if the host cannot (the device then reports the GL op as unsupported). */
     boolean submitAndWait();
+
+    /**
+     * The Metal texture of an engine texture (Minecraft's {@code GpuTexture} in game) with pending lazy clears applied
+     * ({@code write}: the caller renders into it), or null if {@code engine} is not one.
+     */
+    default @Nullable MTLTexture engineTexture(final Object engine, final boolean write) {
+        return engine instanceof MTLTexture texture ? texture : null;
+    }
 }

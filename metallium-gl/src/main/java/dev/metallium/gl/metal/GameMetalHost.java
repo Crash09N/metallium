@@ -91,7 +91,25 @@ public final class GameMetalHost implements MetalHost {
     }
 
     @Override
+    public boolean engineDepthZeroToOne() {
+        try {
+            return com.mojang.blaze3d.systems.RenderSystem.getDevice().getDeviceInfo().isZZeroToOne();
+        } catch (RuntimeException e) {
+            return false;
+        }
+    }
+
+    @Override
     public boolean submitAndWait() {
-        return false;
+        MetalliumInterop.submitAndWait();
+        return true;
+    }
+
+    @Override
+    public @Nullable MTLTexture engineTexture(final Object engine, final boolean write) {
+        if (engine instanceof GpuTexture texture && !texture.isClosed()) {
+            return MetalliumInterop.metalTexture(texture, write);
+        }
+        return engine instanceof MTLTexture texture ? texture : null;
     }
 }

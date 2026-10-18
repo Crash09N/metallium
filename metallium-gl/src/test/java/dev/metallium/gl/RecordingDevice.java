@@ -133,6 +133,56 @@ final class RecordingDevice implements GlDevice {
     }
 
     @Override
-    public void finish() {
+    public boolean finish() {
+        return true;
+    }
+
+    final List<DispatchOp> dispatches = new ArrayList<>();
+    final List<String> transfers = new ArrayList<>();
+
+    @Override
+    public ProgramStore createComputeProgram(final String label, final StageCode compute, final int[] localSize) {
+        return new Program(label, compute, compute);
+    }
+
+    @Override
+    public void dispatch(final DispatchOp op) {
+        dispatches.add(op);
+    }
+
+    @Override
+    public void drawIndirect(final DrawOp op, final IndirectDraws draws) {
+        this.draws.add(op);
+        transfers.add("indirect " + draws.drawCount() + (draws.countBuffer() != null ? " count@" + draws.countOffset() : ""));
+    }
+
+    @Override
+    public void copyBuffer(final BufferStore source, final long sourceOffset, final BufferStore destination, final long destinationOffset, final long size) {
+        MemoryUtil.memCopy(MemoryUtil.memAddress(source.contents()) + sourceOffset, MemoryUtil.memAddress(destination.contents()) + destinationOffset, size);
+        transfers.add("copy " + size);
+    }
+
+    @Override
+    public void fillBuffer(final BufferStore destination, final long offset, final long size, final int pattern) {
+        for (long i = 0; i < size; i += 4) destination.contents().putInt((int) (offset + i), pattern);
+        transfers.add("fill " + size + " 0x" + Integer.toHexString(pattern));
+    }
+
+    @Override
+    public void uploadBuffer(final BufferStore destination, final long offset, final ByteBuffer data) {
+        MemoryUtil.memCopy(MemoryUtil.memAddress(data), MemoryUtil.memAddress(destination.contents()) + offset, data.remaining());
+        transfers.add("upload " + data.remaining());
+    }
+
+    @Override
+    public @Nullable TextureStore externalTexture(final Object engineTexture) {
+        return engineTexture instanceof com.mojang.renderpearl.api.textures.GpuTexture ? new Texture(TexFormat.RGBA8, 4, 4, 1) : null;
+    }
+
+    @Override
+    public boolean readBuffer(final BufferStore source, final long offset, final ByteBuffer out) {
+        MemoryUtil.memCopy(MemoryUtil.memAddress(source.contents()) + offset, MemoryUtil.memAddress(out), out.remaining());
+        transfers.add("read " + out.remaining());
+        return true;
     }
 }
