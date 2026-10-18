@@ -50,8 +50,12 @@ or turn off "Metal Backend" in Sodium's video settings (restart needed).
 - `logs/latest.log` and any `crash-reports/*.txt`.
 - FPS with VSync off in the same world/place: Metallium vs `-Dmetallium.backend=off` (OpenGL).
 
-## Known issues (2026-10-18)
+## Known issues (2026-10-18, night run)
 
-- With **Sodium**, terrain is currently invisible on the CI's virtual Mac GPU (under investigation; may or may not
-  reproduce on real hardware — your test answers that).
-- **Iris** shader packs do not work on Metal yet; the adapter is at stage 1 (getting Iris to start).
+- **Sodium terrain is garbled on CI's virtual GPU** ("Apple Paravirtual device", M1 VM): Sodium builds and uploads the
+  sections (its debug stats show ~60-80 visible sections, 20+ MiB geometry), Metal API validation reports no errors,
+  entities and vanilla terrain render correctly, but Sodium's terrain shows up as stretched triangles / fog-coloured
+  streaks. Chunk fade-in is ruled out (A/B test). Suspects: Sodium's packed integer vertex attributes, staging-buffer
+  reuse timing, or a paravirtual-GPU limitation. **Most useful test tomorrow: `./gradlew runClientGameTest -PwithSodium`
+  on your M3 Max** — if the terrain renders there, the bug is specific to the virtual GPU.
+- **Iris**: with the adapter, the game now starts on Metal with Iris loaded (stage 1). Shader packs do not run yet.
