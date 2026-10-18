@@ -12,6 +12,7 @@ Verified on GitHub's macOS arm64 runners (virtual M1, "Apple Paravirtual device"
 | Sodium on Metal | Loads, meshes and uploads, but **terrain renders garbled** on the virtual GPU — see `TESTING-ON-MAC.md` |
 | Iris adapter stage 1 (`metallium-iris`) | Game starts on Metal with Sodium + Iris + adapter (no crash) |
 | Iris adapter stage 2 (M3 Max, local game test) | Shader packs' begin/prepare/deferred/composite/final passes run on Metal over the vanilla/Sodium scene (`docs/design/iris-stage2-post-pipeline.md`). Test pack: effect verified by pixel check. Complementary Unbound r5.6.1: all 8 fullscreen programs + final translate and run (clouds/tonemap visible); its 20 gbuffers/shadow programs are reported as not executed yet. Shaders off afterwards renders exactly like before |
+| Iris adapter stage 3 (M3 Max, local game test) | The packs' gbuffers programs render the world into their colortex buffers on Metal (`docs/design/iris-stage3-gbuffers.md`): Sodium terrain solid/cutout/translucent, sky (basic/textured, stars, sunrise), entities, particles, lines; deferred passes between opaque and translucent geometry, composite/final afterwards. Gbuffers test pack (`gbuffers_terrain` marker in colortex1 -> composite): pixel check passes (terrain band 1.00 marked, sky 0.00). Complementary Unbound r5.6.1: `gbuffers_terrain`, `_water`, `_skybasic`, `_skytextured`, `_entities`, `_textured`, `_line` translate and run (attachments colortex0,3,4,6); not yet: shadow pass, hand, DH programs |
 | CI | Linux build + unit tests; macOS: Metal smoke test, translator tests compiled with Metal, game tests (vanilla / Sodium / Iris) with screenshot-based terrain check; results pushed to `ci-artifacts-*` branches |
 
 Full plan: `docs/ROADMAP.md`.
@@ -41,8 +42,9 @@ Bench: `./gradlew :runClientGameTest -PwithSodium -Pbench` (seed `metallium`, fi
 Next steps:
 1. Owner test on M3 Max (`docs/TESTING-ON-MAC.md`): decides whether the Sodium bug is backend or virtual-GPU specific.
 2. Fix Sodium terrain on Metal.
-3. Iris adapter stage 3 (gbuffers via Sodium/vanilla pipelines), then stage 4 (shadow pass); stage-2 gaps: mipmapped
-   buffers, viewport scale, blend overrides, custom textures (see the stage-2 design note).
+3. Iris adapter stage 4 (shadow pass); stage-3 gaps: hand programs, extended vanilla vertex formats (entity IDs,
+   `at_tangent`), custom textures/PBR atlases (see the stage-3 design note); stage-2 gaps: mipmapped buffers, viewport
+   scale, blend overrides in composite passes, custom textures (see the stage-2 design note).
 4. Benchmark baseline: vanilla 26.3's own Vulkan backend on macOS through MoltenVK (and Mesa KosmicKrisp if available),
    next to OpenGL and Metallium, same world/camera path (see report §L.4). Comparison only; it cannot run Iris.
 5. Later stage, geometry/tessellation shaders for packs: study Mesa's compute-based geometry/tessellation emulation for

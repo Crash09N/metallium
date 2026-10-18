@@ -51,9 +51,9 @@ Iris.createPipeline (mixin, Metal only) -> MetalPostPipeline(ProgramSet)
 
 ## Not supported yet (reported in log + chat, never a crash)
 
-gbuffers/shadow/dh programs (vanilla scene is used), shadowcomp passes, compute shaders, geometry/tessellation
+shadow/dh programs (gbuffers: stage 3, `iris-stage3-gbuffers.md`; packs without gbuffers programs keep the vanilla scene), shadowcomp passes, compute shaders, geometry/tessellation
 (pass skipped), mipmapped buffers, viewport scale, blend overrides, `size.buffer.*`, custom textures, explicit uniform
-blocks, images/SSBOs. depthtex1/2 are the same as depthtex0 (no translucent/hand split).
+blocks, images/SSBOs. Without gbuffers programs depthtex1/2 are the same as depthtex0 (with them, stage 3 copies the depth before hand/translucents).
 
 ## Results (M3 Max, 2026-10-18)
 
