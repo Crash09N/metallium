@@ -89,3 +89,15 @@ Status legend: ✅ done · 🔄 in progress · ⏳ planned · 🔬 needs researc
 ## Phase 8 — Release ⏳
 - Owner-tested on M3 Max; CI green; known limitations documented; credits complete (`README.md`, `NOTICE`)
 - Releases per Minecraft version; port the backend when renderpearl changes
+
+## Long-term vision (owner, 2026-10-18)
+
+Order: (1) finish the Metal renderer + Iris support → (2) MetalFX upscaling and frame interpolation → (3) rename and
+broaden the project to **"Metall/Nvid-ium Reborn"**: one mod optimising for both Apple GPUs (Metal, MetalFX) and NVIDIA
+GPUs (Nvidium-style GPU-driven terrain, DLSS upscaling and multi-frame generation).
+
+Open items before the rename / NVIDIA work:
+- Name and logo derived from Nvidium (MCRcortex): ask MCRcortex for permission first; Nvidium code is LGPL-3.0, so any
+  adapted Nvidium code stays in an LGPL module (like `metallium-iris`).
+- DLSS / frame generation: NVIDIA Streamline/DLSS SDK licence terms; runs via Vulkan (vanilla 26.3 has a Vulkan
+  backend) or DirectX, not Metal → a separate backend path with its own module.
