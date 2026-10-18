@@ -5,6 +5,8 @@
 # Environment overrides:
 #   ENGINES="METAL OPENGL VULKAN"        SCENES="light rd32 shaders flight"
 #   BENCH_SECONDS=30                     SHADERPACK=/path/to/pack.zip
+#   GPU_LOCK=/path/gpu-lock.sh           (each gradle run is wrapped: "$GPU_LOCK --exclusive ./gradlew ...")
+#   RD=16 (render distance override)     VSYNC=1 (VSync on)    LABEL=baseline (tag for log names/title)
 #   OUT=docs/benchmarks/shootout-DATE.md SMOKE=1 (marks the output as a smoke run, not a measurement)
 set -u
 cd "$(dirname "$0")/.."
@@ -19,7 +21,8 @@ SMOKE="${SMOKE:-0}"
 DATE="$(date +%Y-%m-%d)"
 OUT="${OUT:-docs/benchmarks/shootout-$DATE.md}"
 REPORT="build/run/clientGameTest/metallium-gametest-report.txt"
-LOGDIR="build/shootout-logs"
+LABEL="${LABEL:-}"
+LOGDIR="build/shootout-logs${LABEL:+/$LABEL}"
 mkdir -p "$LOGDIR" "$(dirname "$OUT")"
 
 ROWS="$(mktemp)"
@@ -42,13 +45,15 @@ for scene in $SCENES; do
     fi
 
     echo "=== $engine / $scene ($(date +%H:%M:%S)) ==="
-    until ! pgrep -f "[d]evlaunchinjector.Main" >/dev/null; do sleep 5; done
+    [ -n "${GPU_LOCK:-}" ] || until ! pgrep -f "[d]evlaunchinjector.Main" >/dev/null; do sleep 5; done
     rm -f "$REPORT"
     args=(--no-daemon :runClientGameTest -PwithSodium -Pbench "-Pengine=$engine" "-PbenchScene=$scene" "-PbenchSeconds=$BENCH_SECONDS")
+    [ -n "${RD:-}" ] && args+=("-PbenchRd=$RD")
+    [ "${VSYNC:-0}" = 1 ] && args+=(-PbenchVsync)
     if [ "$scene" = shaders ]; then
       args+=(-PwithIris "-Pshaderpack=$SHADERPACK")
     fi
-    ./gradlew "${args[@]}" > "$LOGDIR/$engine-$scene.log" 2>&1
+    ${GPU_LOCK:+$GPU_LOCK --exclusive} ./gradlew "${args[@]}" > "$LOGDIR/$engine-$scene.log" 2>&1
     status=$?
 
     if [ ! -f "$REPORT" ]; then
@@ -65,7 +70,8 @@ for scene in $SCENES; do
     fi
     frames="$(field frames "$result")"
     heap="$(field heap_mb "$result")"
-    note="backend: $backend; $frames frames; heap ${heap} MB"
+    pres="$(grep '^bench-present:' "$REPORT" | sed 's/ (Metal.*//; s/^bench-present: //')"
+    note="backend: $backend; $frames frames; heap ${heap} MB; $pres"
     [ "$status" -ne 0 ] && note="$note; gradle exit $status"
     printf '| %s | %s | %s | %s | %s / %s / %s | %s | %s |\n' "$engine" "$scene" \
       "$(field avg_fps "$result")" "$(field low1_fps "$result")" \
