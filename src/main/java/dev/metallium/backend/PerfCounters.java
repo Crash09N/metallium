@@ -22,6 +22,8 @@ final class PerfCounters {
     /** writeToBuffer, copyToBuffer, writeToTexture, copyBufferToTexture, copyTextureToBuffer, copyTextureToTexture. */
     static final long[] blitKinds = new long[6];
     static long clearEncoders;
+    /** Copies that reused an already open blit encoder. */
+    static long coalescedBlits;
     static long draws;
     static long stagedWrites;
     static long stagedWriteBytes;
@@ -67,13 +69,13 @@ final class PerfCounters {
         }
         double n = submits;
         Metallium.LOGGER.info(String.format(
-                "Metallium perf (per submit, %d submits): renderEnc=%.1f blitEnc=%.1f blits[wb,cb,wt,bt,tb,tt]=%s clearEnc=%.1f draws=%.0f"
+                "Metallium perf (per submit, %d submits): renderEnc=%.1f blitEnc=%.1f (coalesced %.1f) blits[wb,cb,wt,bt,tb,tt]=%s clearEnc=%.1f draws=%.0f"
                         + " stagedWrites=%.1f (%.1f KiB) directWrites=%.1f orphanWrites=%.1f (copy %.1f KiB) submitWait=%.3f ms gpu=%.3f ms",
-                submits, renderEncoders / n, blitEncoders / n, kinds(n), clearEncoders / n, draws / n,
+                submits, renderEncoders / n, blitEncoders / n, coalescedBlits / n, kinds(n), clearEncoders / n, draws / n,
                 stagedWrites / n, stagedWriteBytes / n / 1024.0, directWrites / n, orphanWrites / n, orphanCopyBytes / n / 1024.0,
                 submitWaitNs / n / 1e6, gpuNs / n / 1e6));
         java.util.Arrays.fill(blitKinds, 0);
-        renderEncoders = blitEncoders = clearEncoders = draws = 0;
+        renderEncoders = blitEncoders = clearEncoders = coalescedBlits = draws = 0;
         stagedWrites = stagedWriteBytes = directWrites = orphanWrites = orphanCopyBytes = submitWaitNs = gpuNs = 0;
         submits = 0;
     }
