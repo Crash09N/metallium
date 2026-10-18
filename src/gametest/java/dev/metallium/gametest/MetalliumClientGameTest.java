@@ -20,6 +20,8 @@ import java.util.List;
  */
 public final class MetalliumClientGameTest implements FabricClientGameTest {
     private static final String BENCH_SEED = "metallium";
+    /** x y z yaw pitch, overridable with -Dmetallium.bench.camera="...". */
+    private static final String BENCH_CAMERA = System.getProperty("metallium.bench.camera", "0 140 0 30 25");
     private static final int BENCH_SECONDS = Integer.getInteger("metallium.bench.seconds", 30);
 
     /**
@@ -32,12 +34,21 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
             client.options.enableVsync().set(false);
             client.options.framerateLimit().set(260); // 260 = unlimited
             client.options.chunkSectionFadeInTime().set(0.0);
+            // Vanilla drops to 30 fps when there is no input for a while ("AFK"); a benchmark has no input.
+            client.options.inactivityFpsLimit().set(net.minecraft.client.InactivityFpsLimit.MINIMIZED);
         });
         try (TestSingleplayerContext world = context.worldBuilder()
                 .setUseConsistentSettings(false)
                 .adjustSettings(state -> state.setSeed(BENCH_SEED))
                 .create()) {
             world.getConnection().waitForChunksRender();
+            // Identical camera for every run: spectator at a fixed position and angle.
+            tryCommand(world, "gamerule spawn_monsters false");
+            tryCommand(world, "gamemode spectator @a");
+            tryCommand(world, "tp @a " + BENCH_CAMERA);
+            tryCommand(world, "time set 6000");
+            tryCommand(world, "gamerule advance_time false");
+            tryCommand(world, "weather clear");
             // Raise the render distance only after the initial load (waitForChunksRender at RD 16 times out).
             context.runOnClient(client -> client.options.renderDistance().set(16));
             context.waitTicks(900); // ~45 s: let chunk loading and section building finish at RD 16
@@ -60,6 +71,14 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
             line(String.format("bench: frame ms p50=%.2f p95=%.2f p99=%.2f max=%.2f (sampled per tick)",
                     pct(frameMs, 0.50), pct(frameMs, 0.95), pct(frameMs, 0.99), frameMs.get(frameMs.size() - 1)));
             line("result: PASS");
+        }
+    }
+
+    private void tryCommand(TestSingleplayerContext world, String command) {
+        try {
+            world.getServer().runCommand(command);
+        } catch (Throwable t) {
+            line("command failed (ignored): /" + command + " -> " + t.getMessage());
         }
     }
 
@@ -112,7 +131,8 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
                 context.runOnClient(client -> client.options.chunkSectionFadeInTime().set(0.75));
             }
 
-            try (TestSingleplayerContext world = context.worldBuilder().setUseConsistentSettings(false).create()) {
+            try (TestSingleplayerContext world = context.worldBuilder().setUseConsistentSettings(false)
+                    .adjustSettings(state -> state.setSeed(System.getProperty("metallium.gametest.seed", "metallium-forest"))).create()) {
                 world.getConnection().waitForChunksRender();
                 context.waitTicks(SETTLE_TICKS);
                 checkTerrainVisible(context.takeScreenshot("metallium-natural-world"), "natural world");
