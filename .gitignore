@@ -8,3 +8,4 @@ out/
 logs/
 minecraft/
 run-instance/
+.DS_Store
