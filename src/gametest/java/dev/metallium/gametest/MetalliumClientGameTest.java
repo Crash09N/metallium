@@ -23,6 +23,7 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
     private static final int BENCH_SECONDS = Integer.getInteger("metallium.bench.seconds", 30);
 
     private static final String BENCH_SCENE = System.getProperty("metallium.bench.scene", "light");
+    private static final boolean BENCH_VSYNC = Boolean.getBoolean("metallium.bench.vsync");
 
     // Per-frame timing: a HUD element is extracted exactly once per rendered frame, so the gap between two calls is the
     // frame time (frame start to next frame start; includes any wait for the GPU/present). This counts RENDERED
@@ -58,6 +59,15 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
         recording = true;
     }
 
+    /** Metal surface present counters: submitted, presented (shown), dropped, skipped (cumulative). */
+    private static long[] presentCounters() {
+        return new long[]{
+                dev.metallium.backend.PresentStats.submitted(),
+                dev.metallium.backend.PresentStats.presented(),
+                dev.metallium.backend.PresentStats.dropped(),
+                dev.metallium.backend.PresentStats.skipped()};
+    }
+
     private static List<Double> stopRecording() {
         recording = false;
         synchronized (FRAME_LOCK) {
@@ -90,7 +100,7 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
             return;
         }
         context.runOnClient(client -> {
-            client.options.enableVsync().set(false);
+            client.options.enableVsync().set(BENCH_VSYNC);
             client.options.framerateLimit().set(260); // 260 = unlimited
             client.options.chunkSectionFadeInTime().set(0.0);
             // Vanilla drops to 30 fps when there is no input for a while ("AFK"); a benchmark has no input.
@@ -149,6 +159,8 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
             double x = 0;
             double blocksPerTick = Double.parseDouble(System.getProperty("metallium.bench.flightSpeed", "60")) / 20.0;
             long startNs = System.nanoTime();
+            long[] present0 = presentCounters();
+            java.util.Set<String> windowStates = new java.util.TreeSet<>(); // sampled once per second
             startRecording();
             for (int second = 0; second < BENCH_SECONDS; second++) {
                 for (int tick = 0; tick < 20; tick++) {
@@ -159,9 +171,12 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
                     context.waitTick();
                 }
                 fpsSamples.add(context.computeOnClient(Minecraft::getFps));
+                windowStates.add(context.computeOnClient(c -> dev.metallium.backend.PresentStats.windowState()));
             }
             List<Double> frameMs = stopRecording();
+            long[] present1 = presentCounters();
             double seconds = (System.nanoTime() - startNs) / 1e9;
+            float refreshHz = context.computeOnClient(c -> dev.metallium.backend.PresentStats.displayRefreshHz());
             if (frameMs.isEmpty()) {
                 throw new AssertionError("no frames recorded");
             }
@@ -174,7 +189,11 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
             long heapMb = (Runtime.getRuntime().totalMemory() - Runtime.getRuntime().freeMemory()) >> 20;
             line(String.format("bench: Minecraft fps counter: avg=%.1f min=%d median=%d",
                     fpsSamples.stream().mapToInt(Integer::intValue).average().orElse(0), fpsSamples.get(0), fpsSamples.get(fpsSamples.size() / 2)));
-            line(String.format("bench: rendered frames counted=%d in %.1f s (per rendered frame via HUD hook; presented/displayed frames are not counted)", frameMs.size(), seconds));
+            line(String.format("bench: rendered frames counted=%d in %.1f s (per rendered frame via HUD hook)", frameMs.size(), seconds));
+            line(String.format(java.util.Locale.ROOT,
+                    "bench-present: vsync=%s display_refresh_hz=%.1f rendered_fps=%.1f submitted_fps=%.1f presented_fps=%.1f dropped=%d skipped=%d window=%s (Metal surface counters; 0 on OpenGL)",
+                    BENCH_VSYNC, refreshHz, frameMs.size() / seconds, (present1[0] - present0[0]) / seconds, (present1[1] - present0[1]) / seconds,
+                    present1[2] - present0[2], present1[3] - present0[3], String.join("|", windowStates)));
             line(String.format("bench-result: scene=%s avg_fps=%.1f low1_fps=%.1f p50_ms=%.2f p95_ms=%.2f p99_ms=%.2f max_ms=%.2f frames=%d heap_mb=%d",
                     BENCH_SCENE, avgFps, low1, pct(frameMs, 0.50), pct(frameMs, 0.95), pct(frameMs, 0.99), frameMs.get(frameMs.size() - 1), frameMs.size(), heapMb));
             line("result: PASS");

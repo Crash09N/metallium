@@ -109,6 +109,8 @@ loom.runs.clientGameTest {
 	if (project.hasProperty('benchSeconds')) vmArg "-Dmetallium.bench.seconds=${project.property('benchSeconds')}"
 	if (project.hasProperty('benchScene')) vmArg "-Dmetallium.bench.scene=${project.property('benchScene')}"
 	if (project.hasProperty('perfCounters')) vmArg '-Dmetallium.perfCounters=true'
+	// -PbenchVsync: run the benchmark with VSync on (default off) to compare presented vs rendered frames.
+	if (project.hasProperty('benchVsync')) vmArg '-Dmetallium.bench.vsync=true'
 }
 
 // ./gradlew runClientGameTest -PwithSodium  → runs the game tests with Sodium loaded.

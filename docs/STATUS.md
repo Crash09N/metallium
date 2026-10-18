@@ -63,3 +63,24 @@ With VSync off, Metallium uses mailbox semantics: every frame is rendered and su
 the display once the previous one was shown (CAMetalLayer returns drawables at display refresh). FPS counters therefore
 count **rendered** frames, not displayed frames — the same as Vulkan MAILBOX, and comparable to macOS OpenGL with
 swap interval 0 (the compositor also shows at most one frame per refresh). Benchmark comparisons must say this.
+
+**Open bug (owner, M3 Max, external 144 Hz fullscreen, Complementary via Iris):** VSync off renders ~200 fps but the
+Metal Performance HUD shows only ~70 displayed fps; VSync on shows 144 correctly. Investigation 2026-10-18 (not fixed):
+- The bench report now has a `bench-present:` line: display refresh (SDL), rendered fps, submitted presents/s,
+  presented/s (drawable presented handler with `presentedTime > 0`), dropped presents (`presentedTime == 0`),
+  skipped frames and the window state (visible/occluded/focused, sampled every second). `-PbenchVsync` runs the
+  bench with VSync on. Counters live in `dev.metallium.backend.PresentStats`.
+- Allowing more than one present in flight (instead of waiting for the presented handler) makes things worse. Light
+  bench, exclusive GPU, window visible, 60 Hz E2211: 1 in flight → 3918 rendered / 179 shown per s; 2 → 3427 / 83
+  (53 dropped/s); 3 → 963 / 74; 100 → 381 / 63. The layer drops superseded presents and rendering stalls. Kept at 1.
+- With the unchanged 1-in-flight logic, presented/s varies from 21 to 179 between runs on the same machine (window
+  visible but unfocused; WindowServer load from a video call during testing). `presentedTime > 0` at 179/s on a 60 Hz
+  display means it marks hand-off to the compositor, not scan-out, so this counter is not the HUD's "displayed fps".
+- VSync on is unchanged: 60.1 rendered / 60.0 presented on the 60 Hz test display.
+- Likely mechanism for the owner's ~70 (not yet measured with a pack): a new present is only possible at the end of the
+  first rendered frame after the previous present's handler; with ~5 ms GPU frames that is ~3 rendered frames per
+  present (~67/s). Next step: measure on the owner's setup with the Metal HUD (`MTL_HUD_ENABLED=1`) and the `shaders`
+  bench scene, then try deciding the present when the previous present's command buffer completes (not its presented
+  handler), or a separate small present command buffer so the decision doesn't wait for frame end.
+- Do not release a presented drawable from Java before its presented handler has run: Quartz then calls the handler
+  synchronously inside the (critical) `release` downcall and the JVM aborts ("wrong thread state for upcall").
