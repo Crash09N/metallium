@@ -87,6 +87,116 @@ public final class GlslProgramTranslator {
         return translate(programName, sources, DEFAULT_MSL_VERSION);
     }
 
+    /** Scalar kind of a default-uniform-block member. {@code BOOL} members are stored as 32-bit integers. */
+    public enum ScalarType { FLOAT, INT, UINT, BOOL, OTHER }
+
+    /**
+     * A default-uniform-block member with the std140 layout details a host needs to write values from the CPU.
+     * {@code columns} is 1 for scalars/vectors; {@code arraySize} is 0 for non-arrays.
+     */
+    public record BlockMember(String name, int offset, int size, ScalarType scalar, int vectorSize, int columns,
+                              int arraySize, int arrayStride, int matrixStride) {
+    }
+
+    /**
+     * One stage compiled to SPIR-V (Vulkan rules relaxed) for a backend that consumes SPIR-V itself, e.g. a renderpearl
+     * {@code BackendRenderPipeline.CreateInfo}. {@code spirv} is allocated with {@link MemoryUtil#memAlloc} and owned by
+     * the caller. {@code defaultBlockName} is the reflected resource name of the folded loose-uniform block, if any.
+     */
+    public record SpirvStage(Stage stage, ByteBuffer spirv, @Nullable String defaultBlockName, int defaultBlockSize,
+                             List<BlockMember> defaultBlock) {
+    }
+
+    /**
+     * Compiles all stages to SPIR-V (varyings located by name, as in {@link #translate}) and reflects the default
+     * uniform block layout of each stage. On failure no buffers are leaked.
+     */
+    public static Map<Stage, SpirvStage> compileToSpirv(final String programName, final Map<Stage, String> sources) throws TranslationException {
+        Map<Stage, String> located = assignVaryingLocations(sources);
+        Map<Stage, SpirvStage> results = new EnumMap<>(Stage.class);
+        try {
+            for (Map.Entry<Stage, String> entry : located.entrySet()) {
+                ByteBuffer spirv = compileToSpirv(programName, entry.getKey(), entry.getValue());
+                try {
+                    results.put(entry.getKey(), reflectDefaultBlock(entry.getKey(), spirv));
+                } catch (TranslationException | RuntimeException e) {
+                    MemoryUtil.memFree(spirv);
+                    throw e;
+                }
+            }
+        } catch (TranslationException | RuntimeException e) {
+            results.values().forEach(stage -> MemoryUtil.memFree(stage.spirv()));
+            throw e;
+        }
+        return results;
+    }
+
+    private static SpirvStage reflectDefaultBlock(final Stage stage, final ByteBuffer spirv) throws TranslationException {
+        try (MemoryStack stack = MemoryStack.stackPush()) {
+            IntBuffer words = spirv.asIntBuffer();
+            PointerBuffer p = stack.mallocPointer(1);
+            check(Spvc.spvc_context_create(p), "context_create");
+            long context = p.get(0);
+            try {
+                check(Spvc.spvc_context_parse_spirv(context, words, words.remaining(), p), "parse_spirv");
+                long ir = p.get(0);
+                check(Spvc.spvc_context_create_compiler(context, Spvc.SPVC_BACKEND_NONE, ir, Spvc.SPVC_CAPTURE_MODE_TAKE_OWNERSHIP, p), "create_compiler");
+                long compiler = p.get(0);
+                check(Spvc.spvc_compiler_create_shader_resources(compiler, p), "create_shader_resources");
+                long shaderResources = p.get(0);
+                for (SpvcReflectedResource ubo : list(stack, shaderResources, Spvc.SPVC_RESOURCE_TYPE_UNIFORM_BUFFER)) {
+                    String blockName = ubo.nameString();
+                    if (!blockName.endsWith("gl_DefaultUniformBlock") && !Spvc.spvc_compiler_get_name(compiler, ubo.base_type_id()).endsWith("gl_DefaultUniformBlock")) {
+                        continue;
+                    }
+                    long type = Spvc.spvc_compiler_get_type_handle(compiler, ubo.base_type_id());
+                    PointerBuffer size = stack.mallocPointer(1);
+                    check(Spvc.spvc_compiler_get_declared_struct_size(compiler, type, size), "get_declared_struct_size");
+                    List<BlockMember> members = new ArrayList<>();
+                    IntBuffer value = stack.mallocInt(1);
+                    PointerBuffer memberSize = stack.mallocPointer(1);
+                    int memberCount = Spvc.spvc_type_get_num_member_types(type);
+                    for (int i = 0; i < memberCount; i++) {
+                        long memberType = Spvc.spvc_compiler_get_type_handle(compiler, Spvc.spvc_type_get_member_type(type, i));
+                        check(Spvc.spvc_compiler_type_struct_member_offset(compiler, type, i, value), "struct_member_offset");
+                        int offset = value.get(0);
+                        check(Spvc.spvc_compiler_get_declared_struct_member_size(compiler, type, i, memberSize), "declared_struct_member_size");
+                        int arraySize = 0;
+                        int arrayStride = 0;
+                        if (Spvc.spvc_type_get_num_array_dimensions(memberType) > 0) {
+                            arraySize = Spvc.spvc_type_get_array_dimension(memberType, 0);
+                            check(Spvc.spvc_compiler_type_struct_member_array_stride(compiler, type, i, value), "struct_member_array_stride");
+                            arrayStride = value.get(0);
+                        }
+                        int columns = Spvc.spvc_type_get_columns(memberType);
+                        int matrixStride = 0;
+                        if (columns > 1) {
+                            check(Spvc.spvc_compiler_type_struct_member_matrix_stride(compiler, type, i, value), "struct_member_matrix_stride");
+                            matrixStride = value.get(0);
+                        }
+                        members.add(new BlockMember(Spvc.spvc_compiler_get_member_name(compiler, ubo.base_type_id(), i), offset, (int) memberSize.get(0),
+                                scalarType(Spvc.spvc_type_get_basetype(memberType)), Spvc.spvc_type_get_vector_size(memberType), columns,
+                                arraySize, arrayStride, matrixStride));
+                    }
+                    return new SpirvStage(stage, spirv, blockName, (int) size.get(0), List.copyOf(members));
+                }
+                return new SpirvStage(stage, spirv, null, 0, List.of());
+            } finally {
+                Spvc.spvc_context_destroy(context);
+            }
+        }
+    }
+
+    private static ScalarType scalarType(final int baseType) {
+        return switch (baseType) {
+            case Spvc.SPVC_BASETYPE_FP32 -> ScalarType.FLOAT;
+            case Spvc.SPVC_BASETYPE_INT32 -> ScalarType.INT;
+            case Spvc.SPVC_BASETYPE_UINT32 -> ScalarType.UINT;
+            case Spvc.SPVC_BASETYPE_BOOLEAN -> ScalarType.BOOL;
+            default -> ScalarType.OTHER;
+        };
+    }
+
     public static Program translate(final String programName, final Map<Stage, String> sources, final int mslVersion) throws TranslationException {
         Map<Stage, String> located = assignVaryingLocations(sources);
         Map<Stage, StageResult> results = new EnumMap<>(Stage.class);

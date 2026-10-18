@@ -106,6 +106,33 @@ class GlslProgramTranslatorTest {
     }
 
     @Test
+    void spirvWithDefaultBlockLayout() throws Exception {
+        Map<Stage, GlslProgramTranslator.SpirvStage> stages = GlslProgramTranslator.compileToSpirv("composite", sources(COMPOSITE_VS, COMPOSITE_FS));
+        try {
+            GlslProgramTranslator.SpirvStage vs = stages.get(Stage.VERTEX);
+            GlslProgramTranslator.SpirvStage fs = stages.get(Stage.FRAGMENT);
+            assertNotNull(vs.defaultBlockName());
+            assertEquals(0x07230203, vs.spirv().getInt(0), "SPIR-V magic");
+            GlslProgramTranslator.BlockMember proj = member(vs, "iris_ProjMat");
+            assertEquals(GlslProgramTranslator.ScalarType.FLOAT, proj.scalar());
+            assertEquals(4, proj.columns());
+            assertEquals(16, proj.matrixStride());
+            GlslProgramTranslator.BlockMember sun = member(fs, "sunPosition");
+            assertEquals(3, sun.vectorSize());
+            assertEquals(1, sun.columns());
+            assertEquals(GlslProgramTranslator.ScalarType.INT, member(fs, "worldTime").scalar());
+            assertTrue(fs.defaultBlockSize() >= sun.offset() + 12);
+        } finally {
+            stages.values().forEach(stage -> org.lwjgl.system.MemoryUtil.memFree(stage.spirv()));
+        }
+    }
+
+    private static GlslProgramTranslator.BlockMember member(GlslProgramTranslator.SpirvStage stage, String name) {
+        return stage.defaultBlock().stream().filter(m -> m.name().equals(name)).findFirst()
+                .orElseThrow(() -> new AssertionError(name + " not in " + stage.defaultBlock()));
+    }
+
+    @Test
     void varyingsMatchByNameAcrossStages() throws Exception {
         Map<Stage, String> located = GlslProgramTranslator.assignVaryingLocations(sources(GBUFFERS_VS, GBUFFERS_FS));
         for (String name : new String[]{"glcolor", "lmcoord", "texcoord"}) {
