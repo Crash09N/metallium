@@ -103,6 +103,7 @@ loom.runs.clientGameTest {
 	if (project.hasProperty('bench')) vmArg '-Dmetallium.gametest.mode=bench'
 	if (project.hasProperty('backendOff')) vmArg '-Dmetallium.backend=off'
 	if (project.hasProperty('benchSeconds')) vmArg "-Dmetallium.bench.seconds=${project.property('benchSeconds')}"
+	if (project.hasProperty('perfCounters')) vmArg '-Dmetallium.perfCounters=true'
 }
 
 // ./gradlew runClientGameTest -PwithSodium  → runs the game tests with Sodium loaded.

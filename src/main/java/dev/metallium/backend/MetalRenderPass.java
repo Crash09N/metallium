@@ -497,6 +497,7 @@ final class MetalRenderPass implements RenderPassBackend {
     }
 
     private void bindDrawState(final MTLRenderCommandEncoder enc) {
+        if (PerfCounters.ENABLED) PerfCounters.draws++;
         if (compiledPipeline == null) {
             throw new IllegalStateException("Pipeline is missing");
         }

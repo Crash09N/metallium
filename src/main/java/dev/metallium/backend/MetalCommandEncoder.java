@@ -95,6 +95,7 @@ final class MetalCommandEncoder implements CommandEncoderBackend {
         }
         encoder.waitForFence(fence);
         currentEncoder = encoder;
+        if (PerfCounters.ENABLED) PerfCounters.blitEncoders++;
         return encoder;
     }
 
@@ -139,8 +140,13 @@ final class MetalCommandEncoder implements CommandEncoderBackend {
         }
         currentSubmitIndex++;
 
+        long waitStart = PerfCounters.ENABLED ? System.nanoTime() : 0L;
         if (!awaitSubmitCompletion(currentSubmitIndex - MAX_SUBMITS_IN_FLIGHT, 5000L)) {
             throw new IllegalStateException("5s timeout reached when waiting for Metal submit completion");
+        }
+        if (PerfCounters.ENABLED) {
+            PerfCounters.submitWaitNs += System.nanoTime() - waitStart;
+            PerfCounters.submitted();
         }
 
         if (toClose != null) {
@@ -265,6 +271,7 @@ final class MetalCommandEncoder implements CommandEncoderBackend {
                 }
             }
             encoder = MetalUtilities.nonNil(commandBuffer().renderCommandEncoder(renderPass), "renderCommandEncoderWithDescriptor:");
+            if (PerfCounters.ENABLED) PerfCounters.renderEncoders++;
             encoder.retain();
             renderPass.release();
         }
@@ -413,6 +420,10 @@ final class MetalCommandEncoder implements CommandEncoderBackend {
             return;
         }
 
+        if (PerfCounters.ENABLED) {
+            PerfCounters.stagedWrites++;
+            PerfCounters.stagedWriteBytes += length;
+        }
         GpuBufferSlice staging = transientMemory.uploadStaging(data, 4L, GpuBuffer.USAGE_COPY_SRC);
         MetalGpuBuffer stagingBuffer = (MetalGpuBuffer) staging.buffer();
 
@@ -433,7 +444,9 @@ final class MetalCommandEncoder implements CommandEncoderBackend {
         MTLBuffer fresh = acquireDynamicBacking(size, buffer.resourceOptions());
         ByteBuffer freshStorage = ObjC.byteBufferView(fresh.contents(), size).order(ByteOrder.nativeOrder());
 
+        if (PerfCounters.ENABLED) PerfCounters.orphanWrites++;
         if (offset != 0 || data.remaining() != buffer.size()) {
+            if (PerfCounters.ENABLED) PerfCounters.orphanCopyBytes += size;
             ByteBuffer previous = buffer.currentStorage();
             previous.clear();
             freshStorage.duplicate().put(previous);
@@ -712,6 +725,7 @@ final class MetalCommandEncoder implements CommandEncoderBackend {
 
         for (int level = 0; level < texture.getMipLevels(); level++) {
             endEncoder();
+            if (PerfCounters.ENABLED) PerfCounters.clearEncoders++;
             MTLRenderCommandEncoder encoder = renderCommandEncoder(
                     colorClear != null ? new MTLTexture[]{texture.metalTexture()} : new MTLTexture[0],
                     colorClear != null ? new Vector4fc[]{colorClear} : null,
