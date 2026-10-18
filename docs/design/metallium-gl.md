@@ -130,10 +130,15 @@ the dev environment and configurable with `-Dmetallium.gl.failFast=true|false`. 
 implemented functions (e.g. a texture target other than `GL_TEXTURE_2D`) are logged the same way and raise the GL
 error GL would. The F3 screen shows a `metallium-gl:` status line.
 
-**Opt-in list.** A mod opts in with `"custom": {"metallium-gl": true}` or `{"metallium-gl": {"packages": [...]}}` in its
-`fabric.mod.json`; users can add mods with `-Dmetallium.gl.mods=a,b` or `mods=a,b` in `config/metallium-gl.properties`.
-The class names are collected from the mod's root paths at start-up. Never retargeted: Minecraft, Fabric Loader,
-Metallium's modules, Sodium, Iris.
+**Which mods (since 2026-10-18: automatic).** The core's start-up scan (`dev.metallium.compat.ModScan`, ASM, cached
+in `config/metallium/scan-cache.json`) finds every class that calls `org.lwjgl.opengl.*`; when Metal is used, the
+`GlRouting` policy routes exactly those classes through metallium-gl without any opt-in. Opt-outs: the user's per-mod
+override *Native* (status screen) or the author's `"custom": {"metallium-gl": false}`; switch *Translate raw OpenGL
+mods* off in the Metallium tab. Explicit opt-ins still work and also apply on OpenGL: `"metallium-gl": true` or
+`{"packages": [...]}` in `fabric.mod.json`, `-Dmetallium.gl.mods=a,b`, `mods=a,b` in `config/metallium-gl.properties`,
+override *metallium-gl*. Never scanned or retargeted: `ModScan.EXCLUDED` (Minecraft, loader, Fabric API, Metallium's
+modules, Sodium, Iris, Distant Horizons, Voxy). A crash in a routed mod or in metallium-gl is caught on the next start
+by `CrashGuard` (OpenGL for that session + recovery screen; see `docs/MOD-AUTHORS.md`).
 
 **Capabilities.** `GL.getCapabilities()` returns a `GLCapabilities` allocated without LWJGL's constructor that claims
 OpenGL 1.1-4.6 core, only the extensions in `MetalGLStrings.EXTENSIONS` (those actually implemented), and a non-zero
