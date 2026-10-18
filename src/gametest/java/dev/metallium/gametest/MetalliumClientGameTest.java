@@ -331,6 +331,11 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
 
     @Override
     public void runTest(ClientGameTestContext context) {
+        // Test instances run silently (owner request): master volume 0 and music off.
+        context.runOnClient(client -> {
+            client.options.getSoundSourceOptionInstance(net.minecraft.sounds.SoundSource.MASTER).set(0.0);
+            client.options.getSoundSourceOptionInstance(net.minecraft.sounds.SoundSource.MUSIC).set(0.0);
+        });
         String backend = context.computeOnClient(client -> {
             DeviceInfo info = RenderSystem.getDevice().getDeviceInfo();
             return info.backendName() + " | " + info.name() + " | " + info.driverInfo();
@@ -339,7 +344,7 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
         line("sodium loaded: " + net.fabricmc.loader.api.FabricLoader.getInstance().isModLoaded("sodium"));
         line("iris loaded: " + net.fabricmc.loader.api.FabricLoader.getInstance().isModLoaded("iris")
                 + ", adapter: " + net.fabricmc.loader.api.FabricLoader.getInstance().isModLoaded("metallium-iris"));
-        for (String mod : new String[] {"reglass", "cullleaves", "moreculling"}) {
+        for (String mod : new String[] {"distanthorizons", "voxy", "reglass", "cullleaves", "moreculling"}) {
             line(mod + " loaded: " + net.fabricmc.loader.api.FabricLoader.getInstance().isModLoaded(mod));
         }
         context.takeScreenshot("metallium-title");
@@ -354,6 +359,10 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
         }
 
         String expected = System.getProperty("metallium.gametest.expectBackend", "");
+        if (net.fabricmc.loader.api.FabricLoader.getInstance().isModLoaded("distanthorizons")) {
+            distantHorizonsTest(context);
+            return;
+        }
         try {
             try (TestSingleplayerContext world = context.worldBuilder().create()) {
                 world.getConnection().waitForChunksRender();
@@ -385,6 +394,7 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
                 context.waitTicks(SETTLE_TICKS);
                 checkTerrainVisible(context.takeScreenshot("metallium-natural-world"), "natural world");
                 measure(context, "natural world");
+                f3Screenshot(context);
             }
             if (!failures.isEmpty()) {
                 if (backend.contains("Paravirtual")) {
@@ -437,6 +447,112 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
             }
         } catch (IOException e) {
             line(scene + ": could not analyse screenshot: " + e);
+        }
+    }
+
+    /**
+     * Distant Horizons (needs -PwithDH): raises DH's LOD render distance through its public API (reflection, DH is
+     * optional), waits for LODs to generate and screenshots from a high spectator position. Whether far terrain is
+     * visible is judged by looking at the screenshot; DH's renderer choice is in latest.log.
+     */
+    private void distantHorizonsScenario(ClientGameTestContext context, TestSingleplayerContext world) {
+        tryCommand(world, "gamemode spectator @a");
+        tryCommand(world, "tp @a 0 120 0 30 10");
+        tryCommand(world, "time set 6000");
+        tryCommand(world, "gamerule advance_time false");
+        int vanillaRd = context.computeOnClient(client -> client.options.getEffectiveRenderDistance());
+        line("dh: vanilla effective render distance=" + vanillaRd);
+        line("dh: set chunkRenderDistance(256) -> " + context.computeOnClient(client -> dhSetRenderDistance(256)));
+        for (int i = 1; i <= 4; i++) {
+            context.waitTicks(400);
+            line("dh: after " + (i * 20) + " s: " + context.computeOnClient(client -> dhState()));
+        }
+        clearChat(context);
+        checkTerrainVisible(context.takeScreenshot("metallium-dh-far-lods"), "dh far LODs");
+        tryCommand(world, "tp @a 0 200 0 30 20");
+        context.waitTicks(60);
+        context.takeScreenshot("metallium-dh-far-lods-high");
+        line("dh: final state: " + context.computeOnClient(client -> dhState()));
+    }
+
+    /**
+     * DH variant of the test: one natural world only. Closing a world while DH is loaded deadlocks the Fabric
+     * client-game-test threading (client waits in IntegratedServer.halt, server thread waits at the phase barrier), so
+     * the report is written first and the JVM is halted afterwards instead of closing the world.
+     */
+    private void distantHorizonsTest(ClientGameTestContext context) {
+        try {
+            TestSingleplayerContext world = context.worldBuilder().setUseConsistentSettings(false)
+                    .adjustSettings(state -> state.setSeed(System.getProperty("metallium.gametest.seed", "metallium-forest"))).create();
+            world.getConnection().waitForChunksRender();
+            context.waitTicks(SETTLE_TICKS);
+            checkTerrainVisible(context.takeScreenshot("metallium-natural-world"), "natural world");
+            measure(context, "natural world");
+            distantHorizonsScenario(context, world);
+            line(failures.isEmpty() ? "result: PASS" : "result: FAIL " + failures);
+        } catch (Throwable t) {
+            line("result: FAIL " + t);
+            writeReport();
+            Runtime.getRuntime().halt(1);
+        }
+        writeReport();
+        Runtime.getRuntime().halt(failures.isEmpty() ? 0 : 1);
+    }
+
+    /** F3 overlay screenshot; with Sodium also the draw-path label Sodium prints ("Terrain Rendering: ..."). */
+    private void f3Screenshot(ClientGameTestContext context) {
+        if (net.fabricmc.loader.api.FabricLoader.getInstance().isModLoaded("sodium")) {
+            String label = context.computeOnClient(client -> {
+                try {
+                    Class<?> type = Class.forName("net.caffeinemc.mods.sodium.client.gpu.device.backend.DrawBackend");
+                    Object backend = type.getField("BACKEND").get(null);
+                    return (String) type.getMethod("getName").invoke(backend);
+                } catch (ReflectiveOperationException e) {
+                    return "unavailable: " + e;
+                }
+            });
+            line("sodium draw backend label: " + label);
+            if (backendIsMetal(context) && !label.startsWith("metal_multidraw")) {
+                failures.add("Sodium draw backend label not Metal: " + label);
+            }
+        }
+        context.runOnClient(client -> client.debugEntries.setOverlayVisible(true));
+        context.waitTicks(20);
+        context.takeScreenshot("metallium-f3");
+        context.runOnClient(client -> client.debugEntries.setOverlayVisible(false));
+    }
+
+    private static boolean backendIsMetal(ClientGameTestContext context) {
+        return context.computeOnClient(client -> RenderSystem.getDevice().getDeviceInfo().backendName().equals("Metal"));
+    }
+
+    private static String dhSetRenderDistance(int chunks) {
+        try {
+            Object configs = Class.forName("com.seibel.distanthorizons.api.DhApi$Delayed").getField("configs").get(null);
+            if (configs == null) {
+                return "DhApi.Delayed.configs is null (DH not initialised)";
+            }
+            Object graphics = configs.getClass().getMethod("graphics").invoke(configs);
+            Object value = graphics.getClass().getMethod("chunkRenderDistance").invoke(graphics);
+            java.lang.reflect.Method set = null;
+            for (var m : value.getClass().getMethods()) {
+                if (m.getName().equals("setValue") && m.getParameterCount() == 1) {
+                    set = m;
+                }
+            }
+            Object ok = set.invoke(value, chunks);
+            return "setValue=" + ok + ", now " + value.getClass().getMethod("getValue").invoke(value);
+        } catch (ReflectiveOperationException e) {
+            return "error: " + (e.getCause() != null ? e.getCause() : e);
+        }
+    }
+
+    private static String dhState() {
+        try {
+            Object proxy = Class.forName("com.seibel.distanthorizons.api.DhApi$Delayed").getField("renderProxy").get(null);
+            return proxy == null ? "renderProxy null" : proxy.getClass().getName();
+        } catch (ReflectiveOperationException e) {
+            return "error: " + e;
         }
     }
 

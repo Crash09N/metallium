@@ -1,0 +1,14 @@
+{
+  "required": false,
+  "package": "dev.metallium.compat.voxy.mixin",
+  "compatibilityLevel": "JAVA_25",
+  "mixins": [
+  ],
+  "client": [
+    "ClientPacketListenerMixin",
+    "VoxyClientMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

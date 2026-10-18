@@ -18,7 +18,9 @@
   },
   "mixins": [
     "metallium.mixins.json",
-    "metallium.distanthorizons.mixins.json"
+    "metallium.distanthorizons.mixins.json",
+    "metallium.sodium.mixins.json",
+    "metallium.voxy.mixins.json"
   ],
   "depends": {
     "fabricloader": ">=0.19.5",
