@@ -238,8 +238,19 @@ final class MetalSurface implements GpuSurfaceBackend {
     @Override
     public void close() {
         this.prefetcher.stop();
+        // Presented handlers are FFM upcalls on a Quartz thread: one arriving after the JVM began shutting down aborts
+        // it ("Could not attach thread for upcall"). Let every submitted present report back before the view goes away.
+        awaitPresentsReported(500L);
         PresentStats.windowHandle = 0L;
         SDLMetal.SDL_Metal_DestroyView(this.metalView);
+        awaitPresentsReported(100L);
+    }
+
+    private void awaitPresentsReported(final long timeoutMs) {
+        long deadline = System.nanoTime() + timeoutMs * 1_000_000L;
+        while (this.presentsInFlight.get() > 0 && System.nanoTime() < deadline) {
+            LockSupport.parkNanos(1_000_000L);
+        }
     }
 
     @Override
@@ -290,6 +301,13 @@ final class MetalSurface implements GpuSurfaceBackend {
         void stop() {
             this.running = false;
             this.requests.release();
+            if (this.thread != null) {
+                try {
+                    this.thread.join(200L); // it may sit in nextDrawable() until the display hands one back
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }
             CAMetalDrawable drawable = this.ready.getAndSet(null);
             if (drawable != null) {
                 drawable.release();
