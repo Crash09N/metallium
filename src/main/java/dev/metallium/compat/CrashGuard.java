@@ -27,6 +27,9 @@ import java.util.zip.GZIPInputStream;
  * abnormally: the newest crash report, JVM fatal error log ({@code hs_err_pid*.log}) or rotated game log written since
  * that start is searched for the routed mods' packages, metallium-gl and the Metal backend. On a match this session
  * starts on OpenGL (safe mode) and {@code CrashRecoveryScreen} asks the user what to do before the title screen.
+ * A session that offered Metal and died during start-up (before {@code Minecraft}'s constructor returned) without
+ * writing any crash report or JVM error log also gets safe mode: that is how an LWJGL "no OpenGL context" abort looks
+ * (e.g. a mod calling OpenGL through Minecraft's OpenGL backend classes), and without it every start would crash again.
  * Nothing is ever deleted or disabled without an explicit click.
  */
 public final class CrashGuard {
@@ -34,7 +37,11 @@ public final class CrashGuard {
     /** Evidence files larger than this are only read at their end (stack traces are at the end of logs). */
     private static final int MAX_EVIDENCE_BYTES = 4 << 20;
 
-    public record RoutedMod(String id, String name, List<String> packages, @Nullable String jar) {
+    /** @param backendInternals the mod also uses Minecraft's OpenGL backend classes (which metallium-gl cannot translate) */
+    public record RoutedMod(String id, String name, List<String> packages, @Nullable String jar, boolean backendInternals) {
+        public RoutedMod(final String id, final String name, final List<String> packages, final @Nullable String jar) {
+            this(id, name, packages, jar, false);
+        }
     }
 
     /** Previous session's marker. */
@@ -42,15 +49,23 @@ public final class CrashGuard {
         long start;
         String engine;
         List<RoutedMod> routed = new ArrayList<>();
+        /** Metal was offered to the game this session. */
+        boolean metal;
+        /** Start-up finished ({@code Minecraft}'s constructor returned). */
+        boolean started;
     }
 
     /**
      * Result of the check: suspect mods (routed mods whose packages appear in the evidence), whether metallium-gl or
      * Metallium's Metal backend itself appear, and which file was the evidence.
      */
-    public record Recovery(List<RoutedMod> suspects, boolean metalliumGl, boolean metalBackend, String evidence) {
+    public record Recovery(List<RoutedMod> suspects, boolean metalliumGl, boolean metalBackend, String evidence, boolean startup) {
+        public Recovery(final List<RoutedMod> suspects, final boolean metalliumGl, final boolean metalBackend, final String evidence) {
+            this(suspects, metalliumGl, metalBackend, evidence, false);
+        }
+
         public boolean safeMode() {
-            return !suspects.isEmpty() || metalliumGl || metalBackend;
+            return !suspects.isEmpty() || metalliumGl || metalBackend || startup;
         }
     }
 
@@ -127,6 +142,24 @@ public final class CrashGuard {
         writeMarker();
     }
 
+    /** Whether Metal is offered this session (from {@code BackendSelection}). */
+    public static synchronized void recordMetal(final boolean metal) {
+        init();
+        if (current != null) {
+            current.metal = metal;
+            writeMarker();
+        }
+    }
+
+    /** Start-up finished: from now on only crash evidence can trigger safe mode. */
+    public static synchronized void markStarted() {
+        init();
+        if (current != null && !current.started) {
+            current.started = true;
+            writeMarker();
+        }
+    }
+
     /** Clean shutdown: the marker goes away. */
     public static synchronized void markCleanShutdown() {
         try {
@@ -164,12 +197,18 @@ public final class CrashGuard {
         List<Path> candidates = new ArrayList<>();
         candidates.addAll(newest(gameDir, "hs_err_pid", ".log", previous.start));
         candidates.addAll(newest(gameDir.resolve("crash-reports"), "crash-", ".txt", previous.start));
+        boolean crashWritten = !candidates.isEmpty();
         candidates.addAll(newest(gameDir.resolve("logs"), "", ".log.gz", previous.start));
         for (Path file : candidates) {
             String text = read(file);
             if (text == null) continue;
             Recovery r = match(previous.routed, text, gameDir.relativize(file).toString());
             if (r != null) return r;
+        }
+        if (previous.metal && !previous.started && !crashWritten) {
+            // Likely causes: routed mods that also drive Minecraft's own OpenGL backend (not translatable).
+            List<RoutedMod> suspects = previous.routed.stream().filter(RoutedMod::backendInternals).toList();
+            return new Recovery(suspects, false, false, "no crash report; start-up on Metal ended abruptly", true);
         }
         return null;
     }

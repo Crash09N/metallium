@@ -252,6 +252,52 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
         context.waitTicks(100); // the pack switches Sodium to Iris's extended vertex format: chunks are rebuilt
         clearChat(context);
         checkGbufferMarker(context.takeScreenshot("metallium-iris-gbufferpack"));
+        // Pack loaded while the crosshair is on a block (creative, looking down): Iris's currentSelectedBlockId uniform reads
+        // the block ID map on the pipeline's first frame (real-instance finding: gbuffers setup failed with an NPE).
+        tryCommand(world, "gamemode creative @a");
+        tryCommand(world, "execute as @p at @s run tp @s ~ ~ ~ ~ 50");
+        context.waitTicks(5);
+        line("iris gbuffers test pack, block selected: pipeline=" + context.computeOnClient(client -> {
+            // As on the first pack of a session: no block ID map yet (the earlier packs of this test have set it).
+            try {
+                Class<?> settings = Class.forName("net.irisshaders.iris.shaderpack.materialmap.WorldRenderingSettings");
+                settings.getMethod("setBlockStateIds", it.unimi.dsi.fastutil.objects.Object2IntMap.class)
+                        .invoke(settings.getField("INSTANCE").get(null), (Object) null);
+            } catch (ReflectiveOperationException e) {
+                line("could not reset Iris block IDs: " + e);
+            }
+            return irisSelectPack(GBUFFER_PACK, true);
+        }));
+        context.waitTicks(60);
+        clearChat(context);
+        try {
+            double ground = magentaFraction(javax.imageio.ImageIO.read(
+                    context.takeScreenshot("metallium-iris-gbufferpack-block-selected").toFile()), 0.40, 0.85);
+            line(String.format("iris gbuffers test pack, block selected: magenta ground fraction=%.2f", ground));
+            if (ground < 0.80) {
+                failures.add(String.format("gbuffers pack with a selected block: marker not visible (%.2f)", ground));
+            }
+        } catch (IOException e) {
+            failures.add("could not analyse block-selected screenshot: " + e);
+        }
+        tryCommand(world, "execute as @p at @s run tp @s ~ ~ ~ ~ 0");
+        tryCommand(world, "gamemode spectator @a");
+
+        // Vanilla fallback after a gbuffers failure (simulated): the chunks must be rebuilt in the vanilla vertex format,
+        // so the scene must look like the shaders-off screenshot (real-instance finding: exploded terrain).
+        System.setProperty("metallium.iris.test.failGbuffers", "true");
+        try {
+            line("iris gbuffers test pack, simulated failure: pipeline=" + context.computeOnClient(client -> irisSelectPack(GBUFFER_PACK, true)));
+            context.waitTicks(100);
+        } finally {
+            System.clearProperty("metallium.iris.test.failGbuffers");
+        }
+        clearChat(context);
+        double fallback = matchFraction(off, context.takeScreenshot("metallium-iris-gbufferpack-failed-fallback"), false);
+        line(String.format("iris gbuffers failure fallback: match with shaders-off screenshot=%.2f", fallback));
+        if (fallback < 0.80) {
+            failures.add(String.format("vanilla fallback after a gbuffers failure differs from vanilla (match %.2f)", fallback));
+        }
 
         shadowPackScenario(context, world);
         computePackScenario(context);
@@ -724,6 +770,14 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
         context.takeScreenshot("metallium-title");
         graphicsApiLabelsTest(context);
 
+        if ("instance".equals(System.getProperty("metallium.gametest.mode"))) {
+            try {
+                new InstanceScenario(this::line, this::writeReport).run(context);
+            } finally {
+                writeReport();
+            }
+            return;
+        }
         if ("bench".equals(System.getProperty("metallium.gametest.mode"))) {
             try {
                 benchmark(context, backend);
@@ -1144,13 +1198,13 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
         try {
             dev.metallium.compat.CrashGuard.Recovery recovery = dev.metallium.compat.CrashGuard.recovery();
             line("crash recovery: suspects=" + recovery.suspects().stream().map(dev.metallium.compat.CrashGuard.RoutedMod::id).toList()
-                    + " metallium-gl=" + recovery.metalliumGl() + " evidence=" + recovery.evidence());
+                    + " metallium-gl=" + recovery.metalliumGl() + " startup=" + recovery.startup() + " evidence=" + recovery.evidence());
             String screen = context.computeOnClient(client -> String.valueOf(client.gui.screen()));
             line("crash recovery: screen=" + screen);
             context.takeScreenshot("metallium-crash-recovery-real");
             if (!backend.startsWith("OpenGL")) failures.add("crash recovery: expected OpenGL safe mode, got " + backend);
             if (!screen.contains("CrashRecoveryScreen")) failures.add("crash recovery: recovery screen not shown");
-            if (recovery.suspects().stream().noneMatch(m -> m.id().equals("metallium-gametest"))) failures.add("crash recovery: suspect missing");
+            if (!recovery.startup() && recovery.suspects().stream().noneMatch(m -> m.id().equals("metallium-gametest"))) failures.add("crash recovery: suspect missing");
             // "Use OpenGL for this session" -> title screen
             context.runOnClient(client -> client.gui.screen().onClose());
             context.waitTicks(10);

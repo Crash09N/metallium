@@ -129,6 +129,8 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
     private final GpuTextureView whiteView;
     private final Set<String> warnedSamplers = new LinkedHashSet<>();
     private boolean failed;
+    /** Set when gbuffers fail: chunk meshes are still in Iris's extended vertex format and must be rebuilt. */
+    private boolean revertWorldSettings;
     private WorldRenderingPhase phase = WorldRenderingPhase.NONE;
 
     /**
@@ -790,6 +792,10 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
 
     @Override
     public void beginLevelRendering() {
+        if (revertWorldSettings) {
+            revertWorldSettings = false;
+            revertToVanillaWorldSettings();
+        }
         // Same lazy id-map setup as Iris's own pipeline: uniforms such as currentSelectedBlockId read these maps.
         // (With gbuffers, GbufferState.beginFrame does this and also rebuilds chunks for the block IDs.)
         if (!initializedBlockIds && gbuffers == null) {
@@ -810,7 +816,11 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
             if (targets.resize(main.width, main.height)) {
                 onResize(main);
             }
+            if (Boolean.getBoolean("metallium.iris.test.failGbuffers")) {
+                throw new IllegalStateException("simulated gbuffers failure (game test)");
+            }
             updateNotifier.onNewFrame();
+            state.ensureBlockIds(); // before customUniforms.update(): currentSelectedBlockId reads the block ID map
             customUniforms.update();
             state.beginFrame(main);
             clearBuffers();
@@ -941,9 +951,27 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
         failed = true;
         if (gbuffers != null) {
             gbuffers.endCapture();
+            // The vanilla fallback draws chunks with vanilla shaders: without this, meshes built in Iris's extended
+            // vertex format are read with the compact layout (exploded, garbled terrain).
+            revertWorldSettings = true;
         }
         MetalliumIris.LOGGER.error("[metallium-iris] Metal shader pack: {}; showing the vanilla scene from now on", what, e);
         reportProblem(what + ": " + e);
+    }
+
+    /** What {@link VanillaRenderingPipeline}'s constructor sets, then a chunk rebuild (start of a level frame). */
+    private void revertToVanillaWorldSettings() {
+        WorldRenderingSettings settings = WorldRenderingSettings.INSTANCE;
+        settings.setDisableDirectionalShading(shouldDisableDirectionalShading());
+        settings.setUseSeparateAo(false);
+        settings.setSeparateEntityDraws(false);
+        settings.setAmbientOcclusionLevel(1.0f);
+        settings.setVertexFormat(net.caffeinemc.mods.sodium.client.render.chunk.vertex.format.ChunkMeshFormats.COMPACT);
+        settings.setVoxelizeLightBlocks(false);
+        settings.setBreaksAnisotropy(false);
+        settings.setBlockTypeIds(it.unimi.dsi.fastutil.objects.Object2ObjectMaps.emptyMap());
+        Minecraft.getInstance().levelExtractor.allChanged();
+        MetalliumIris.LOGGER.info("[metallium-iris] vanilla fallback: chunk vertex format reset, chunks rebuilt");
     }
 
     @Override

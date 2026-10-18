@@ -157,6 +157,30 @@ if (project.hasProperty('withGl')) {
 	}
 }
 
+// ./gradlew runClientGameTest -Pinstance[=/abs/run/dir]  → real-instance stress test: run directory run-instance/ (built by
+// tools/make-run-instance.sh from a real Minecraft instance; git-ignored). Its own Sodium, Iris and other mods load from
+// run-instance/mods; the dev Metallium, metallium-iris and metallium-gl come from this build. Do not combine with
+// -PwithSodium/-PwithIris (duplicate mods). -PinstancePacks=a.zip,b.zip limits the shader packs.
+if (project.hasProperty('instance')) {
+	if (project.hasProperty('withSodium') || project.hasProperty('withIris')) {
+		throw new GradleException('-Pinstance loads Sodium/Iris from the instance; do not add -PwithSodium/-PwithIris')
+	}
+	dependencies {
+		gametestRuntimeOnly project(':metallium-iris')
+		if (!project.hasProperty('withGl')) gametestRuntimeOnly project(':metallium-gl')
+	}
+	def dir = project.property('instance')
+	loom.runs.clientGameTest {
+		runDir((dir instanceof String && !dir.isEmpty() && dir != 'true') ? dir : 'run-instance')
+		vmArg '-Dmetallium.gametest.mode=instance'
+		if (project.hasProperty('instancePacks')) vmArg "-Dmetallium.gametest.instancePacks=${project.property('instancePacks')}"
+		// Real crash recovery across runs (normally off in game tests); the later -D wins over the default above.
+		if (project.hasProperty('instanceCrashRecovery')) vmArg '-Dmetallium.crashRecovery=on'
+	}
+	// Fabric's game-test setup wipes the run directory before each run; the instance copy must survive.
+	tasks.matching { it.name == 'deleteGameTestRunDir' }.configureEach { enabled = false }
+}
+
 // Mod-compat game-test variants (Sodium + the mod; one Minecraft run each):
 //   ./gradlew runClientGameTest -PwithReGlass | -PwithCullLeaves | -PwithMoreCulling
 // Cull Leaves and More Culling are mutually exclusive in one run.

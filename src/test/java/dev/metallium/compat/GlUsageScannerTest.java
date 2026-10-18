@@ -89,6 +89,45 @@ class GlUsageScannerTest {
         assertTrue(usage.backendGl());
     }
 
+    /** A mixin class targeting {@code target} (class literal in {@code value}) whose handler calls {@code body}. */
+    private static byte[] mixin(final String name, final String target, final Consumer<MethodVisitor> body) {
+        ClassWriter cw = new ClassWriter(ClassWriter.COMPUTE_MAXS | ClassWriter.COMPUTE_FRAMES);
+        cw.visit(Opcodes.V21, Opcodes.ACC_PUBLIC, name, null, "java/lang/Object", null);
+        org.objectweb.asm.AnnotationVisitor annotation = cw.visitAnnotation("Lorg/spongepowered/asm/mixin/Mixin;", false);
+        org.objectweb.asm.AnnotationVisitor value = annotation.visitArray("value");
+        value.visit(null, org.objectweb.asm.Type.getObjectType(target));
+        value.visitEnd();
+        annotation.visitEnd();
+        MethodVisitor mv = cw.visitMethod(Opcodes.ACC_PRIVATE, "handler", "()V", null, null);
+        mv.visitCode();
+        body.accept(mv);
+        mv.visitInsn(Opcodes.RETURN);
+        mv.visitMaxs(0, 0);
+        mv.visitEnd();
+        cw.visitEnd();
+        return cw.toByteArray();
+    }
+
+    @Test
+    void mixinIntoTheOpenGlBackendIsNotReported() {
+        // ImmediatelyFast-style: only changes Minecraft's OpenGL backend, which does not run while Metal renders.
+        byte[] bytes = mixin("com/example/mixin/MixinGlCommandEncoder", "com/mojang/renderpearl/backend/opengl/GlCommandEncoder", mv -> {
+            mv.visitMethodInsn(Opcodes.INVOKESTATIC, "com/mojang/renderpearl/backend/opengl/GlStateManager", "_glBindFramebuffer", "(II)V", false);
+            mv.visitMethodInsn(Opcodes.INVOKESTATIC, "org/lwjgl/opengl/GL11", "glFlush", "()V", false);
+        });
+        assertNull(GlUsageScanner.scan(bytes));
+    }
+
+    @Test
+    void mixinIntoGameCodeUsingTheBackendIsReported() {
+        byte[] bytes = mixin("com/example/mixin/MixinLevelRenderer", "net/minecraft/client/renderer/LevelRenderer", mv -> {
+            mv.visitMethodInsn(Opcodes.INVOKESTATIC, "com/mojang/renderpearl/backend/opengl/GlStateManager", "_enableBlend", "()V", false);
+        });
+        GlUsageScanner.ClassUsage usage = GlUsageScanner.scan(bytes);
+        assertNotNull(usage);
+        assertTrue(usage.backendGl());
+    }
+
     @Test
     void stringMentioningGlPackageIsNotAUse() {
         byte[] bytes = clazz("com/example/Strings", mv -> {
