@@ -103,7 +103,18 @@ and `image.` directives.
   that sample 3D **custom textures** (`texture.deferred.colortex6.1 = *.dat TEXTURE_3D`), a stage-2 gap; the image is
   black without them. OpenGL comparison is impossible (macOS GL 4.1 has no compute).
 - Complementary Unbound r5.6.1 (default settings, no compute): unchanged, now with its mipmapped colortex0/3.
-  With `COLORED_LIGHTING=128` (voxel_img/floodfill 3D images written by `shadow.vsh` and `shadowcomp.csh`): see STATUS.
+  With `COLORED_LIGHTING=128`: the pack forces it to 0 when `MC_OS_MAC` is defined (Apple GL), so the test uses the
+  opt-in `-PirisHideMacOs` (packs see `MC_OS_UNKNOWN` on Metal). Then voxel_img/floodfill (3D, 128x64x128) are written
+  by `shadow.vsh` image stores and the floodfill `shadowcomp.csh`; all programs translate; in the night scene the
+  soul lantern casts teal light, the lamp/glowstone warm light (game test shot `external-pack-night-lights`).
+- BSL v10.1.8 with `MULTICOLORED_BLOCKLIGHT` (+ `-PirisHideMacOs`): 256^3 voxel/light images, shadowcomp compute; all
+  programs translate and run (after renaming GLSL identifiers that are C++ keywords, BSL's `bool new`).
+- Bliss v2.1.2 with `LPV_ENABLED`: setup and shadowcomp computes run; several other programs fail on stage-3 limits
+  (9 draw buffers, >16 samplers) and glslang's precision-qualifier overload check.
+
+**Decision for the owner:** hide `MC_OS_MAC` from packs on Metal by default? Packs use it as "Apple OpenGL 4.1" and
+disable compute/voxel features (Complementary) or apply GL driver workarounds. On Metal the former are wrong, the
+latter mostly unnecessary. Currently opt-in (`-Dmetallium.iris.hideMacOs=true`).
 
 ## Not supported yet
 
