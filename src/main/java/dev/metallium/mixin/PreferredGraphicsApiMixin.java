@@ -1,6 +1,8 @@
 package dev.metallium.mixin;
 
 import dev.metallium.BackendSelection;
+import dev.metallium.EngineSync;
+import dev.metallium.MetalliumConfig;
 import dev.metallium.backend.MetalBackend;
 import com.mojang.renderpearl.api.device.GpuBackend;
 import net.minecraft.client.PreferredGraphicsApi;
@@ -17,7 +19,16 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 abstract class PreferredGraphicsApiMixin {
     @Inject(method = "getBackendsToTry", at = @At("RETURN"), cancellable = true)
     private void metallium$preferMetal(final CallbackInfoReturnable<GpuBackend[]> cir) {
-        if ((Object) this != PreferredGraphicsApi.DEFAULT || !BackendSelection.shouldOfferMetal()) {
+        if ((Object) this != PreferredGraphicsApi.DEFAULT) {
+            return;
+        }
+        // The Graphics Engine config is authoritative even if vanilla's option was not synced (yet).
+        MetalliumConfig.GraphicsEngine engine = MetalliumConfig.INSTANCE.engine;
+        if (engine == MetalliumConfig.GraphicsEngine.OPENGL || engine == MetalliumConfig.GraphicsEngine.VULKAN) {
+            cir.setReturnValue(EngineSync.toVanilla(engine).getBackendsToTry());
+            return;
+        }
+        if (!BackendSelection.shouldOfferMetal()) {
             return;
         }
         GpuBackend[] vanilla = cir.getReturnValue();
