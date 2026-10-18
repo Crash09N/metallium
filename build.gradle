@@ -107,3 +107,12 @@ if (project.hasProperty('withSodium')) {
 		gametestRuntimeOnly "maven.modrinth:sodium:${project.sodium_version}"
 	}
 }
+
+// ./gradlew runClientGameTest -PwithIris  → Sodium + Iris + the Metallium Iris adapter.
+if (project.hasProperty('withIris')) {
+	dependencies {
+		gametestRuntimeOnly "maven.modrinth:sodium:${project.sodium_version}"
+		gametestRuntimeOnly "maven.modrinth:iris:${project.iris_version}"
+		gametestRuntimeOnly project(':metallium-iris')
+	}
+}

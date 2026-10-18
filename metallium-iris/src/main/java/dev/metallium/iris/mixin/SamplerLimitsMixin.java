@@ -1,0 +1,27 @@
+package dev.metallium.iris.mixin;
+
+import com.mojang.renderpearl.backend.opengl.GlStateManager;
+import dev.metallium.api.MetalliumRuntime;
+import net.irisshaders.iris.gl.sampler.SamplerLimits;
+import org.lwjgl.opengl.GL20C;
+import org.lwjgl.opengl.GL43C;
+import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.injection.At;
+import org.spongepowered.asm.mixin.injection.Redirect;
+
+/** Answers the GL limit queries with Metal's per-stage limits (Apple GPUs: 16 sampler states, 8 colour attachments). */
+@Mixin(value = SamplerLimits.class, remap = false)
+abstract class SamplerLimitsMixin {
+    @Redirect(method = "<init>", at = @At(value = "INVOKE", target = "Lcom/mojang/renderpearl/backend/opengl/GlStateManager;_getInteger(I)I"))
+    private int metallium$limit(final int pname) {
+        if (!MetalliumRuntime.isMetalActive()) {
+            return GlStateManager._getInteger(pname);
+        }
+        return switch (pname) {
+            case GL20C.GL_MAX_TEXTURE_IMAGE_UNITS -> 16;
+            case GL20C.GL_MAX_DRAW_BUFFERS -> 8;
+            case GL43C.GL_MAX_SHADER_STORAGE_BUFFER_BINDINGS -> 0;
+            default -> 0;
+        };
+    }
+}

@@ -1,0 +1,17 @@
+{
+  "required": true,
+  "package": "dev.metallium.iris.mixin",
+  "compatibilityLevel": "JAVA_25",
+  "priority": 1500,
+  "client": [
+    "GLDebugMixin",
+    "IrisMixin",
+    "IrisRenderSystemMixin",
+    "MetalGpuTextureMixin",
+    "SamplerLimitsMixin",
+    "VanillaRenderingPipelineMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

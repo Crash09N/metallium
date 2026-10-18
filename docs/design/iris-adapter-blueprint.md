@@ -37,7 +37,7 @@ Licence note: everything here lives in a separate LGPL-3.0 module `metallium-iri
 
 ## 1. Catalogue of Iris classes that touch GL
 
-Scope: 146 files / 20,126 LOC (grep for `org.lwjgl.opengl|GlStateManager|IrisRenderSystem|renderpearl.backend.opengl|glId|iris$getGlId|GlProgram`).
+Scope: 145 files / 20,126 LOC (grep for `org.lwjgl.opengl|GlStateManager|IrisRenderSystem|renderpearl.backend.opengl|glId|iris$getGlId|GlProgram`).
 Column **T** = treatment: **N** none (constants/data/pure type reference), **S** class unchanged, behaviour supplied by the shim (section 4) or by a Metal-side class that implements an Iris-injected interface,
 **R** targeted redirect/overwrite of a few methods (mixin from `metallium-iris`), **X** logic must be replaced/re-implemented against the pass-hook SPI, **D** disabled/dead on Metal.
 "Calls" = number of other Iris files that mention the class name [V, grep -w]. Service names are defined in section 5.
@@ -54,7 +54,7 @@ Column **T** = treatment: **N** none (constants/data/pure type reference), **S**
 | `I/gl/image/ImageLimits.java` | 24 | `IrisRenderSystem.getMaxImageUnits` | 2 | S | same |
 | `I/mixin/MixinWindow.java` (target `GlBackend#createWindow`) | 51 | SDL GL debug-context attributes | - | D | target never runs on Metal |
 | `I/compat/sodium/config/IrisConfig.java` | 204 | `getBackend() instanceof GlDevice` L107 (false on Metal = harmless); `IrisMixinPlugin.usingVulkan` L40 | 5 | N | - (optionally hide the "switch to Vulkan removes shaders" confirm, L106-123) |
-| `I/Iris.java` | 840 | `onRenderSystemInit` L128-152: `GL.getCapabilities().GL_KHR_parallel_shader_compile` -> `glMaxShaderCompilerThreadsKHR/ARB`; L429-432 `GLDebug`, `GlDebug.enableDebugCallback(IrisRenderSystem.getGlDevice()...)` | 166 | R | `@WrapOperation` the two `GL.getCapabilities()` invocations (return all-false caps object) and guard L429-432 on `debug` only |
+| `I/Iris.java` | 840 | `onRenderSystemInit` L128-152: `GL.getCapabilities()` L135,137.GL_KHR_parallel_shader_compile` -> `glMaxShaderCompilerThreadsKHR/ARB`; L429-432 `GLDebug`, `GlDebug.enableDebugCallback(IrisRenderSystem.getGlDevice()...)` | 166 | R | `@WrapOperation` the two `GL.getCapabilities()` invocations (return all-false caps object) and guard L429-432 on `debug` only |
 | `I/mixin/MixinRenderSystem.java` | 33 | `RenderSystem#initRenderer` RETURN L25 -> `GLDebug.reloadDebugState, IrisRenderSystem.initRenderer, IrisSamplers.initRenderer, Iris.onRenderSystemInit` | 1 | S | runs unchanged once its callees are shimmed |
 
 ### 1.2 Program creation / linking
@@ -167,11 +167,19 @@ Column **T** = treatment: **N** none (constants/data/pure type reference), **S**
 ### 1.10 Distant Horizons and Sodium config
 
 `I/compat/dh/{DHCompatInternal 292, DhFrameBufferWrapper 53, IrisGenericRenderProgram 349, IrisLodRenderProgram 273, LodRendererEvents 385}` = raw `GL43C` programs (45 raw calls) bound to DH's own GL renderer [V]. **D** on Metal
-(DH's GL texture ids do not exist). `Iris.onRenderSystemInit` defers `loadShaderpack()` to DH when DH is loaded (`Iris.java:150-152`); with DH present on Metal the adapter must force the non-DH branch.
+(DH's GL texture ids do not exist). `Iris.onRenderSystemInit` defers `loadShaderpack()` to DH when DH is loaded (`Iris.java:148-150`); with DH present on Metal the adapter must force the non-DH branch.
 
-### 1.11 Summary by treatment (146 files, files counted per row)
+### 1.11 Summary by treatment (145 files, 20,126 LOC)
 
-COUNTS-PLACEHOLDER
+| T | Files | LOC | Meaning | Members |
+|---|---|---|---|---|
+| S | 85 | 9,272 | class untouched; GL supplied by the shim / Metal implementing an Iris interface | uniform classes (22), program/sampler/image/SSBO/FBO/render-target/texture classes, blend/depth storage, PBR/texture mixins, GlStateManager lock mixins, most of the pipeline/shadow data classes |
+| R | 17 | 5,315 | a few methods redirected/overwritten by `metallium-iris` mixins (LOC is the whole file, edits are tens of lines each, except `IrisRenderSystem`, rewritten wholesale as it is a pure facade) | `Iris`, `GLDebug`, `IrisRenderSystem`, `GlFramebuffer` (1 cast), `ShaderWorkarounds`, `StandardMacros`, `MatrixUniform`, `MatrixFromFloatArrayUniform`, `MixinGlProgram`, `MixinRenderTarget`, `ColorSpaceConverter`, `ColorSpaceFragmentConverter`, `PBRAtlasTexture` (1 cast), `IrisRenderingPipeline` (2 casts), `ExtendedShader`, `FallbackShader`, `IrisBindings` |
+| X | 8 | 2,755 | logic must be re-expressed against the pass-hook SPI (H1-H6) or replaced | `MixinGlCommandEncoder`, `MixinGlRenderPipeline`, `MixinShaderManager_Overrides`, `CompositeRenderer` (draw loop only), `FinalPassRenderer`, `ShadowCompositeRenderer`, `ShadowRenderer` (pass creation only), `FullScreenQuadRenderer` |
+| D | 12 | 1,726 | dead / disabled on Metal | DH (5), `MixinWindow`, `MixinGpuTexture` (GlTexture), `MixinRenderPass` (GlRenderPass), `MixinCompiledShaderProgram`, `UndoReverseZTwo/Three/Five` |
+| N | 23 | 1,058 | no change (GL enum data, type references) | `*Format`, `TextureType`, `ShaderType`, `AlphaTestFunction`, `BlendModeFunction`, `Fog/VanillaUniforms`, accessors, `IrisConfig`, ... |
+
+Total GL-touching: 145 files. Of 59,3xx LOC in `common` (arch note 14: 59,223), 20,126 LOC / 145 files touch GL, but only the 8 X and 17 R files (7,070 LOC, of which the actual edit surface is ~1.5k LOC of mixin code) need hand work; 85 S + 23 N files (10,330 LOC) run untouched.
 
 ---------------------------------------------------------------------------------------------------
 
@@ -277,7 +285,11 @@ Also needed: hide/redirect `ShaderPackScreenPlaceholder` ("Iris cannot run when 
 ## 4. Strategy: mixin adapter vs fork
 
 ### 4.1 Counts (from section 1.11)
-COUNTS-STRATEGY-PLACEHOLDER
+- Classes to replace/adapt by hand: **25 of 145** (8 X, 17 R). Classes untouched thanks to the shim seam: **108** (85 S + 23 N). Dead: 12.
+- Classes whose GL work is a *leaf wrapper* (redirect methods, no logic change): `IrisRenderSystem`, `GLDebug`, `GlSampler`, `GlFramebuffer`, `GlImage`, `GlTexture`, `ShaderStorageBuffer(Holder)`, `GlShader`, `ProgramCreator`, `DepthCopyStrategy`, `TextureUploadHelper`, the 22 uniform classes, `ClearPass`, `ImageBinding`, `SamplerBinding` (~45 files).
+- Classes with logic **intertwined with GL state/pass model**: the 8 X files plus `ExtendedShader.iris$setupState` ordering (uniform upload before FBO bind, `ExtendedShader.java:208-260`) and `Program.use()` (barrier + use + three `update()` calls, `Program.java:27-34`).
+- Mixins: 145 (`mixins.iris.json`) + 7 (`vertexformat`) + 21 (`compat.sodium`) + 4 (`fabric`) + 4 (`compat.dh`, DH plugin) = 181 active-config entries (+7 unreferenced `fantastic`). GL-specific among them: 34 of the 151 files under `I/mixin/` reference GL/GlStateManager/IrisRenderSystem/`getGlId`; 8 are X, 12 D, remaining are S/N. No mixin in `compat/sodium/mixin` touches GL.
+- Verdict: **mixin/shim adapter, no source fork**, because (a) the GL-name seam keeps 108 classes untouched, (b) the edit surface is 25 classes of which only 8 are structural, (c) a fork would carry 20k LOC of GL code that we then never run. A thin patch set remains the fallback only for the plugin gate (option F in 3.3).
 
 ### 4.2 Recommended mechanism: "GL-name shim at the facade seam" + 12 explicit Metal hooks (no Iris source fork)
 1. **`MetalGL` sink**: generated class `dev.metallium.iris.gl.MetalGL` with the ~110 LWJGL entry points Iris uses (same names/descriptors; list in appendix A), implemented on the services of section 5. GL constants are `static final int` and inline at compile time, so Iris code compiles to the same ints; the shim interprets them.
@@ -414,7 +426,7 @@ Stage 0 (precondition, outside this document): Metallium backend renders vanilla
 ### Stage 1 - Iris loads on Metal, shaders OFF (no crash, Iris UI usable) - ~1-2 days
 Visible: game boots with Iris installed; Iris keybinds/menu work; "no shader pack" renders exactly like plain Metallium.
 Crash points in boot order and fixes [V unless noted]:
-1. `RenderSystem#initRenderer` RETURN -> `MixinRenderSystem.java:25` -> `GLDebug.reloadDebugState`, `IrisRenderSystem.initRenderer` (`GL.getCapabilities()` `:60-72`), `IrisSamplers.initRenderer` -> `SamplerLimits` (`GlStateManager._getInteger`), `Iris.onRenderSystemInit` (`Iris.java:133-137`, `PBRTextureManager.init()`). Fix: `metallium-iris` mixins: `IrisRenderSystem.initRenderer` HEAD-cancel + set `dsaState` (accessor), `GLDebug.*` no-ops, `@WrapOperation` on the 2 `GL.getCapabilities()` in `Iris.onRenderSystemInit`; sink answers `glGetIntegerv` limits.
+1. `RenderSystem#initRenderer` RETURN -> `MixinRenderSystem.java:25` -> `GLDebug.reloadDebugState`, `IrisRenderSystem.initRenderer` (`GL.getCapabilities()` `:60-72`), `IrisSamplers.initRenderer` -> `SamplerLimits` (`GlStateManager._getInteger`), `Iris.onRenderSystemInit` (`Iris.java:135-137`, `PBRTextureManager.init()`). Fix: `metallium-iris` mixins: `IrisRenderSystem.initRenderer` HEAD-cancel + set `dsaState` (accessor), `GLDebug.*` no-ops, `@WrapOperation` on the 2 `GL.getCapabilities()` in `Iris.onRenderSystemInit`; sink answers `glGetIntegerv` limits.
 2. First texture access: `MixinAbstractTexture.java:28` / `MixinTextureAtlas:50` / `MixinReloadableTexture:17` call `iris$getGlId()`; Metal textures extend `BaseGpuTexture` and would hit `AssertionError("Why.")` (`MixinGpuTexture2:11`). Fix: `MixinMetalGpuTexture implements GpuTextureInterface` + `GlNames`.
 3. `GlStateManager` use by Iris GUI (`IrisButton.java:38-39`, `OldImageButton.java:117`) and `VanillaRenderingPipeline.beginLevelRendering` (`_glUseProgram(0)`, `:44`): vanilla `GlStateManager` methods would call real LWJGL -> ASM retarget to `MetalGL` no-ops (stage-1 `MetalGL` is a ~40-method stub that only tracks state).
 4. Per frame `MixinLevelRenderer.java:130` `IrisRenderSystem.backupAndDisableCullingState` (no GL) fine; `setPolygonMode` only for wireframe key.

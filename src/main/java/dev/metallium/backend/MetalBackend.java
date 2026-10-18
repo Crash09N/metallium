@@ -52,7 +52,9 @@ public class MetalBackend implements GpuBackend {
         Metallium.LOGGER.info("Metal device: {}", deviceName);
 
         try {
-            return new FrontendGpuDevice(new MetalDevice(debugOptions, metalDevice, deviceName));
+            GpuDevice device = new FrontendGpuDevice(new MetalDevice(debugOptions, metalDevice, deviceName));
+            dev.metallium.api.MetalliumRuntime.markMetalActive();
+            return device;
         } catch (Throwable throwable) {
             throw new BackendCreationException("Metal device initialization failed: " + throwable.getMessage(), BackendCreationException.Reason.OTHER);
         }

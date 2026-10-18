@@ -46,7 +46,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        variant: [vanilla, sodium]
+        variant: [vanilla, sodium, iris]
     runs-on: macos-15
     needs: metal
     timeout-minutes: 40
@@ -62,7 +62,7 @@ jobs:
       - name: Run client game test on Metal
         env:
           METALLIUM_EXPECT_BACKEND: Metal
-        run: ./gradlew runClientGameTest --no-daemon ${{ matrix.variant == 'sodium' && '-PwithSodium' || '' }}
+        run: ./gradlew runClientGameTest --no-daemon ${{ matrix.variant == 'sodium' && '-PwithSodium' || matrix.variant == 'iris' && '-PwithIris' || '' }}
       - name: Report
         if: always()
         run: cat build/run/clientGameTest/metallium-gametest-report.txt || true
