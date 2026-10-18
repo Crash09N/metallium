@@ -43,6 +43,16 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
                 context.waitTicks(SETTLE_TICKS);
                 checkTerrainVisible(context.takeScreenshot("metallium-flat-world"), "flat world");
                 measure(context, "flat world");
+                // Diagnostic A/B: chunk fade-in off (Sodium reads per-section fade times from a texel buffer).
+                context.runOnClient(client -> client.options.chunkSectionFadeInTime().set(0.0));
+                context.waitTicks(20);
+                Path noFade = context.takeScreenshot("metallium-flat-world-nofade");
+                int before = failures.size();
+                checkTerrainVisible(noFade, "flat world (no chunk fade)");
+                while (failures.size() > before) {
+                    failures.remove(failures.size() - 1); // diagnostic only
+                }
+                context.runOnClient(client -> client.options.chunkSectionFadeInTime().set(0.75));
             }
 
             try (TestSingleplayerContext world = context.worldBuilder().setUseConsistentSettings(false).create()) {
