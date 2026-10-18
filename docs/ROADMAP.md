@@ -63,6 +63,11 @@ Status legend: ✅ done · 🔄 in progress · ⏳ planned · 🔬 needs researc
 - ⏳ Stage 5: compute, image load/store, SSBO (packs that macOS OpenGL 4.1 cannot run today)
 - ⏳ Stage 6: geometry/tessellation shaders via compute emulation, learning from Mesa's Apple-GPU emulation (MIT)
 - Unsupported features are detected at pack load and reported; never a crash or black screen
+- **Pack sweep** (regression test after every Iris stage): a local corpus of popular packs (BSL, Complementary
+  Reimagined/Unbound, Photon, Bliss, Sildur's Vibrant, MakeUp Ultra Fast, Solas, Rethinking Voxels, Nostalgia, Super
+  Duper Vanilla) in `metallium-research/shaderpacks/` — local only, never committed (most licences forbid
+  redistribution). One command loads each pack, takes screenshots and records translated/unsupported programs into a
+  compatibility table under `docs/`.
 - Design: `docs/design/iris-adapter-blueprint.md`
 
 ## Phase 6 — Mod ecosystem ⏳ / 🔬
