@@ -198,6 +198,12 @@ class GlContextTest {
         MetalGL.glCompileShader(compute);
         assertEquals(GL_FALSE, MetalGL.glGetShaderi(compute, GL_COMPILE_STATUS), "int64 is not supported, so it must not compile");
         assertTrue(MetalGL.glGetShaderInfoLog(compute).contains("GL_ARB_gpu_shader_int64"), MetalGL.glGetShaderInfoLog(compute));
+        // "enable" of an unsupported extension: a warning in GL, and its macro is undefined.
+        int optional = MetalGL.glCreateShader(GL_COMPUTE_SHADER);
+        MetalGL.glShaderSource(optional, "#version 450\n#extension GL_ARB_gpu_shader_int64 : enable\n#ifdef GL_ARB_gpu_shader_int64\n"
+                + "#error int64 must look unsupported\n#endif\nlayout(local_size_x=32) in;\nvoid main() { }\n");
+        MetalGL.glCompileShader(optional);
+        assertEquals(GL_TRUE, MetalGL.glGetShaderi(optional, GL_COMPILE_STATUS), MetalGL.glGetShaderInfoLog(optional));
     }
 
     static int linkTestProgram() {

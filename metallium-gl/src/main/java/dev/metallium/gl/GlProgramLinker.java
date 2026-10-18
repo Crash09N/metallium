@@ -41,7 +41,7 @@ final class GlProgramLinker {
     private static final Pattern VERTEX_INPUT = Pattern.compile("(?m)^(\\s*)((?:(?:highp|mediump|lowp|flat|smooth)\\s+)*)(in|attribute)\\s+(\\w+)\\s+(\\w+)\\s*;");
     /** GL extensions whose features metallium-gl does not implement; shaders requiring them fail to compile, as in GL. */
     private static final Pattern UNSUPPORTED_EXTENSION = Pattern.compile(
-            "(?m)^[ \\t]*#[ \\t]*extension[ \\t]+(GL_ARB_gpu_shader_int64|GL_NV_\\w+|GL_NVX_\\w+|GL_AMD_\\w+|GL_ARB_bindless_texture|GL_ARB_sparse_\\w+)[ \\t]*:[ \\t]*(require|enable|warn)[ \\t]*$");
+            "(?m)^[ \\t]*#[ \\t]*extension[ \\t]+(GL_ARB_gpu_shader_int64|GL_NV_\\w+|GL_NVX_\\w+|GL_AMD_\\w+|GL_ARB_bindless_texture|GL_ARB_sparse_\\w+)[ \\t]*:[ \\t]*(require|enable|warn)[ \\t\\r]*$");
 
     private GlProgramLinker() {
     }
@@ -287,6 +287,8 @@ final class GlProgramLinker {
     static final String DEPTH_RANGE_FAR = "metallium_DepthRangeFar";
     static final String DEPTH_RANGE_DIFF = "metallium_DepthRangeDiff";
     private static final Pattern DEPTH_RANGE = Pattern.compile("\\bgl_DepthRange\\s*\\.\\s*(near|far|diff)\\b");
+    private static final Pattern UNSUPPORTED_MACRO = Pattern.compile("\\b(GL_ARB_gpu_shader_int64|GL_NV_\\w+|GL_NVX_\\w+|GL_AMD_\\w+|GL_ARB_bindless_texture|GL_ARB_sparse_\\w+)\\b");
+    private static final Pattern UNSUPPORTED_MACRO_TEST = Pattern.compile("(?m)^[ \\t]*#[ \\t]*(if|ifdef|ifndef|elif)\\b.*$");
     private static final Pattern LAST_DIRECTIVE = Pattern.compile("(?m)^[ \\t]*#[ \\t]*(version|extension)\\b.*$");
 
     /**
@@ -297,6 +299,15 @@ final class GlProgramLinker {
         // "#extension X : enable" of an unsupported extension is only a warning in GL, and the X macro stays undefined:
         // drop the directive so glslang does not enable (and define) it either.
         String source = UNSUPPORTED_EXTENSION.matcher(original).replaceAll("// metallium-gl: $1 not supported");
+        // glslang predefines the macros of every extension it knows (GL only defines those it supports): make
+        // "#ifdef GL_ARB_gpu_shader_int64"-style tests see unsupported extensions as undefined.
+        Matcher conditional = UNSUPPORTED_MACRO_TEST.matcher(source);
+        StringBuilder tests = new StringBuilder();
+        while (conditional.find()) {
+            conditional.appendReplacement(tests, Matcher.quoteReplacement(UNSUPPORTED_MACRO.matcher(conditional.group()).replaceAll("METALLIUM_UNSUPPORTED_$1")));
+        }
+        conditional.appendTail(tests);
+        source = tests.toString();
         if (!source.contains("gl_DepthRange")) {
             return source;
         }
