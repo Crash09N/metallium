@@ -84,6 +84,7 @@ final class GbufferState implements AutoCloseable {
     private final List<GpuFormat> attachmentFormats = new ArrayList<>();
     private final Map<CompiledRenderPipeline, Map<Object, CompiledRenderPipeline>> substitutes = new IdentityHashMap<>();
     private final Map<CompiledRenderPipeline, GbufferProgram> programs = new IdentityHashMap<>();
+    private final Map<CompiledRenderPipeline, CompiledRenderPipeline> formatFixes = new IdentityHashMap<>();
     private final Set<String> reported = new LinkedHashSet<>();
     private final Set<String> compiledNames = new TreeSet<>();
     private final Set<Integer> neededTargets = new TreeSet<>();
@@ -363,6 +364,43 @@ final class GbufferState implements AutoCloseable {
                     ? new ColorTargetState(integer ? Optional.empty() : base.blendFunction(), format, base.writeMask() & ColorTargetState.WRITE_ALL)
                     : new ColorTargetState(Optional.empty(), format, ColorTargetState.WRITE_NONE);
         }
+        MetalliumIris.LOGGER.info("[metallium-iris] {} has no gbuffers program; its vanilla shader writes colortex0", source.getLocation());
+        return copyPipeline(source, states, attachments.length, "gbuffer/");
+    }
+
+    /**
+     * A pass that is not captured (e.g. the entity outline target) while Iris's extended vertex formats are active: the
+     * vanilla pipeline was compiled for the vanilla layout, but the buffers now carry the extended one, so it is
+     * recompiled for the current layout (same shaders and colour targets).
+     */
+    CompiledRenderPipeline uncaptured(final CompiledRenderPipeline original) {
+        if (!net.irisshaders.iris.vertices.ImmediateState.isRenderingLevel || !(original instanceof com.mojang.renderpearl.frontend.FrontendRenderPipeline compiled)) {
+            return original;
+        }
+        CompiledRenderPipeline fixed = formatFixes.get(original);
+        if (fixed != null && !fixed.isClosed()) {
+            return fixed;
+        }
+        RenderPipeline source = GbufferPasses.sourceOf(original);
+        if (source == null || source.getLocation().getNamespace().equals("metallium")) {
+            return original;
+        }
+        VertexFormat current = source.getVertexFormatBinding(0);
+        VertexFormat built = compiled.vertexFormats().isEmpty() ? null : compiled.vertexFormats().getFirst();
+        if (current == null || current.equals(built)) {
+            return original;
+        }
+        ColorTargetState[] states = new ColorTargetState[ColorTargetState.MAX_COLOR_TARGETS];
+        List<ColorTargetState> targets = source.getColorTargetStates();
+        for (int i = 0; i < targets.size(); i++) {
+            states[i] = targets.get(i);
+        }
+        fixed = copyPipeline(source, states, targets.size(), "extended/");
+        formatFixes.put(original, fixed);
+        return fixed;
+    }
+
+    private static CompiledRenderPipeline copyPipeline(final RenderPipeline source, final ColorTargetState[] states, final int stateCount, final String prefix) {
         VertexFormat[] formats = new VertexFormat[16];
         List<VertexFormat> bindings = source.getVertexFormatBindings();
         for (int i = 0; i < Math.min(16, bindings.size()); i++) {
@@ -373,13 +411,12 @@ final class GbufferState implements AutoCloseable {
             formats[0] = WorldRenderingSettings.INSTANCE.getVertexFormat().getVertexFormat();
         }
         RenderPipeline.Snippet snippet = new RenderPipeline.Snippet(source.getShaders(), Optional.of(source.getShaderDefines()),
-                Optional.of(source.getBindGroupLayouts()), states, attachments.length, Optional.ofNullable(source.getDepthStencilState()),
+                Optional.of(source.getBindGroupLayouts()), states, stateCount, Optional.ofNullable(source.getDepthStencilState()),
                 Optional.of(source.getPolygonMode()), Optional.of(source.isCull()), formats, Optional.of(source.getPrimitiveTopology()),
                 source.pushConstantSize());
         RenderPipeline copy = RenderPipeline.builder(snippet)
-                .withLocation(Identifier.fromNamespaceAndPath("metallium", "gbuffer/" + source.getLocation().getNamespace() + "/" + source.getLocation().getPath()))
+                .withLocation(Identifier.fromNamespaceAndPath("metallium", prefix + source.getLocation().getNamespace() + "/" + source.getLocation().getPath()))
                 .build();
-        MetalliumIris.LOGGER.info("[metallium-iris] {} has no gbuffers program; its vanilla shader writes colortex0", source.getLocation());
         return RenderSystem.getCompiledPipeline(copy);
     }
 
@@ -530,6 +567,7 @@ final class GbufferState implements AutoCloseable {
         programs.values().forEach(GbufferProgram::close);
         programs.clear();
         substitutes.clear();
+        formatFixes.clear();
         closeDepthCopies();
         defaultNormalsView.close();
         defaultNormals.close();

@@ -119,10 +119,10 @@ public final class GbufferPasses {
     /** {@code FrontendRenderPass#setPipeline} HEAD: the pack's program (or gbuffer-layout copy) for a captured pass. */
     public static CompiledRenderPipeline substitute(final RenderPass pass, final CompiledRenderPipeline pipeline) {
         MetalPostPipeline owner = active;
-        if (owner == null || pass != capturedPass) {
+        if (owner == null) {
             return pipeline;
         }
-        return owner.gbufferPipeline(pipeline);
+        return pass == capturedPass ? owner.gbufferPipeline(pipeline) : owner.uncapturedPipeline(pipeline);
     }
 
     /** {@code FrontendRenderPass#setPipeline} TAIL. */

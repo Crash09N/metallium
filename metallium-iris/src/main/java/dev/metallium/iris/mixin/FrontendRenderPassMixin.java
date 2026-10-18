@@ -22,12 +22,9 @@ abstract class FrontendRenderPassMixin {
 
     @ModifyVariable(method = "setPipeline", at = @At("HEAD"), argsOnly = true)
     private CompiledRenderPipeline metallium$substitute(final CompiledRenderPipeline pipeline) {
-        if (!GbufferPasses.isCaptured((RenderPass) this)) {
-            metallium$substituted = null;
-            return pipeline;
-        }
-        metallium$substituted = GbufferPasses.substitute((RenderPass) this, pipeline);
-        return metallium$substituted;
+        CompiledRenderPipeline substituted = GbufferPasses.substitute((RenderPass) this, pipeline);
+        metallium$substituted = GbufferPasses.isCaptured((RenderPass) this) ? substituted : null;
+        return substituted;
     }
 
     @Inject(method = "setPipeline", at = @At("TAIL"))

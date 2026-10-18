@@ -695,6 +695,20 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
         }
     }
 
+    com.mojang.renderpearl.api.pipeline.CompiledRenderPipeline uncapturedPipeline(final com.mojang.renderpearl.api.pipeline.CompiledRenderPipeline original) {
+        try {
+            return gbuffers.uncaptured(original);
+        } catch (RuntimeException e) {
+            MetalliumIris.LOGGER.error("[metallium-iris] recompiling a pipeline for Iris's extended vertex format failed", e);
+            return original;
+        }
+    }
+
+    /** True while the pack's gbuffers programs render the world (Iris's {@code isPackInUseQuick} on Metal). */
+    public boolean rendersGbuffers() {
+        return gbuffers != null && !failed;
+    }
+
     void bindGbufferResources(final RenderPass pass, final com.mojang.renderpearl.api.pipeline.CompiledRenderPipeline bound) {
         try {
             gbuffers.bind(pass, bound);

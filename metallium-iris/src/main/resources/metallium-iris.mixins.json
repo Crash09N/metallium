@@ -14,6 +14,7 @@
     "IrisCreatePipelineMixin",
     "IrisDebugMixin",
     "IrisMixin",
+    "IrisPackInUseMixin",
     "IrisRenderSystemMixin",
     "IrisRenderSystemUniformMixin",
     "MatrixUniformMixin",

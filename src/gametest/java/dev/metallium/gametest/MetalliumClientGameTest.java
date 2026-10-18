@@ -349,7 +349,9 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
                     String external = externalPack(context);
                     if (external != null) {
                         tryCommand(world, "time set 1000");
-                        tryCommand(world, "execute as @p at @s run summon minecraft:cow ^ ^-1 ^6 {NoAI:1b}");
+                        // Stand on top of the terrain/canopy, looking slightly down, with an animal in front.
+                        tryCommand(world, "execute as @p at @s positioned over motion_blocking run tp @s ~ ~ ~ ~ 20");
+                        tryCommand(world, "execute as @p at @s run summon minecraft:cow ^ ^1 ^5 {NoAI:1b}");
                         line("external pack (natural world): pipeline=" + context.computeOnClient(client -> irisSelectPack(external, true)));
                         context.waitTicks(SETTLE_TICKS);
                         clearChat(context);
