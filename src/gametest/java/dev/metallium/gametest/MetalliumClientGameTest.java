@@ -485,7 +485,7 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
                         line("external pack (natural world): pipeline=" + context.computeOnClient(client -> irisSelectPack(external, true)));
                         context.waitTicks(SETTLE_TICKS);
                         clearChat(context);
-                        context.takeScreenshot("metallium-iris-external-pack-natural");
+                        packCoverage(context.takeScreenshot("metallium-iris-external-pack-natural"));
                         measure(context, "natural world, external pack");
                         context.computeOnClient(client -> irisSelectPack(external, false));
                         context.waitTicks(20);
@@ -518,6 +518,15 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
      * hotbar) most pixels must not look like sky. Catches "world renders as empty sky" regressions.
      */
     private void checkTerrainVisible(Path screenshot, String scene) {
+        checkTerrainVisible(screenshot, scene, true);
+    }
+
+    /** Pack sweep: logs "pack terrain coverage=" for an external shader pack screenshot; never fails the test. */
+    private void packCoverage(Path screenshot) {
+        checkTerrainVisible(screenshot, "pack", false);
+    }
+
+    private void checkTerrainVisible(Path screenshot, String scene, boolean failIfEmpty) {
         try {
             java.awt.image.BufferedImage image = javax.imageio.ImageIO.read(screenshot.toFile());
             int w = image.getWidth();
@@ -538,7 +547,7 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
             }
             double nonSky = 1.0 - (double) sky / Math.max(1, total);
             line(scene + ": terrain coverage=" + String.format("%.2f", nonSky));
-            if (nonSky < 0.30) {
+            if (failIfEmpty && nonSky < 0.30) {
                 failures.add(scene + " looks empty (terrain coverage " + String.format("%.2f", nonSky) + ")");
             }
         } catch (IOException e) {

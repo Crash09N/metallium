@@ -1,0 +1,129 @@
+#!/usr/bin/env bash
+# Shader pack sweep: runs the Iris client game test once per local pack zip on Metal (optionally OpenGL as reference)
+# and writes a compatibility table to docs/compat/shaderpacks-<date>.md. See docs/compat/README.md.
+# Packs are local only (never copy them into the repo). Screenshots/logs go to RESULTS_DIR, not the repo.
+#
+# Environment overrides:
+#   PACKS="a.zip b.zip"   subset by file name (space separated; for names with spaces use PACKS_FILE, one name per line)
+#   PACK_DIR=/Users/noah/Downloads/metallium-research/shaderpacks
+#   RESULTS_DIR=/Users/noah/Downloads/metallium-research/sweep-results/<date>
+#   REFERENCE=1           also run each pack with -Pengine=OPENGL (reference screenshot)
+#   OUT=docs/compat/shaderpacks-<date>.md     SMOKE=1 marks the output as a smoke run (do not commit)
+set -u
+cd "$(dirname "$0")/.."
+export JAVA_HOME="${JAVA_HOME:-/Users/noah/Library/Java/JavaVirtualMachines/temurin-25.0.4.1/Contents/Home}"
+PACK_DIR="${PACK_DIR:-/Users/noah/Downloads/metallium-research/shaderpacks}"
+DATE="$(date +%Y-%m-%d)"
+RESULTS_DIR="${RESULTS_DIR:-/Users/noah/Downloads/metallium-research/sweep-results/$DATE}"
+OUT="${OUT:-docs/compat/shaderpacks-$DATE.md}"
+REFERENCE="${REFERENCE:-0}"
+SMOKE="${SMOKE:-0}"
+RUNDIR="build/run/clientGameTest"
+REPORT="$RUNDIR/metallium-gametest-report.txt"
+LOG="$RUNDIR/logs/latest.log"
+mkdir -p "$RESULTS_DIR" "$(dirname "$OUT")"
+
+LIST=()
+if [ -n "${PACKS_FILE:-}" ]; then
+  while IFS= read -r l; do [ -n "$l" ] && LIST+=("$l"); done < "$PACKS_FILE"
+elif [ -n "${PACKS:-}" ]; then
+  for p in $PACKS; do LIST+=("$p"); done
+else
+  for z in "$PACK_DIR"/*.zip; do LIST+=("$(basename "$z")"); done
+fi
+
+ROWS="$(mktemp)"; trap 'rm -f "$ROWS"' EXIT
+
+manifest() { # manifest <file> <column: 4 = version, 7 = licence>
+  awk -F'|' -v f="$1" -v c="$2" '{n=$5; gsub(/^ +| +$/,"",n); if (n==f) {v=$c; gsub(/^ +| +$/,"",v); print v}}' "$PACK_DIR/MANIFEST.md" | head -1
+}
+
+run_one() { # run_one <zip> <engine> <tag>: runs the game test, copies report/log/screenshot into RESULTS_DIR
+  local zip="$1" engine="$2" tag="$3"
+  until ! pgrep -f "[d]evlaunchinjector.Main" >/dev/null; do sleep 5; done
+  rm -rf "$REPORT" "$RUNDIR/screenshots" "$LOG"
+  ./gradlew --no-daemon :runClientGameTest -PwithSodium -PwithIris "-Pengine=$engine" "-Pshaderpack=$PACK_DIR/$zip" \
+    > "$RESULTS_DIR/$tag-gradle.log" 2>&1
+  STATUS_RUN=$?
+  [ -f "$REPORT" ] && cp "$REPORT" "$RESULTS_DIR/$tag-report.txt"
+  [ -f "$LOG" ] && cp "$LOG" "$RESULTS_DIR/$tag-latest.log"
+  # screenshots are numbered by the game test (0011_metallium-iris-external-pack-natural.png): match by suffix
+  local f
+  for f in "$RUNDIR"/screenshots/*_metallium-iris-external-pack-natural.png; do [ -f "$f" ] && cp "$f" "$RESULTS_DIR/$tag-natural.png"; done
+  for f in "$RUNDIR"/screenshots/*_metallium-iris-external-pack.png; do [ -f "$f" ] && cp "$f" "$RESULTS_DIR/$tag-flat.png"; done
+}
+
+for zip in "${LIST[@]}"; do
+  if [ ! -f "$PACK_DIR/$zip" ]; then
+    echo "| $zip | - | - | fails | - | pack file not found |" >> "$ROWS"; continue
+  fi
+  tag="$(printf '%s' "${zip%.zip}" | tr -c 'A-Za-z0-9._\n-' '_')"
+  echo "=== $zip on METAL ($(date +%H:%M:%S)) ==="
+  run_one "$zip" METAL "$tag-metal"
+  mrep="$RESULTS_DIR/$tag-metal-report.txt"; mlog="$RESULTS_DIR/$tag-metal-latest.log"
+  version="$(manifest "$zip" 4)"; licence="$(manifest "$zip" 7)"
+  version="${version:-?}"; licence="${licence:-?}"
+
+  crash="no"; loaded="no"; pipeline="-"; cov="-"; missing=""; ntrans=0; nfail=0; nnotrun=""; testres="-"
+  if [ ! -f "$mrep" ]; then
+    crash="yes (no report, gradle exit $STATUS_RUN)"
+  else
+    pipeline="$(sed -n 's/^external pack (natural world): pipeline=//p' "$mrep" | head -1)"
+    [ -z "$pipeline" ] && pipeline="$(sed -n 's/^external pack [^:]*: pipeline=//p' "$mrep" | head -1)"
+    [ -n "$pipeline" ] && [ "$pipeline" != "null" ] && loaded="yes"
+    cov="$(sed -n 's/^pack: terrain coverage=//p' "$mrep" | head -1)"; cov="${cov:--}"
+    testres="$(grep '^result:' "$mrep" | tail -1 | cut -c1-120)"
+    [ -z "$testres" ] && crash="yes (report incomplete, gradle exit $STATUS_RUN)"
+  fi
+  if [ -f "$mlog" ]; then
+    grep -q 'Crash report saved\|Exception in thread "main"' "$mlog" && crash="yes (see $mlog)"
+    ntrans="$(grep -c 'gbuffers program .* replaces' "$mlog")"
+    nfail="$(grep -c 'could not be translated for Metal' "$mlog")"
+    nnotrun="$(sed -n 's/.*programs not executed: //p' "$mlog" | head -1)"
+    # one entry per distinct reason with a count; "failed to translate (<program>: <reason>)" collapses to the reason
+    missing="$(sed -n 's/.*Unsupported shader pack feature: //p' "$mlog" \
+      | sed -e 's/^[A-Za-z0-9_]*: failed to translate ([^:]*: \(.*\)); vanilla shader used.*/translation failed: \1/' \
+            -e 's/^\([A-Za-z0-9_]*\): \(mipmapped.*\)/\2 [\1]/' \
+      | sort | uniq -c | sort -rn \
+      | awk '{n=$1; $1=""; sub(/^ /,""); printf "%s%s%s", (NR>1?"; ":""), (n>1?n "x ":""), substr($0,1,140)}')"
+  fi
+  shot="$RESULTS_DIR/$tag-metal-natural.png"; [ -f "$shot" ] || shot="(none)"
+
+  status="works"
+  if [ "$loaded" = no ] || [[ "$crash" == yes* ]]; then status="fails"
+  elif [ -n "$missing" ] || [ "$nfail" -gt 0 ] || [ -n "$nnotrun" ]; then status="partial"; fi
+  if [ "$cov" != "-" ] && awk -v c="$cov" 'BEGIN{exit !(c<0.30)}'; then
+    [ "$status" = works ] && status="partial"; missing="${missing:+$missing; }low terrain coverage"
+  fi
+
+  refshot=""
+  if [ "$REFERENCE" = 1 ]; then
+    echo "=== $zip on OPENGL ($(date +%H:%M:%S)) ==="
+    run_one "$zip" OPENGL "$tag-opengl"
+    [ -f "$RESULTS_DIR/$tag-opengl-natural.png" ] && refshot="; OpenGL reference: $RESULTS_DIR/$tag-opengl-natural.png"
+  fi
+  notes="pipeline ${pipeline##*.}; crash: $crash; test $testres; coverage $cov; $ntrans gbuffers programs translated, $nfail failed translation${nnotrun:+; not executed: $nnotrun}; screenshot: $shot$refshot; log: $mlog"
+  echo "| $zip | $version | $licence | $status | ${missing:--} | $notes |" >> "$ROWS"
+done
+
+{
+  if [ "$SMOKE" = 1 ]; then
+    echo "# Shader pack compatibility $DATE (SMOKE RUN - NOT A SWEEP)"; echo
+    echo "> Smoke run to validate tools/pack-sweep.sh on a subset of packs. Do not commit."
+  else
+    echo "# Shader pack compatibility $DATE"
+  fi
+  echo
+  echo "- Commit: $(git rev-parse --short HEAD)$(git diff --quiet || echo ' (dirty)'); machine: $(sysctl -n machdep.cpu.brand_string), macOS $(sw_vers -productVersion)"
+  echo "- Results (screenshots, logs): $RESULTS_DIR"
+  echo
+  echo "## Summary"; echo
+  echo "- Packs run: $(grep -c '^| ' "$ROWS"); works: $(grep -c '| works |' "$ROWS"); partial: $(grep -c '| partial |' "$ROWS"); fails: $(grep -c '| fails |' "$ROWS")"
+  echo "- works = loaded, no crash, no unsupported-feature report; partial = renders but features reported missing/skipped; fails = not loaded or crashed."
+  echo "- Screenshots must still be looked at: coverage only detects an empty/sky-only frame, not wrong colours."
+  echo; echo "## Table"; echo
+  echo "| Pack | Version | Licence | Status | Missing features | Notes |"
+  echo "|---|---|---|---|---|---|"
+  cat "$ROWS"
+} > "$OUT"
+echo "wrote $OUT"
