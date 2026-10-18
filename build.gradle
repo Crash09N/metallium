@@ -112,6 +112,11 @@ loom.runs.clientGameTest {
 	if (project.hasProperty('shaderpackOptions')) vmArg "-Dmetallium.gametest.shaderpackOptions=${project.property('shaderpackOptions')}"
 	if (project.hasProperty('benchSeconds')) vmArg "-Dmetallium.bench.seconds=${project.property('benchSeconds')}"
 	if (project.hasProperty('benchScene')) vmArg "-Dmetallium.bench.scene=${project.property('benchScene')}"
+	// -PbenchScene=voxy: vanilla rd during the measurement (-PvoxyRd, default 8) and Voxy's LOD distance (-PvoxyDistance)
+	if (project.hasProperty('voxyRd')) vmArg "-Dmetallium.bench.voxyRd=${project.property('voxyRd')}"
+	// -PglIcbTextures=false: textured indirect-count draws use metallium-gl's per-slot fallback instead of ICBs (A/B)
+	if (project.hasProperty('glIcbTextures')) vmArg "-Dmetallium.gl.icbTextures=${project.property('glIcbTextures')}"
+	if (project.hasProperty('voxyDistance')) vmArg "-Dmetallium.bench.voxyDistance=${project.property('voxyDistance')}"
 	if (project.hasProperty('perfCounters')) vmArg '-Dmetallium.perfCounters=true'
 	// -PglMods=voxy (with -PwithGl): retarget these mods' GL calls to metallium-gl; -PglFailFast=false logs instead of throwing.
 	if (project.hasProperty('glMods')) vmArg "-Dmetallium.gl.mods=${project.property('glMods')}"
@@ -211,6 +216,14 @@ if (project.hasProperty('withDH')) {
 	dependencies {
 		gametestRuntimeOnly "maven.modrinth:sodium:${project.sodium_version}"
 		gametestRuntimeOnly 'maven.modrinth:distanthorizons:TGgEbP9A'
+	}
+}
+
+// ./gradlew runClientGameTest -PwithBobby  → Bobby 5.2.16 (client-side chunk cache, LGPL-3.0; test-only runtime
+// dependency). Alone (vanilla renderer) or with -PwithSodium / -PwithVoxy=<jar> -PwithGl.
+if (project.hasProperty('withBobby')) {
+	dependencies {
+		gametestRuntimeOnly 'maven.modrinth:bobby:J7YnfCss' // 5.2.16+mc26.3
 	}
 }
 
