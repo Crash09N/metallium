@@ -187,6 +187,8 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
     private static final String[] GBUFFER_PACK_FILES = {"gbuffers_terrain.vsh", "gbuffers_terrain.fsh", "composite.vsh", "composite.fsh"};
     private static final String SHADOW_PACK = "metallium-shadowpack";
     private static final String[] SHADOW_PACK_FILES = {"gbuffers_terrain.vsh", "gbuffers_terrain.fsh", "shadow.vsh", "shadow.fsh", "composite.vsh", "composite.fsh"};
+    private static final String COMPUTE_PACK = "metallium-computepack";
+    private static final String[] COMPUTE_PACK_FILES = {"shaders.properties", "setup.csh", "composite.csh", "composite1.csh", "composite2.vsh", "composite2.fsh"};
 
     /**
      * Iris shader packs (needs -PwithIris): with a fixed view, compares a shaders-off screenshot with one taken with the
@@ -210,6 +212,7 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
             installTestPack(context, TEST_PACK, TEST_PACK_FILES);
             installTestPack(context, GBUFFER_PACK, GBUFFER_PACK_FILES);
             installTestPack(context, SHADOW_PACK, SHADOW_PACK_FILES);
+            installTestPack(context, COMPUTE_PACK, COMPUTE_PACK_FILES);
         } catch (IOException e) {
             failures.add("could not install test shader pack: " + e);
             return;
@@ -228,6 +231,7 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
         checkGbufferMarker(context.takeScreenshot("metallium-iris-gbufferpack"));
 
         shadowPackScenario(context, world);
+        computePackScenario(context);
 
         String external = externalPack(context);
         if (external != null) {
@@ -301,6 +305,53 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
         } catch (IOException e) {
             failures.add("could not analyse shadow screenshots: " + e);
         }
+    }
+
+    /**
+     * Stage 5: the compute test pack's setup pass fills an SSBO, composite.csh writes its colour into the left half of
+     * colortex2 (colorimg2) and counts every pixel with an image atomic, the compute-only composite1.csh checks counter,
+     * SSBO and {@code .length()} and paints colortex3 green or red, composite2.fsh (colortex2 mipmapped) shows: top band
+     * = that verdict, bottom band = green if the smallest mip of colortex2 averages to half magenta, middle = magenta
+     * on the left half only.
+     */
+    private void computePackScenario(ClientGameTestContext context) {
+        line("iris compute test pack: pipeline=" + context.computeOnClient(client -> irisSelectPack(COMPUTE_PACK, true)));
+        context.waitTicks(60);
+        clearChat(context);
+        Path shot = context.takeScreenshot("metallium-iris-computepack");
+        try {
+            java.awt.image.BufferedImage image = javax.imageio.ImageIO.read(shot.toFile());
+            double verdict = colorFraction(image, 0.02, 0.08, 0.05, 0.95, 0x00FF00);
+            double mips = colorFraction(image, 0.92, 0.98, 0.05, 0.95, 0x00FF00);
+            double left = magentaFraction(image, 0.30, 0.70, 0.05, 0.45);
+            double right = magentaFraction(image, 0.30, 0.70, 0.55, 0.95);
+            line(String.format("iris compute test pack: verdict band green=%.2f, mipmap band green=%.2f, magenta left half=%.2f, right half=%.2f",
+                    verdict, mips, left, right));
+            if (verdict < 0.90 || mips < 0.90 || left < 0.90 || right > 0.10) {
+                failures.add(String.format("compute/SSBO/image/mipmap test pack check failed (verdict %.2f, mips %.2f, left %.2f, right %.2f)", verdict, mips, left, right));
+            }
+        } catch (IOException e) {
+            failures.add("could not analyse compute pack screenshot: " + e);
+        }
+    }
+
+    /** Fraction of pixels (in a screen-relative box, y from the top) within 40 per channel of {@code rgb}. */
+    private static double colorFraction(java.awt.image.BufferedImage image, double fromY, double toY, double fromX, double toX, int rgb) {
+        int w = image.getWidth();
+        int h = image.getHeight();
+        int total = 0;
+        int match = 0;
+        for (int y = (int) (h * fromY); y < (int) (h * toY); y += 2) {
+            for (int x = (int) (w * fromX); x < (int) (w * toX); x += 2) {
+                int c = image.getRGB(x, y);
+                total++;
+                if (Math.abs(((c >> 16) & 0xFF) - ((rgb >> 16) & 0xFF)) < 40 && Math.abs(((c >> 8) & 0xFF) - ((rgb >> 8) & 0xFF)) < 40
+                        && Math.abs((c & 0xFF) - (rgb & 0xFF)) < 40) {
+                    match++;
+                }
+            }
+        }
+        return (double) match / Math.max(1, total);
     }
 
     private static void installTestPack(ClientGameTestContext context, String pack, String[] files) throws IOException {

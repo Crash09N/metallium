@@ -131,8 +131,51 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
     private boolean failed;
     private WorldRenderingPhase phase = WorldRenderingPhase.NONE;
 
-    private record Pass(String name, PostProgram program, int[] drawBuffers, ImmutableSet<Integer> readsAlt) {
+    /**
+     * One entry of a pass list. {@code program} is null for a compute-only entry ({@code compositeN.csh} without
+     * {@code compositeN.fsh}); {@code computes} run before the fragment pass with the same flip state (Iris's
+     * {@code CompositeRenderer}); {@code mipmapped}: buffers whose mip chain is generated right before the pass;
+     * {@code shadow}: a shadowcomp pass (draw buffers are shadowcolor buffers).
+     */
+    private record Pass(String name, @org.jspecify.annotations.Nullable PostProgram program, int[] drawBuffers, ImmutableSet<Integer> readsAlt,
+                        List<ComputePass> computes, ImmutableSet<Integer> mipmapped, boolean shadow) {
+        Pass(final String name, final PostProgram program, final int[] drawBuffers, final ImmutableSet<Integer> readsAlt) {
+            this(name, program, drawBuffers, readsAlt, List.of(), ImmutableSet.of(), false);
+        }
+
+        Pass with(final List<ComputePass> computes, final ImmutableSet<Integer> mipmapped, final boolean shadow) {
+            return new Pass(name, program, drawBuffers, readsAlt, computes, mipmapped, shadow);
+        }
+
+        void close() {
+            if (program != null) {
+                program.close();
+            }
+            computes.forEach(ComputePass::close);
+        }
     }
+
+    // ---- stage 5: compute passes, images, SSBOs
+    /** Iris's {@code setup} programs: once after pipeline creation and after every resize. */
+    private final List<ComputePass> setupComputes = new ArrayList<>();
+    /** {@code shadow.csh} etc. ({@code ProgramSet.getShadowCompute}): every frame before the shadow pass. */
+    private final List<ComputePass> shadowComputes = new ArrayList<>();
+    /** {@code final.csh}: before the final pass. */
+    private final List<ComputePass> finalComputes = new ArrayList<>();
+    /** shadowcomp passes (fragment and compute), after the shadow pass. */
+    private final List<Pass> shadowcomp = new ArrayList<>();
+    private ImmutableSet<Integer> shadowcompFlipped = ImmutableSet.of();
+    @org.jspecify.annotations.Nullable
+    private MetalCompute compute;
+    @org.jspecify.annotations.Nullable
+    private final StorageBuffers storageBuffers;
+    @org.jspecify.annotations.Nullable
+    private final CustomImages customImages;
+    private boolean setupPending = true;
+    private boolean imagesFresh = true;
+    private int computeCount;
+    private final GpuSampler linearNoMip;
+    private final GpuSampler nearestNoMip;
 
     public MetalPostPipeline(final ProgramSet programSet) {
         this.programSet = programSet;
@@ -146,6 +189,8 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
         this.linear = device.createSampler(AddressMode.CLAMP_TO_EDGE, AddressMode.CLAMP_TO_EDGE, FilterMode.LINEAR, FilterMode.LINEAR, 1, OptionalDouble.empty());
         this.nearest = device.createSampler(AddressMode.CLAMP_TO_EDGE, AddressMode.CLAMP_TO_EDGE, FilterMode.NEAREST, FilterMode.NEAREST, 1, OptionalDouble.empty());
         this.linearRepeat = device.createSampler(AddressMode.REPEAT, AddressMode.REPEAT, FilterMode.LINEAR, FilterMode.LINEAR, 1, OptionalDouble.empty());
+        this.linearNoMip = device.createSampler(AddressMode.CLAMP_TO_EDGE, AddressMode.CLAMP_TO_EDGE, FilterMode.LINEAR, FilterMode.LINEAR, 1, OptionalDouble.of(0.0));
+        this.nearestNoMip = device.createSampler(AddressMode.CLAMP_TO_EDGE, AddressMode.CLAMP_TO_EDGE, FilterMode.NEAREST, FilterMode.NEAREST, 1, OptionalDouble.of(0.0));
         ByteBuffer vertices = quadVertices();
         try {
             this.quad = device.createBuffer(() -> "iris fullscreen quad", GpuBuffer.USAGE_VERTEX, vertices);
@@ -172,17 +217,31 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
         RenderTarget main = Minecraft.getInstance().gameRenderer.mainRenderTarget();
         targets.resize(main.width, main.height);
 
+        var bufferObjects = programSet.getPack().getBufferObjects();
+        this.storageBuffers = bufferObjects.isEmpty() ? null : new StorageBuffers(bufferObjects, main.width, main.height);
+        var imageInfos = programSet.getPack().getIrisCustomImages();
+        this.customImages = imageInfos.isEmpty() ? null : new CustomImages(imageInfos, main.width, main.height);
+
         BufferFlipper flipper = new BufferFlipper();
-        build(flipper, ProgramArrayId.Begin, TextureStage.BEGIN, "begin_pre", begin);
-        build(flipper, ProgramArrayId.Prepare, TextureStage.PREPARE, "prepare_pre", prepare);
+        build(flipper, ProgramArrayId.Begin, TextureStage.BEGIN, "begin_pre", begin, false);
+        build(flipper, ProgramArrayId.Prepare, TextureStage.PREPARE, "prepare_pre", prepare, false);
         this.sceneWritesAlt = flipper.snapshot();
-        build(flipper, ProgramArrayId.Deferred, TextureStage.DEFERRED, "deferred_pre", deferred);
+        build(flipper, ProgramArrayId.Deferred, TextureStage.DEFERRED, "deferred_pre", deferred, false);
         this.translucentWritesAlt = flipper.snapshot();
-        build(flipper, ProgramArrayId.Composite, TextureStage.COMPOSITE_AND_FINAL, "composite_pre", composite);
+        build(flipper, ProgramArrayId.Composite, TextureStage.COMPOSITE_AND_FINAL, "composite_pre", composite, false);
         this.finalReadsAlt = flipper.snapshot();
         this.finalPass = programSet.get(ProgramId.Final)
                 .map(source -> compilePass(source, TextureStage.COMPOSITE_AND_FINAL, finalReadsAlt, new int[0], List.of(main.getColorTexture().getFormat())))
                 .orElse(null);
+        programSet.get(ProgramId.Final).ifPresent(source -> source.getDirectives().getMipmappedBuffers().forEach(targets::requireMipmaps));
+        finalComputes.addAll(compileComputes(programSet.getFinalCompute(), TextureStage.COMPOSITE_AND_FINAL));
+        setupComputes.addAll(compileComputes(programSet.getSetup(), TextureStage.SETUP));
+        if (useShadows) {
+            shadowComputes.addAll(compileComputes(programSet.getShadowCompute(), TextureStage.GBUFFERS_AND_SHADOW));
+            BufferFlipper shadowFlipper = new BufferFlipper();
+            build(shadowFlipper, ProgramArrayId.ShadowComposite, TextureStage.SHADOWCOMP, "shadowcomp_pre", shadowcomp, true);
+            this.shadowcompFlipped = shadowFlipper.snapshot();
+        }
 
         this.gbuffers = useGbuffers ? new GbufferState(this, programSet) : null;
         if (gbuffers != null) {
@@ -195,36 +254,55 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
         String summary = "Metal shader pipeline: "
                 + (shadowRenderer != null ? "shadow " + shadowTargets.resolution + "px (" + gbuffers.shadowAttachmentSummary() + ") + " : "")
                 + (gbuffers != null ? "gbuffers (" + gbuffers.attachmentSummary() + ") + " : "")
-                + (begin.size() + prepare.size() + deferred.size() + composite.size()) + " fullscreen passes" + (finalPass != null ? " + final" : "");
+                + (shadowcomp.size() + begin.size() + prepare.size() + deferred.size() + composite.size()) + " fullscreen passes" + (finalPass != null ? " + final" : "")
+                + (computeCount > 0 ? " + " + computeCount + " compute" : "")
+                + (storageBuffers != null ? " + SSBOs" : "") + (customImages != null ? " + custom images" : "");
         MetalliumIris.LOGGER.info("[metallium-iris] {}", summary);
         reportToChat(summary);
     }
 
     // ---------------------------------------------------------------------------------------------- construction
 
-    private void build(final BufferFlipper flipper, final ProgramArrayId id, final TextureStage stage, final String preFlipsName, final List<Pass> out) {
+    private void build(final BufferFlipper flipper, final ProgramArrayId id, final TextureStage stage, final String preFlipsName, final List<Pass> out,
+                       final boolean shadow) {
         directives.getExplicitFlips(preFlipsName).forEach((buffer, flip) -> {
             if (flip) {
                 flipper.flip(buffer);
             }
         });
         ProgramSource[] sources = programSet.getComposite(id);
-        for (ProgramSource source : sources) {
+        ComputeSource[][] computes = programSet.getCompute(id);
+        int count = Math.max(sources.length, computes == null ? 0 : computes.length);
+        for (int i = 0; i < count; i++) {
+            ProgramSource source = i < sources.length ? sources[i] : null;
+            ImmutableSet<Integer> flipped = flipper.snapshot();
+            List<ComputePass> passComputes = compileComputes(computes != null && i < computes.length ? computes[i] : null, stage);
             if (source == null || !source.isValid()) {
+                // Iris's ComputeOnlyPass: the computes run, nothing is drawn or flipped.
+                if (!passComputes.isEmpty()) {
+                    out.add(new Pass(passComputes.getFirst().name, null, new int[0], flipped, passComputes, ImmutableSet.of(), shadow));
+                }
                 continue;
             }
-            ImmutableSet<Integer> flipped = flipper.snapshot();
             ProgramDirectives programDirectives = source.getDirectives();
             int[] drawBuffers = programDirectives.getDrawBuffers();
             List<GpuFormat> formats = new ArrayList<>();
             for (int buffer : drawBuffers) {
-                formats.add(targets.format(buffer));
+                formats.add(shadow ? shadowTargets.colorFormat(buffer) : targets.format(buffer));
+            }
+            ImmutableSet<Integer> mipmapped = shadow ? ImmutableSet.of() : programDirectives.getMipmappedBuffers();
+            mipmapped.forEach(targets::requireMipmaps);
+            if (shadow && !programDirectives.getMipmappedBuffers().isEmpty()) {
+                problems.add(source.getName() + ": mipmapped shadowcolor buffers not supported yet (sampled without mipmaps)");
             }
             Pass pass = compilePass(source, stage, flipped, drawBuffers, formats);
             if (pass == null) {
+                if (!passComputes.isEmpty()) {
+                    out.add(new Pass(source.getName(), null, new int[0], flipped, passComputes, ImmutableSet.of(), shadow));
+                }
                 continue;
             }
-            out.add(pass);
+            out.add(pass.with(passComputes, mipmapped, shadow));
             ImmutableMap<Integer, Boolean> explicitFlips = programDirectives.getExplicitFlips();
             for (int buffer : drawBuffers) {
                 if (explicitFlips.get(buffer) != Boolean.FALSE) {
@@ -246,9 +324,6 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
             return null;
         }
         ProgramDirectives programDirectives = source.getDirectives();
-        if (!programDirectives.getMipmappedBuffers().isEmpty()) {
-            problems.add(name + ": mipmapped buffers not supported yet (sampled without mipmaps)");
-        }
         if (programDirectives.getViewportScale().scale() != 1.0f) {
             problems.add(name + ": viewport scale not supported yet (rendered at full size)");
         }
@@ -269,6 +344,219 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
             MetalliumIris.LOGGER.warn("[metallium-iris] Program {} could not be translated for Metal", name, e);
             return null;
         }
+    }
+
+    /** Stage 5: the lazily created Metal compute host (also used for mipmap generation). */
+    private MetalCompute compute() {
+        if (compute == null) {
+            compute = new MetalCompute();
+        }
+        return compute;
+    }
+
+    private List<ComputePass> compileComputes(final ComputeSource @org.jspecify.annotations.Nullable [] sources, final TextureStage stage) {
+        List<ComputePass> out = new ArrayList<>();
+        if (sources == null) {
+            return out;
+        }
+        for (ComputeSource source : sources) {
+            if (source == null || source.getSource().isEmpty()) {
+                continue;
+            }
+            String name = source.getName();
+            try {
+                String glsl = TransformPatcher.patchCompute(name, source.getSource().get(), stage, getTextureMap(), getTextureOverrides(stage));
+                ComputePass pass = ComputePass.compile(source, glsl, compute(), this::validateComputeResource);
+                CommonUniforms.addDynamicUniforms(pass.uniforms, FogMode.OFF);
+                customUniforms.assignTo(pass.uniforms);
+                customUniforms.mapholderToPass(pass.uniforms, pass);
+                out.add(pass);
+                computeCount++;
+            } catch (Exception | LinkageError e) {
+                String message = e.getMessage() == null ? e.toString() : e.getMessage().lines().findFirst().orElse(e.toString());
+                problems.add(name + ": compute shader failed to translate (" + message + ")");
+                MetalliumIris.LOGGER.warn("[metallium-iris] Compute program {} could not be translated for Metal", name, e);
+            }
+        }
+        return out;
+    }
+
+    /** Compile-time check that a kernel resource has an Iris binding; marks colortex/shadowcolor buffers as images. */
+    private void validateComputeResource(final dev.metallium.shaders.ComputeTranslator.Resource resource) {
+        String name = resource.name();
+        switch (resource.kind()) {
+            case STORAGE_IMAGE -> {
+                int color = suffixIndex(name, "colorimg");
+                if (color >= 0 && color < PostTargets.COUNT && name.startsWith("colorimg")) {
+                    targets.requireStorage(color);
+                    return;
+                }
+                int shadowColor = suffixIndex(name, "shadowcolorimg");
+                if (shadowColor >= 0 && shadowColor < ShadowTargets.COLOR_COUNT) {
+                    shadowTargets.requireStorage(shadowColor);
+                    return;
+                }
+                if (customImages != null && customImages.image(name) != null) {
+                    return;
+                }
+                throw new IllegalArgumentException("image '" + name + "' has no Iris binding (colorimgN, shadowcolorimgN or a custom image)");
+            }
+            case SAMPLED_TEXTURE -> {
+                boolean custom = customImages != null && customImages.sampler(name) != null;
+                if (!custom && resource.dimension() != 0 && resource.dimension() != 1 && resource.dimension() != 4) {
+                    throw new IllegalArgumentException("sampler '" + name + "' has dimension " + resource.dimension() + " (custom textures are not supported yet)");
+                }
+            }
+            default -> {
+            }
+        }
+    }
+
+    private static int suffixIndex(final String name, final String prefix) {
+        return name.startsWith(prefix) ? parseIndex(name.substring(prefix.length())) : -1;
+    }
+
+    /** Resolves kernel resources for one dispatch: colortex/colorimg by the pass's flip state, shadowcolor by {@code shadowFlipped}. */
+    private final class ComputeBindings implements ComputePass.Resolver {
+        private final ImmutableSet<Integer> readsAlt;
+        private final ImmutableSet<Integer> shadowFlipped;
+
+        ComputeBindings(final ImmutableSet<Integer> readsAlt, final ImmutableSet<Integer> shadowFlipped) {
+            this.readsAlt = readsAlt;
+            this.shadowFlipped = shadowFlipped;
+        }
+
+        @Override
+        public io.github.kokodio.metaljvm.metal.MTLTexture image(final dev.metallium.shaders.ComputeTranslator.Resource resource) {
+            String name = resource.name();
+            int color = suffixIndex(name, "colorimg");
+            if (color >= 0 && name.startsWith("colorimg")) {
+                return dev.metallium.backend.MetalliumInterop.metalTexture(targets.get(color).texture(readsAlt.contains(color)), true);
+            }
+            int shadowColor = suffixIndex(name, "shadowcolorimg");
+            if (shadowColor >= 0) {
+                return dev.metallium.backend.MetalliumInterop.metalTexture(shadowTargets.color(shadowColor).texture(shadowFlipped.contains(shadowColor)), true);
+            }
+            return java.util.Objects.requireNonNull(customImages).image(name).texture;
+        }
+
+        @Override
+        public io.github.kokodio.metaljvm.metal.MTLTexture texture(final dev.metallium.shaders.ComputeTranslator.Resource resource) {
+            String name = resource.name();
+            if (customImages != null && customImages.sampler(name) != null) {
+                return customImages.sampler(name).texture;
+            }
+            return dev.metallium.backend.MetalliumInterop.metalTexture(sampledTexture(name), false);
+        }
+
+        private GpuTexture sampledTexture(final String name) {
+            RenderTarget main = Minecraft.getInstance().gameRenderer.mainRenderTarget();
+            int colortex = colortexIndex(name);
+            if (colortex >= 0) {
+                return targets.get(colortex).texture(readsAlt.contains(colortex));
+            }
+            switch (name) {
+                case "depthtex0", "gdepthtex" -> {
+                    return main.getDepthTexture();
+                }
+                case "depthtex1" -> {
+                    return gbuffers != null ? gbuffers.depthNoTranslucents().texture() : main.getDepthTexture();
+                }
+                case "depthtex2" -> {
+                    return gbuffers != null ? gbuffers.depthNoHand().texture() : main.getDepthTexture();
+                }
+                case "noisetex" -> {
+                    return noise;
+                }
+                case "shadowtex0", "shadowtex0HW", "shadow", "watershadow" -> {
+                    return shadowTargets.depth;
+                }
+                case "shadowtex1", "shadowtex1HW" -> {
+                    return shadowTargets.depthNoTranslucents;
+                }
+                default -> {
+                }
+            }
+            int shadowColor = name.equals("shadowcolor") ? 0 : suffixIndex(name, "shadowcolor");
+            if (shadowColor >= 0 && shadowColor < ShadowTargets.COLOR_COUNT) {
+                PostTargets.Target target = shadowTargets.colorIfPresent(shadowColor);
+                return target != null ? target.texture(shadowFlipped.contains(shadowColor)) : white;
+            }
+            if (warnedSamplers.add("compute " + name)) {
+                MetalliumIris.LOGGER.info("[metallium-iris] Compute sampler '{}' has no Iris binding; colortex0 is bound like in GL", name);
+            }
+            return targets.get(0).texture(readsAlt.contains(0));
+        }
+
+        @Override
+        public io.github.kokodio.metaljvm.metal.MTLSamplerState sampler(final dev.metallium.shaders.ComputeTranslator.Resource resource) {
+            MetalCompute host = compute();
+            String name = resource.name();
+            if (resource.depth()) {
+                return host.compareLinear;
+            }
+            if (customImages != null && customImages.sampler(name) != null) {
+                return customImages.sampler(name).integer() ? host.nearestClamp : host.linearClamp;
+            }
+            if (name.equals("noisetex")) {
+                return host.linearRepeat;
+            }
+            int colortex = colortexIndex(name);
+            if (colortex >= 0) {
+                return targets.get(colortex).integer ? host.nearestClamp : host.linearClamp;
+            }
+            if (name.startsWith("depthtex") || name.equals("gdepthtex") || name.startsWith("shadowtex")) {
+                return host.nearestClamp;
+            }
+            return host.linearClamp;
+        }
+
+        @Override
+        public io.github.kokodio.metaljvm.metal.@org.jspecify.annotations.Nullable MTLBuffer storageBuffer(final int index) {
+            return storageBuffers != null ? storageBuffers.get(index) : null;
+        }
+    }
+
+    private void runComputes(final List<ComputePass> passes, final ComputeBindings bindings, final float width, final float height) {
+        for (ComputePass pass : passes) {
+            pass.uniforms.update();
+            customUniforms.push(pass);
+            pass.dispatch(compute(), bindings, width, height);
+        }
+    }
+
+    /**
+     * Stage 5, start of a frame (Iris's beginLevelRendering): custom image clears, shadow computes, and the setup
+     * programs once after creation or a resize.
+     */
+    private void beginComputeFrame(final RenderTarget main) {
+        targets.resetMips();
+        if (customImages != null) {
+            if (imagesFresh) {
+                customImages.clearAll(compute());
+                imagesFresh = false;
+            } else {
+                customImages.clearPerFrame(compute());
+            }
+        }
+        if (shadowRenderer != null && !shadowComputes.isEmpty()) {
+            runComputes(shadowComputes, new ComputeBindings(ImmutableSet.of(), ImmutableSet.of()), shadowTargets.resolution, shadowTargets.resolution);
+        }
+        if (setupPending) {
+            setupPending = false;
+            runComputes(setupComputes, new ComputeBindings(ImmutableSet.of(), ImmutableSet.of()), 1, 1);
+        }
+    }
+
+    /** The main target changed size: relative SSBOs/images follow, setup programs run again (as in Iris). */
+    private void onResize(final RenderTarget main) {
+        if (storageBuffers != null) {
+            storageBuffers.resize(main.width, main.height);
+        }
+        if (customImages != null) {
+            customImages.resize(main.width, main.height, compute());
+        }
+        setupPending = true;
     }
 
     static boolean hasShadowPrograms(final ProgramSet programSet) {
@@ -304,18 +592,10 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
                     : " gbuffers/shadow programs are not executed yet on Metal (the vanilla scene is used)"));
             MetalliumIris.LOGGER.warn("[metallium-iris] programs not executed: {}", String.join(", ", skipped));
         }
-        if (programSet.getComposite(ProgramArrayId.ShadowComposite).length > 0
-                && java.util.Arrays.stream(programSet.getComposite(ProgramArrayId.ShadowComposite)).anyMatch(s -> s != null && s.isValid())) {
-            problems.add("shadowcomp passes are not executed yet on Metal");
-        }
-        int computes = countComputes(programSet.getSetup()) + countComputes(programSet.getShadowCompute()) + countComputes(programSet.getFinalCompute());
-        for (ProgramArrayId id : ProgramArrayId.values()) {
-            for (ComputeSource[] array : programSet.getCompute(id)) {
-                computes += countComputes(array);
-            }
-        }
-        if (computes > 0) {
-            problems.add(computes + " compute shaders are not supported yet on Metal (skipped)");
+        if (!shadowsRun && (java.util.Arrays.stream(programSet.getComposite(ProgramArrayId.ShadowComposite)).anyMatch(s -> s != null && s.isValid())
+                || countComputes(programSet.getShadowCompute()) > 0
+                || java.util.Arrays.stream(programSet.getCompute(ProgramArrayId.ShadowComposite)).anyMatch(a -> countComputes(a) > 0))) {
+            problems.add("shadowcomp/shadow compute passes need the shadow pass (not executed)");
         }
     }
 
@@ -404,11 +684,14 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
         }
         try {
             RenderTarget main = Minecraft.getInstance().gameRenderer.mainRenderTarget();
-            targets.resize(main.width, main.height);
+            if (targets.resize(main.width, main.height)) {
+                onResize(main);
+            }
             updateNotifier.onNewFrame();
             customUniforms.update();
             state.beginFrame(main);
             clearBuffers();
+            beginComputeFrame(main);
             for (Pass pass : begin) {
                 draw(pass, main);
             }
@@ -438,6 +721,7 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
             try {
                 state.prepareShadowAttachments();
                 shadowRenderer.renderShadows(levelRenderer, camera);
+                runShadowcomp(main);
             } catch (RuntimeException e) {
                 net.irisshaders.iris.shadows.ShadowRenderer.ACTIVE = false;
                 fail("shadow pass failed", e);
@@ -448,6 +732,22 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
             runPrepare(main);
         } catch (RuntimeException e) {
             fail("prepare passes failed", e);
+        }
+    }
+
+    /** Iris's ShadowCompositeRenderer: fullscreen/compute passes over the shadow targets after the shadow pass. */
+    private void runShadowcomp(final RenderTarget main) {
+        if (shadowcomp.isEmpty()) {
+            return;
+        }
+        GbufferPasses.suspend();
+        try {
+            for (Pass pass : shadowcomp) {
+                draw(pass, main);
+            }
+        } finally {
+            GbufferPasses.resume();
+            shadowTargets.setFlipped(shadowcompFlipped);
         }
     }
 
@@ -559,10 +859,12 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
             if (gbuffers == null) {
                 if (targets.resize(main.width, main.height)) {
                     MetalliumIris.LOGGER.debug("[metallium-iris] post targets resized to {}x{}", main.width, main.height);
+                    onResize(main);
                 }
                 updateNotifier.onNewFrame();
                 customUniforms.update();
                 clearBuffers();
+                beginComputeFrame(main);
                 for (Pass pass : begin) {
                     draw(pass, main);
                 }
@@ -570,7 +872,7 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
                     draw(pass, main);
                 }
                 // The vanilla/Sodium scene takes the place of the gbuffers output in colortex0.
-                copy(main.getColorTexture(), main.getColorTextureView(), targets.get(0).texture(sceneWritesAlt.contains(0)), targets.get(0).view(sceneWritesAlt.contains(0)));
+                copy(main.getColorTexture(), main.getColorTextureView(), targets.get(0).texture(sceneWritesAlt.contains(0)), targets.get(0).attachment(sceneWritesAlt.contains(0)));
                 for (Pass pass : deferred) {
                     draw(pass, main);
                 }
@@ -579,6 +881,9 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
                 draw(pass, main);
             }
             PostTargets.Target colortex0 = targets.get(0);
+            if (!finalComputes.isEmpty()) {
+                runComputes(finalComputes, new ComputeBindings(finalReadsAlt, shadowTargets.flipped()), main.width, main.height);
+            }
             if (finalPass != null) {
                 draw(finalPass, main);
             } else {
@@ -599,14 +904,35 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
     }
 
     private void draw(final Pass pass, final RenderTarget main) {
+        if (!pass.computes.isEmpty()) {
+            ComputeBindings bindings = pass.shadow
+                    ? new ComputeBindings(ImmutableSet.of(), pass.readsAlt)
+                    : new ComputeBindings(pass.readsAlt, shadowTargets.flipped());
+            float size = shadowTargets.resolution;
+            runComputes(pass.computes, bindings, pass.shadow ? size : main.width, pass.shadow ? size : main.height);
+        }
         PostProgram program = pass.program;
+        if (program == null) {
+            return;
+        }
+        for (int buffer : pass.mipmapped) {
+            generateMipmaps(buffer, pass.readsAlt.contains(buffer));
+        }
+        if (pass.shadow) {
+            // shadowcolor samplers of this pass read by its own flip state (bindShadowSampler asks ShadowTargets).
+            shadowTargets.setFlipped(pass.readsAlt);
+        }
         program.uniforms.update();
         customUniforms.push(program);
         CommandEncoder encoder = RenderSystem.getDevice().createCommandEncoder();
         Map<String, GpuBufferSlice> blocks = uploadBlocks(encoder, program);
         // Create (and clear) buffers used for the first time before the render pass opens.
         for (int buffer : pass.drawBuffers) {
-            targets.get(buffer);
+            if (pass.shadow) {
+                shadowTargets.color(buffer);
+            } else {
+                targets.get(buffer);
+            }
         }
         for (String sampler : program.samplers) {
             int colortex = colortexIndex(sampler);
@@ -621,7 +947,8 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
         } else {
             for (int buffer : pass.drawBuffers) {
                 // Writes go to the texture the pass does not read from (Iris's flip model).
-                descriptor.withColorAttachment(targets.get(buffer).view(!pass.readsAlt.contains(buffer)));
+                PostTargets.Target target = pass.shadow ? shadowTargets.color(buffer) : targets.get(buffer);
+                descriptor.withColorAttachment(target.attachment(!pass.readsAlt.contains(buffer)));
             }
         }
         try (RenderPass renderPass = encoder.createRenderPass(descriptor.build())) {
@@ -630,10 +957,24 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
             blocks.forEach(renderPass::setUniform);
             for (String sampler : program.samplers) {
                 if (!bindShadowSampler(renderPass, sampler, program.compareSamplers.contains(sampler), program.samplers.contains("watershadow"), false)) {
-                    bindSampler(renderPass, sampler, pass.readsAlt, main);
+                    bindSampler(renderPass, sampler, pass.shadow ? ImmutableSet.of() : pass.readsAlt, main);
                 }
             }
             renderPass.draw(6, 1, 0, 0);
+        }
+    }
+
+    /** Iris's {@code setupMipmapping}: mip chain of the texture the pass reads, then mipmapped sampling for it. */
+    private void generateMipmaps(final int buffer, final boolean alt) {
+        PostTargets.Target target = targets.get(buffer);
+        if (!target.mipmapped()) {
+            return;
+        }
+        compute().generateMipmaps(dev.metallium.backend.MetalliumInterop.metalTexture(target.texture(alt), true));
+        if (alt) {
+            target.altMips = true;
+        } else {
+            target.mainMips = true;
         }
     }
 
@@ -649,7 +990,13 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
         int colortex = colortexIndex(name);
         if (colortex >= 0) {
             PostTargets.Target target = targets.get(colortex);
-            renderPass.setUniform(name, target.view(readsAlt.contains(colortex)), target.integer ? nearest : linear);
+            boolean alt = readsAlt.contains(colortex);
+            GpuSampler sampler = target.integer ? nearest : linear;
+            if (target.mipmapped() && (target.integer || !target.mipsOn(alt))) {
+                // GL: no mipmap filtering until the buffer's mips were generated this frame (Iris's turnOnMips).
+                sampler = target.integer ? nearestNoMip : linearNoMip;
+            }
+            renderPass.setUniform(name, target.view(alt), sampler);
             return;
         }
         switch (name) {
@@ -740,7 +1087,7 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
         CommandEncoder encoder = RenderSystem.getDevice().createCommandEncoder();
         int width = Math.min(source.getWidth(0), destination.getWidth(0));
         int height = Math.min(source.getHeight(0), destination.getHeight(0));
-        if (source.getFormat() == destination.getFormat()) {
+        if (source.getFormat() == destination.getFormat() && source.getMipLevels() == destination.getMipLevels()) {
             encoder.copyTextureToTexture(source, destination, 0, 0, 0, 0, 0, width, height);
             return;
         }
@@ -909,13 +1256,28 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
         if (gbuffers != null) {
             gbuffers.close();
         }
-        begin.forEach(pass -> pass.program.close());
-        prepare.forEach(pass -> pass.program.close());
-        deferred.forEach(pass -> pass.program.close());
-        composite.forEach(pass -> pass.program.close());
+        begin.forEach(Pass::close);
+        prepare.forEach(Pass::close);
+        deferred.forEach(Pass::close);
+        composite.forEach(Pass::close);
+        shadowcomp.forEach(Pass::close);
         if (finalPass != null) {
-            finalPass.program.close();
+            finalPass.close();
         }
+        setupComputes.forEach(ComputePass::close);
+        shadowComputes.forEach(ComputePass::close);
+        finalComputes.forEach(ComputePass::close);
+        if (storageBuffers != null) {
+            storageBuffers.close();
+        }
+        if (customImages != null) {
+            customImages.close();
+        }
+        if (compute != null) {
+            compute.close();
+        }
+        linearNoMip.close();
+        nearestNoMip.close();
         copyPrograms.values().forEach(PostProgram::close);
         targets.close();
         shadowTargets.close();

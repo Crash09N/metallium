@@ -43,6 +43,8 @@ final class ShadowTargets implements AutoCloseable {
     /** shadowcolor buffers flipped by shadowcomp passes (read from alt afterwards). */
     private com.google.common.collect.ImmutableSet<Integer> flipped = com.google.common.collect.ImmutableSet.of();
     private boolean everCleared;
+    /** Stage 5: shadowcolor buffers bound as {@code shadowcolorimgN} by compute passes. */
+    private final java.util.BitSet storage = new java.util.BitSet();
 
     ShadowTargets(final PackShadowDirectives directives) {
         this.directives = directives;
@@ -82,21 +84,25 @@ final class ShadowTargets implements AutoCloseable {
     PostTargets.Target color(final int index) {
         PostTargets.Target target = colors[index];
         if (target == null) {
-            GpuFormat format = colorFormat(index);
-            target = new PostTargets.Target(format);
-            GpuDevice device = RenderSystem.getDevice();
-            int usage = GpuTexture.USAGE_TEXTURE_BINDING | GpuTexture.USAGE_RENDER_ATTACHMENT | GpuTexture.USAGE_COPY_DST | GpuTexture.USAGE_COPY_SRC;
-            target.main = device.createTexture("iris shadowcolor" + index, usage, format, resolution, resolution, 1, 1);
-            target.alt = device.createTexture("iris shadowcolor" + index + " alt", usage, format, resolution, resolution, 1, 1);
-            target.mainView = device.createTextureView(target.main);
-            target.altView = device.createTextureView(target.alt);
+            target = PostTargets.create("iris shadowcolor" + index, colorFormat(index), resolution, resolution, storage.get(index), false);
             colors[index] = target;
-            CommandEncoder encoder = device.createCommandEncoder();
+            CommandEncoder encoder = RenderSystem.getDevice().createCommandEncoder();
             org.joml.Vector4f clear = colorSettings(index).getClearColor();
             encoder.clearColorTexture(target.main, new org.joml.Vector4f(clear));
             encoder.clearColorTexture(target.alt, new org.joml.Vector4f(clear));
         }
         return target;
+    }
+
+    /** Must be called before the buffer is first used. */
+    void requireStorage(final int index) {
+        if (index >= 0 && index < COLOR_COUNT) {
+            storage.set(index);
+        }
+    }
+
+    com.google.common.collect.ImmutableSet<Integer> flipped() {
+        return flipped;
     }
 
     PostTargets.@Nullable Target colorIfPresent(final int index) {

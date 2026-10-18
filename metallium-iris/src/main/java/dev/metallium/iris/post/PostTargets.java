@@ -24,6 +24,10 @@ final class PostTargets implements AutoCloseable {
     private final Target[] targets = new Target[COUNT];
     private int width;
     private int height;
+    /** Stage 5: buffers bound as {@code colorimgN} by a compute pass (need shader-write usage). */
+    private final java.util.BitSet storage = new java.util.BitSet();
+    /** Stage 5: buffers some pass lists in {@code colortexNMipmapEnabled} (allocated with a full mip chain). */
+    private final java.util.BitSet mipmapped = new java.util.BitSet();
 
     PostTargets(final PackRenderTargetDirectives directives) {
         this.settings = directives.getRenderTargetSettings();
@@ -36,6 +40,12 @@ final class PostTargets implements AutoCloseable {
         GpuTexture alt;
         GpuTextureView mainView;
         GpuTextureView altView;
+        /** Mip level 0 only (render attachments); the same as the views when the buffer has no mipmaps. */
+        GpuTextureView mainAttachment;
+        GpuTextureView altAttachment;
+        /** Stage 5: mipmaps were generated for main/alt this frame (Iris's {@code turnOnMips}). */
+        boolean mainMips;
+        boolean altMips;
 
         Target(final GpuFormat format) {
             this.format = format;
@@ -51,7 +61,23 @@ final class PostTargets implements AutoCloseable {
             return alt ? this.alt : main;
         }
 
+        GpuTextureView attachment(final boolean alt) {
+            return alt ? altAttachment : mainAttachment;
+        }
+
+        boolean mipmapped() {
+            return main.getMipLevels() > 1;
+        }
+
+        boolean mipsOn(final boolean alt) {
+            return alt ? altMips : mainMips;
+        }
+
         void close() {
+            if (mainAttachment != mainView) {
+                mainAttachment.close();
+                altAttachment.close();
+            }
             mainView.close();
             altView.close();
             main.close();
@@ -70,21 +96,60 @@ final class PostTargets implements AutoCloseable {
         return true;
     }
 
+    /** Must be called before the buffer is first used (at pipeline construction). */
+    void requireStorage(final int index) {
+        if (index >= 0 && index < COUNT) {
+            storage.set(index);
+        }
+    }
+
+    void requireMipmaps(final int index) {
+        if (index >= 0 && index < COUNT) {
+            mipmapped.set(index);
+        }
+    }
+
     Target get(final int index) {
         Target target = targets[index];
         if (target == null) {
-            GpuFormat format = format(index);
-            target = new Target(format);
-            GpuDevice device = RenderSystem.getDevice();
-            int usage = GpuTexture.USAGE_TEXTURE_BINDING | GpuTexture.USAGE_RENDER_ATTACHMENT | GpuTexture.USAGE_COPY_DST | GpuTexture.USAGE_COPY_SRC;
-            target.main = device.createTexture("iris colortex" + index, usage, format, width, height, 1, 1);
-            target.alt = device.createTexture("iris colortex" + index + " alt", usage, format, width, height, 1, 1);
-            target.mainView = device.createTextureView(target.main);
-            target.altView = device.createTextureView(target.alt);
+            target = create("iris colortex" + index, format(index), width, height, storage.get(index), mipmapped.get(index));
             targets[index] = target;
             clear(index, true);
         }
         return target;
+    }
+
+    /** A main/alt pair; {@code storage}: also bindable as a compute image, {@code mips}: with a full mip chain. */
+    static Target create(final String label, final GpuFormat format, final int width, final int height, final boolean storage, final boolean mips) {
+        Target target = new Target(format);
+        GpuDevice device = RenderSystem.getDevice();
+        int usage = GpuTexture.USAGE_TEXTURE_BINDING | GpuTexture.USAGE_RENDER_ATTACHMENT | GpuTexture.USAGE_COPY_DST | GpuTexture.USAGE_COPY_SRC;
+        if (storage) {
+            usage |= dev.metallium.backend.MetalliumInterop.TEXTURE_USAGE_STORAGE;
+        }
+        int levels = mips ? 32 - Integer.numberOfLeadingZeros(Math.max(1, Math.max(width, height))) : 1;
+        target.main = device.createTexture(label, usage, format, width, height, 1, levels);
+        target.alt = device.createTexture(label + " alt", usage, format, width, height, 1, levels);
+        target.mainView = device.createTextureView(target.main);
+        target.altView = device.createTextureView(target.alt);
+        if (levels > 1) {
+            target.mainAttachment = device.createTextureView(target.main, 0, 1);
+            target.altAttachment = device.createTextureView(target.alt, 0, 1);
+        } else {
+            target.mainAttachment = target.mainView;
+            target.altAttachment = target.altView;
+        }
+        return target;
+    }
+
+    /** Start of a frame: mipmaps of the previous frame are stale (Iris resets the sampling mode per frame). */
+    void resetMips() {
+        for (Target target : targets) {
+            if (target != null) {
+                target.mainMips = false;
+                target.altMips = false;
+            }
+        }
     }
 
     /** The buffer if it exists already (creating one clears it, which is not possible inside a render pass). */

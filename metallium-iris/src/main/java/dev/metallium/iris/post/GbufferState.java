@@ -292,7 +292,7 @@ final class GbufferState implements AutoCloseable {
             ShadowTargets shadow = owner.shadowTargets();
             RenderPassDescriptor.Builder builder = RenderPassDescriptor.builder(original.label());
             for (int buffer : shadowAttachments) {
-                builder.withColorAttachment(shadow.color(buffer).view(false), Optional.empty());
+                builder.withColorAttachment(shadow.color(buffer).attachment(false), Optional.empty());
             }
             builder.withDepthAttachment(shadow.depthView, java.util.OptionalDouble.empty());
             return builder.build();
@@ -300,7 +300,7 @@ final class GbufferState implements AutoCloseable {
         RenderPassDescriptor.Builder builder = RenderPassDescriptor.builder(original.label());
         for (int buffer : attachments) {
             PostTargets.Target target = owner.targets().get(buffer);
-            builder.withColorAttachment(target.view(writesAlt.contains(buffer)), buffer == 0 ? clearColor : Optional.empty());
+            builder.withColorAttachment(target.attachment(writesAlt.contains(buffer)), buffer == 0 ? clearColor : Optional.empty());
         }
         if (original.depthAttachment() != null) {
             builder.withDepthAttachment(original.depthAttachment().textureView(), original.depthAttachment().clearValue());
