@@ -290,6 +290,21 @@ class GlslProgramTranslatorTest {
     }
 
     @Test
+    void vulkanOnlyKeywordsAreValidGlIdentifiers() throws Exception {
+        // Photon's bicubic helper: "sampler" is a type keyword only in Vulkan GLSL.
+        Map<Stage, String> sources = new EnumMap<>(Stage.class);
+        sources.put(Stage.FRAGMENT, """
+                #version 330 core
+                uniform sampler2D colortex0;
+                layout(location = 0) out vec4 color;
+                vec4 fetch(sampler2D sampler, vec2 coord) { return textureLod(sampler, coord, 0.0); }
+                void main() { color = fetch(colortex0, vec2(0.5)); }
+                """);
+        Program program = GlslProgramTranslator.translate("bicubic", sources);
+        assertTrue(names(program.stages().get(Stage.FRAGMENT), ResourceBinding.Kind.SAMPLED_TEXTURE).contains("colortex0"));
+    }
+
+    @Test
     void geometryLikeErrorsAreReported() {
         Map<Stage, String> sources = new EnumMap<>(Stage.class);
         sources.put(Stage.FRAGMENT, "#version 330 core\nvoid main() { undefined_call(); }\n");

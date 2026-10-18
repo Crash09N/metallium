@@ -518,7 +518,14 @@ public final class GlslProgramTranslator {
         return source.substring(lineStart, Math.min(source.length(), declarationStart + 1)).contains("layout");
     }
 
-    static ByteBuffer compileToSpirv(final String programName, final Stage stage, final String source) throws TranslationException {
+    /**
+     * Identifiers that are reserved words only in Vulkan GLSL (separate sampler objects), which glslang applies with
+     * Vulkan rules even when relaxed; GL shaders may use them as names (Photon: {@code sampler2D sampler}).
+     */
+    private static final Pattern VULKAN_ONLY_KEYWORDS = Pattern.compile("\\b(sampler|samplerShadow)\\b");
+
+    static ByteBuffer compileToSpirv(final String programName, final Stage stage, final String glslSource) throws TranslationException {
+        String source = VULKAN_ONLY_KEYWORDS.matcher(glslSource).replaceAll("metallium_$1");
         if (!VERSION.matcher(source).find()) {
             throw new TranslationException(programName + "/" + stage + ": missing #version directive");
         }

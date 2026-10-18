@@ -133,6 +133,28 @@ public final class ComputeTranslator {
         }
     }
 
+    private static final java.util.regex.Pattern THREADGROUP_TYPE =
+            java.util.regex.Pattern.compile("threadgroup\\s+((?:spvUnsafeArray<[^;&()]*>)|(?:float3|int3|uint3|half3))(\\s*&?\\s*\\w)");
+    private static final java.util.regex.Pattern VECTOR3 = java.util.regex.Pattern.compile("\\b(float3|int3|uint3|half3)\\b");
+
+    /**
+     * GLSL {@code shared vec3} arrays become {@code float3} in MSL, which has a 16-byte stride, so packs sized for GL's
+     * 32 KiB of shared memory with 12-byte vectors (Photon's sky SH reduction: {@code vec3[256][9]}) exceed Metal's
+     * 32 KiB threadgroup limit. This rewrites the 3-component vectors of threadgroup declarations (and of threadgroup
+     * parameters, which use the same type) to {@code packed_*3}, which MSL supports in loads, stores and arithmetic.
+     * Hosts call it when the Metal compiler reports too much threadgroup memory.
+     */
+    public static String packThreadgroupVectors(final String msl) {
+        java.util.regex.Matcher m = THREADGROUP_TYPE.matcher(msl);
+        StringBuilder out = new StringBuilder();
+        while (m.find()) {
+            String type = VECTOR3.matcher(m.group(1)).replaceAll("packed_$1");
+            m.appendReplacement(out, java.util.regex.Matcher.quoteReplacement("threadgroup " + type + m.group(2)));
+        }
+        m.appendTail(out);
+        return out.toString();
+    }
+
     private static boolean isDefaultBlock(final long compiler, final SpvcReflectedResource ubo, final GlslProgramTranslator.SpirvStage stage) {
         String name = ubo.nameString();
         return name.equals(stage.defaultBlockName()) || name.endsWith("gl_DefaultUniformBlock")

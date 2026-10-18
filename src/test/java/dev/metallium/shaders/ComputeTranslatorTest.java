@@ -70,6 +70,37 @@ class ComputeTranslatorTest {
         }
     }
 
+    @Test
+    void largeSharedVec3ArraysFitThreadgroupMemory() throws Exception {
+        // Photon's sky SH reduction: shared vec3[256][9] is 36 KiB as float3 (16-byte stride), over Metal's 32 KiB.
+        String source = """
+                #version 430 core
+                layout(local_size_x = 256) in;
+                layout(rgba16f) writeonly uniform image2D colorimg4;
+                shared vec3 shared_memory[256][9];
+                void main() {
+                    uint i = gl_LocalInvocationID.x;
+                    for (uint j = 0u; j < 9u; ++j) shared_memory[i][j] = vec3(float(i + j));
+                    barrier();
+                    for (uint stride = 128u; stride > 0u; stride /= 2u) {
+                        if (i < stride) for (uint j = 0u; j < 9u; ++j) shared_memory[i][j] += shared_memory[i + stride][j];
+                        barrier();
+                    }
+                    if (i < 9u) imageStore(colorimg4, ivec2(i, 0), vec4(shared_memory[0][i], 1.0));
+                }
+                """;
+        Map<Stage, SpirvStage> stages = GlslProgramTranslator.compileToSpirv("deferred4_a", Map.of(Stage.COMPUTE, source));
+        SpirvStage stage = stages.get(Stage.COMPUTE);
+        try {
+            Kernel kernel = ComputeTranslator.toMsl(stage);
+            String packed = ComputeTranslator.packThreadgroupVectors(kernel.msl());
+            assertTrue(packed.contains("threadgroup spvUnsafeArray<spvUnsafeArray<packed_float3, 9>, 256> shared_memory"), packed);
+            compileWithMetalIfAvailable(new Kernel(packed, kernel.entryPoint(), kernel.localSize(), kernel.resources(), kernel.bufferSizeIndex()));
+        } finally {
+            MemoryUtil.memFree(stage.spirv());
+        }
+    }
+
     private static Resource find(Kernel kernel, String nameSuffix, Kind kind) {
         return kernel.resources().stream().filter(r -> r.kind() == kind && r.name().endsWith(nameSuffix)).findFirst().orElse(null);
     }
