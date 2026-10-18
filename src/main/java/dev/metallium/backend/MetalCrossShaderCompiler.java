@@ -22,6 +22,7 @@ import org.lwjgl.system.MemoryUtil;
 import org.lwjgl.util.spvc.Spv;
 import org.lwjgl.util.spvc.Spvc;
 import org.lwjgl.util.spvc.SpvcEntryPoint;
+import org.lwjgl.util.spvc.SpvcMslConstexprSampler;
 import org.lwjgl.util.spvc.SpvcMslResourceBinding;
 import org.lwjgl.util.spvc.SpvcMslShaderInterfaceVar2;
 import org.lwjgl.util.spvc.SpvcReflectedResource;
@@ -89,7 +90,7 @@ final class MetalCrossShaderCompiler {
         }
 
         List<UniformDescription> uniforms = info.uniforms();
-        MetalIndices metalIndices = MetalIndices.of(uniforms);
+        MetalIndices metalIndices = MetalIndices.of(uniforms, CONSTEXPR_SAMPLERS.getOrDefault(info.name(), Map.of()));
 
         boolean enableFragDepth = info.depthStencilState() != null;
         Map<Integer, GpuFormat> attributeFormats = vertexAttributeFormats(info);
@@ -116,7 +117,7 @@ final class MetalCrossShaderCompiler {
             final boolean enableFragDepth
     ) {
         CacheKey key = CacheKey.of("spirv-msl").add(MSL_VERSION_4_0).add(spirv).add(metalIndices.byBinding()).add(metalIndices.pushConstants())
-                .add(enableFragDepth).add(attributeFormats.size());
+                .add(enableFragDepth).add(attributeFormats.size()).add(metalIndices.constexprKey());
         new TreeMap<>(attributeFormats).forEach((location, format) -> key.add(location).add(format.name()));
         return key.hex();
     }
@@ -339,7 +340,7 @@ final class MetalCrossShaderCompiler {
                 checkSpvc(Spvc.spvc_compiler_install_compiler_options(compiler, options), "spvc_compiler_install_compiler_options");
 
                 registerIntegerInputConversions(stack, compiler, attributeFormats);
-                remapResourceBindings(stack, compiler, metalIndices.byBinding());
+                remapResourceBindings(stack, compiler, metalIndices);
 
                 PointerBuffer pActiveSet = stack.mallocPointer(1);
                 checkSpvc(Spvc.spvc_compiler_get_active_interface_variables(compiler, pActiveSet), "spvc_compiler_get_active_interface_variables");
@@ -382,7 +383,37 @@ final class MetalCrossShaderCompiler {
                 "spvc_compiler_rename_entry_point");
     }
 
-    private static void remapResourceBindings(final MemoryStack stack, final long compiler, final int[] metalIndices) throws ShaderCompileException {
+    /**
+     * Metal has 16 sampler states per stage but more texture slots. Hosts that bind more than 16 textures in one pipeline
+     * (shader packs) name, per pipeline, the sampler each texture always uses; those textures then sample through an
+     * MSL {@code constexpr sampler} (Metal counts identical constexpr samplers once), and textures at Metal index 16 and
+     * above are bound without a sampler state. Keyed by pipeline name.
+     */
+    static final java.util.concurrent.ConcurrentHashMap<String, Map<String, MetalGpuSampler>> CONSTEXPR_SAMPLERS = new java.util.concurrent.ConcurrentHashMap<>();
+    static final int MAX_SAMPLER_STATES = 16;
+
+    private static void remapConstexprSampler(final MemoryStack stack, final long compiler, final int id, final MetalGpuSampler sampler) throws ShaderCompileException {
+        SpvcMslConstexprSampler constexpr = SpvcMslConstexprSampler.malloc(stack);
+        Spvc.spvc_msl_constexpr_sampler_init(constexpr);
+        int min = sampler.getMinFilter() == com.mojang.renderpearl.api.textures.FilterMode.LINEAR ? Spvc.SPVC_MSL_SAMPLER_FILTER_LINEAR : Spvc.SPVC_MSL_SAMPLER_FILTER_NEAREST;
+        int mag = sampler.getMagFilter() == com.mojang.renderpearl.api.textures.FilterMode.LINEAR ? Spvc.SPVC_MSL_SAMPLER_FILTER_LINEAR : Spvc.SPVC_MSL_SAMPLER_FILTER_NEAREST;
+        boolean mips = sampler.getMaxLod().orElse(1000.0) > 0.25;
+        int u = address(sampler.getAddressModeU());
+        constexpr.min_filter(min).mag_filter(mag)
+                .mip_filter(!mips ? Spvc.SPVC_MSL_SAMPLER_MIP_FILTER_NONE : min == Spvc.SPVC_MSL_SAMPLER_FILTER_LINEAR ? Spvc.SPVC_MSL_SAMPLER_MIP_FILTER_LINEAR : Spvc.SPVC_MSL_SAMPLER_MIP_FILTER_NEAREST)
+                .s_address(u).t_address(address(sampler.getAddressModeV())).r_address(u);
+        checkSpvc(Spvc.spvc_compiler_msl_remap_constexpr_sampler(compiler, id, constexpr), "spvc_compiler_msl_remap_constexpr_sampler");
+    }
+
+    private static int address(final com.mojang.renderpearl.api.textures.AddressMode mode) {
+        return switch (mode) {
+            case REPEAT -> Spvc.SPVC_MSL_SAMPLER_ADDRESS_REPEAT;
+            default -> Spvc.SPVC_MSL_SAMPLER_ADDRESS_CLAMP_TO_EDGE;
+        };
+    }
+
+    private static void remapResourceBindings(final MemoryStack stack, final long compiler, final MetalIndices indices) throws ShaderCompileException {
+        int[] metalIndices = indices.byBinding();
         PointerBuffer pResources = stack.mallocPointer(1);
         checkSpvc(Spvc.spvc_compiler_create_shader_resources(compiler, pResources), "spvc_compiler_create_shader_resources");
         int stage = Spvc.spvc_compiler_get_execution_model(compiler);
@@ -403,6 +434,12 @@ final class MetalCrossShaderCompiler {
                     continue;
                 }
                 int metalIndex = metalIndices[binding];
+                if (type == Spvc.SPVC_RESOURCE_TYPE_SAMPLED_IMAGE && !indices.constexprSamplers().isEmpty()) {
+                    MetalGpuSampler constexpr = indices.constexprSamplers().get(Spvc.spvc_compiler_get_name(compiler, id));
+                    if (constexpr != null) {
+                        remapConstexprSampler(stack, compiler, id, constexpr);
+                    }
+                }
                 SpvcMslResourceBinding resourceBinding = SpvcMslResourceBinding.malloc(stack);
                 Spvc.spvc_msl_resource_binding_init(resourceBinding);
                 resourceBinding.stage(stage)
@@ -416,15 +453,34 @@ final class MetalCrossShaderCompiler {
         }
     }
 
-    record MetalIndices(int[] byBinding, int pushConstants) {
+    record MetalIndices(int[] byBinding, int pushConstants, Map<String, MetalGpuSampler> constexprSamplers) {
+        MetalIndices(final int[] byBinding, final int pushConstants) {
+            this(byBinding, pushConstants, Map.of());
+        }
+
         static MetalIndices of(final List<UniformDescription> uniforms) {
+            return of(uniforms, Map.of());
+        }
+
+        /** Cache-key part for {@link #constexprSamplers} (only those that can apply: index >= 16). */
+        String constexprKey() {
+            if (constexprSamplers.isEmpty()) {
+                return "";
+            }
+            StringBuilder key = new StringBuilder();
+            new TreeMap<>(constexprSamplers).forEach((name, sampler) -> key.append(name).append('=').append(sampler.getMinFilter()).append(sampler.getMagFilter())
+                    .append(sampler.getAddressModeU()).append(sampler.getAddressModeV()).append(sampler.getMaxLod().orElse(1000.0) > 0.25).append(';'));
+            return key.toString();
+        }
+
+        static MetalIndices of(final List<UniformDescription> uniforms, final Map<String, MetalGpuSampler> constexprSamplers) {
             int[] byBinding = new int[uniforms.size()];
             int buffers = 0;
             int textures = 0;
             for (int i = 0; i < byBinding.length; i++) {
                 byBinding[i] = uniforms.get(i).type() == UniformType.UNIFORM_BUFFER ? buffers++ : textures++;
             }
-            return new MetalIndices(byBinding, buffers);
+            return new MetalIndices(byBinding, buffers, constexprSamplers);
         }
     }
 

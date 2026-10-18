@@ -77,11 +77,21 @@ final class PostProgram implements AutoCloseable {
 
     static PostProgram compile(final String name, final String vertex, final String fragment, final List<GpuFormat> colorFormats)
             throws GlslProgramTranslator.TranslationException, UnsupportedProgramException, ShaderCompileException {
-        return compile(name, vertex, fragment, colorFormats, null);
+        return compile(name, vertex, fragment, colorFormats, null, null);
+    }
+
+    /** Metal's sampler-state limit per shader stage (the backend numbers textures per pipeline). */
+    static final int MAX_SAMPLERS = 16;
+
+    /** The sampler a texture is always bound with in this program, or null if it varies. */
+    @FunctionalInterface
+    interface FixedSamplers {
+        com.mojang.renderpearl.api.textures.@org.jspecify.annotations.Nullable GpuSampler fixedSampler(String name);
     }
 
     static PostProgram compile(final String name, final String vertex, final String fragment, final List<GpuFormat> colorFormats,
-                               final StorageBindings.@org.jspecify.annotations.Nullable Validator validator)
+                               final StorageBindings.@org.jspecify.annotations.Nullable Validator validator,
+                               final @org.jspecify.annotations.Nullable FixedSamplers fixedSamplers)
             throws GlslProgramTranslator.TranslationException, UnsupportedProgramException, ShaderCompileException {
         StorageBindings storage = new StorageBindings();
         Map<Stage, String> sources = new EnumMap<>(Stage.class);
@@ -97,6 +107,7 @@ final class PostProgram implements AutoCloseable {
             List<BindGroupLayout.UniformDescription> uniforms = new ArrayList<>();
             Set<String> samplers = new LinkedHashSet<>();
             Set<String> compareSamplers = new LinkedHashSet<>();
+            List<java.util.Map.Entry<SpvModule.Reflection.Descriptor, String>> assigned = new ArrayList<>();
             SPIRVModule vertexModule = null;
             // Fragment first: Metal allows 16 samplers per stage but the backend numbers textures per pipeline, so the
             // stage with most samplers gets the low indices.
@@ -148,9 +159,12 @@ final class PostProgram implements AutoCloseable {
                     }
                     descriptor.binding(binding);
                     descriptor.descriptorSetIndex(0);
+                    assigned.add(java.util.Map.entry(descriptor, uniformName));
                 }
                 shaders.add(new BackendRenderPipeline.CreateInfo.Shader(name + "." + type.getName(), "main", module));
             }
+
+            uniforms = shareSamplers(name, uniforms, bindings, assigned, fixedSamplers);
 
             List<BackendRenderPipeline.CreateInfo.AttribBinding> attribs = new ArrayList<>();
             for (SpvModule.Reflection.InterfaceVariable input : vertexModule.reflect().inputs()) {
@@ -196,6 +210,55 @@ final class PostProgram implements AutoCloseable {
             modules.forEach(SPIRVModule::close);
             stages.values().stream().filter(stage -> !owned.contains(stage.spirv())).forEach(stage -> MemoryUtil.memFree(stage.spirv()));
         }
+    }
+
+    /**
+     * Metal has 16 sampler states per stage but more texture slots (Bliss's composite4 samples 20 textures). With more
+     * than 16 textures, the backend compiles the sampler of every texture with a fixed sampler into the shader as a
+     * {@code constexpr sampler} (identical ones count once); they move to the end of the binding list so the textures
+     * with varying samplers keep sampler slots below 16.
+     *
+     * @return the (possibly reordered) uniform list; {@code bindings} and the SPIR-V decorations are updated in place
+     */
+    private static List<BindGroupLayout.UniformDescription> shareSamplers(final String name, final List<BindGroupLayout.UniformDescription> uniforms,
+                                                                          final Object2IntOpenHashMap<String> bindings,
+                                                                          final List<java.util.Map.Entry<SpvModule.Reflection.Descriptor, String>> assigned,
+                                                                          final @org.jspecify.annotations.Nullable FixedSamplers fixedSamplers)
+            throws UnsupportedProgramException {
+        String pipelineName = "iris/" + name;
+        long textures = uniforms.stream().filter(u -> u.type() != UniformType.UNIFORM_BUFFER).count();
+        if (textures <= MAX_SAMPLERS) {
+            dev.metallium.backend.MetalliumInterop.setConstexprSamplers(pipelineName, Map.of());
+            return uniforms;
+        }
+        Map<String, com.mojang.renderpearl.api.textures.GpuSampler> fixed = new java.util.HashMap<>();
+        List<BindGroupLayout.UniformDescription> first = new ArrayList<>();
+        List<BindGroupLayout.UniformDescription> last = new ArrayList<>();
+        for (BindGroupLayout.UniformDescription uniform : uniforms) {
+            var sampler = uniform.type() == UniformType.UNIFORM_BUFFER || fixedSamplers == null ? null : fixedSamplers.fixedSampler(uniform.name());
+            if (sampler != null) {
+                fixed.put(uniform.name(), sampler);
+                last.add(uniform);
+            } else {
+                first.add(uniform);
+            }
+        }
+        long varying = first.stream().filter(u -> u.type() != UniformType.UNIFORM_BUFFER).count();
+        if (varying > MAX_SAMPLERS) {
+            throw new UnsupportedProgramException("uses " + textures + " textures, " + varying + " of them with varying samplers; Metal allows "
+                    + MAX_SAMPLERS + " samplers per stage");
+        }
+        List<BindGroupLayout.UniformDescription> ordered = new ArrayList<>(first);
+        ordered.addAll(last);
+        bindings.clear();
+        for (int i = 0; i < ordered.size(); i++) {
+            bindings.put(ordered.get(i).name(), i);
+        }
+        for (java.util.Map.Entry<SpvModule.Reflection.Descriptor, String> entry : assigned) {
+            entry.getKey().binding(bindings.getInt(entry.getValue()));
+        }
+        dev.metallium.backend.MetalliumInterop.setConstexprSamplers(pipelineName, fixed);
+        return ordered;
     }
 
     @Override

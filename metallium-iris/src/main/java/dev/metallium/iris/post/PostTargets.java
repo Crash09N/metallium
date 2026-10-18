@@ -217,6 +217,16 @@ final class PostTargets implements AutoCloseable {
         return index == 1 ? new Vector4f(1, 1, 1, 1) : new Vector4f(0, 0, 0, 0);
     }
 
+    /** An integer-format buffer (sampled with nearest filtering). */
+    boolean integer(final int index) {
+        return new Target(format(index)).integer;
+    }
+
+    /** Some pass asked for mipmaps of this buffer ({@code colortexNMipmapEnabled}) so far. */
+    boolean mipmapsRequested(final int index) {
+        return index >= 0 && index < COUNT && mipmapped.get(index);
+    }
+
     GpuFormat format(final int index) {
         PackRenderTargetDirectives.RenderTargetSettings s = settings.get(index);
         return toGpuFormat(s != null ? s.getInternalFormat() : InternalTextureFormat.RGBA8);

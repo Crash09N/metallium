@@ -213,7 +213,7 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
     private static final String[] COMPUTE_PACK_FILES = {"shaders.properties", "setup.csh", "composite.csh", "composite1.csh", "composite2.vsh", "composite2.fsh",
             "composite3.vsh", "composite3.fsh"};
     private static final String TEX_PACK = "metallium-texpack";
-    private static final String[] TEX_PACK_FILES = {"shaders.properties", "composite.vsh", "composite.fsh", "stripes.png", "volume.dat", "noise.png"};
+    private static final String[] TEX_PACK_FILES = {"shaders.properties", "composite.vsh", "composite.fsh", "composite1.vsh", "composite1.fsh", "stripes.png", "volume.dat", "noise.png"};
 
     /**
      * Iris shader packs (needs -PwithIris): with a fixed view, compares a shaders-off screenshot with one taken with the
@@ -510,6 +510,12 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
                 if (green < 0.90) {
                     failures.add(String.format("custom texture test pack: %s check failed (green %.2f)", names[i], green));
                 }
+            }
+            // composite1.fsh: 18 textures in one pass (more than Metal's 16 sampler states), bottom band.
+            double many = colorFraction(image, 0.92, 0.98, 0.05, 0.95, 0x00FF00);
+            result.append(String.format(" 18-texture pass=%.2f", many));
+            if (many < 0.90) {
+                failures.add(String.format("custom texture test pack: 18-texture pass check failed (green %.2f)", many));
             }
             line(result.toString());
         } catch (IOException e) {

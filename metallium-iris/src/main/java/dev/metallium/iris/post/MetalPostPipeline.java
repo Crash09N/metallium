@@ -342,7 +342,7 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
             transformed = TransformPatcher.patchComposite(name,
                     source.getVertexSource().orElseThrow(), null, source.getFragmentSource().orElseThrow(), stage, getTextureMap(), getTextureOverrides(stage));
             PostProgram program = PostProgram.compile(name, transformed.get(PatchShaderType.VERTEX), transformed.get(PatchShaderType.FRAGMENT), formats,
-                    storageValidator());
+                    storageValidator(), sampler -> fixedSampler(stage, sampler));
             program.stage = stage;
             CommonUniforms.addDynamicUniforms(program.uniforms, FogMode.OFF);
             customUniforms.assignTo(program.uniforms);
@@ -423,21 +423,53 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
      * {@code stage}; false if {@code name} is none. Checked before the built-in samplers, as Iris's sampler interceptor does.
      */
     boolean bindCustomTexture(final RenderPass pass, final TextureStage stage, final String name) {
+        return bindCustomTexture(pass, stage, name, name);
+    }
+
+    private boolean bindCustomTexture(final RenderPass pass, final TextureStage stage, final String uniform, final String name) {
         CustomTextures.Texture texture = customTextures.lookup(stage, name);
         if (texture == null) {
             return false;
         }
-        pass.setUniform(name, texture.view(), customTextures.sampler(texture));
+        pass.setUniform(uniform, texture.view(), customTextures.sampler(texture));
         return true;
+    }
+
+    /**
+     * The sampler {@link #bindSampler} always uses for {@code name} in {@code stage}, or null if it can vary (mipmapped
+     * or integer buffers, shadow maps): such textures can share a Metal sampler state when a pass has more than 16.
+     */
+    private @org.jspecify.annotations.Nullable GpuSampler fixedSampler(final TextureStage stage, final String name) {
+        CustomTextures.Texture custom = customTextures.lookup(stage, name);
+        if (custom != null) {
+            return customTextures.sampler(custom);
+        }
+        CustomImages.Image image = customImages != null ? customImages.sampler(name) : null;
+        if (image != null) {
+            return image.integer() ? nearest : linear;
+        }
+        int colortex = colortexIndex(name);
+        if (colortex >= 0) {
+            return targets.integer(colortex) || targets.mipmapsRequested(colortex) ? null : linear;
+        }
+        return switch (name) {
+            case "depthtex0", "gdepthtex", "depthtex1", "depthtex2" -> nearest;
+            case "noisetex" -> linearRepeat;
+            default -> name.startsWith("shadow") || name.equals("watershadow") || name.equals("metallium_source") ? null : linear;
+        };
     }
 
     /** A custom image's sampler ({@code image.<name> = <sampler> ...}) in a render pass; false if {@code name} is none. */
     boolean bindCustomImageSampler(final RenderPass pass, final String name) {
+        return bindCustomImageSampler(pass, name, name);
+    }
+
+    private boolean bindCustomImageSampler(final RenderPass pass, final String uniform, final String name) {
         CustomImages.Image image = customImages != null ? customImages.sampler(name) : null;
         if (image == null) {
             return false;
         }
-        pass.setUniform(name, image.view, image.integer() ? nearest : linear);
+        pass.setUniform(uniform, image.view, image.integer() ? nearest : linear);
         return true;
     }
 
@@ -1145,7 +1177,7 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
                     continue;
                 }
                 if (!bindShadowSampler(renderPass, sampler, program.compareSamplers.contains(sampler), program.samplers.contains("watershadow"), false)) {
-                    bindSampler(renderPass, program.stage, sampler, pass.shadow ? ImmutableSet.of() : pass.readsAlt, main);
+                    bindSampler(renderPass, program.stage, sampler, sampler, pass.shadow ? ImmutableSet.of() : pass.readsAlt, main);
                 }
             }
             renderPass.draw(6, 1, 0, 0);
@@ -1174,8 +1206,8 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
         return slices;
     }
 
-    private void bindSampler(final RenderPass renderPass, final TextureStage stage, final String name, final ImmutableSet<Integer> readsAlt, final RenderTarget main) {
-        if (bindCustomTexture(renderPass, stage, name) || bindCustomImageSampler(renderPass, name)) {
+    private void bindSampler(final RenderPass renderPass, final TextureStage stage, final String uniform, final String name, final ImmutableSet<Integer> readsAlt, final RenderTarget main) {
+        if (bindCustomTexture(renderPass, stage, uniform, name) || bindCustomImageSampler(renderPass, uniform, name)) {
             return;
         }
         int colortex = colortexIndex(name);
@@ -1187,14 +1219,14 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
                 // GL: no mipmap filtering until the buffer's mips were generated this frame (Iris's turnOnMips).
                 sampler = target.integer ? nearestNoMip : linearNoMip;
             }
-            renderPass.setUniform(name, target.view(alt), sampler);
+            renderPass.setUniform(uniform, target.view(alt), sampler);
             return;
         }
         switch (name) {
-            case "depthtex0", "gdepthtex" -> renderPass.setUniform(name, main.getDepthTextureView(), nearest);
-            case "depthtex1" -> renderPass.setUniform(name, gbuffers != null ? gbuffers.depthNoTranslucents() : main.getDepthTextureView(), nearest);
-            case "depthtex2" -> renderPass.setUniform(name, gbuffers != null ? gbuffers.depthNoHand() : main.getDepthTextureView(), nearest);
-            case "noisetex" -> renderPass.setUniform(name, noiseView, linearRepeat);
+            case "depthtex0", "gdepthtex" -> renderPass.setUniform(uniform, main.getDepthTextureView(), nearest);
+            case "depthtex1" -> renderPass.setUniform(uniform, gbuffers != null ? gbuffers.depthNoTranslucents() : main.getDepthTextureView(), nearest);
+            case "depthtex2" -> renderPass.setUniform(uniform, gbuffers != null ? gbuffers.depthNoHand() : main.getDepthTextureView(), nearest);
+            case "noisetex" -> renderPass.setUniform(uniform, noiseView, linearRepeat);
             case "metallium_source" -> throw new IllegalStateException("copy sampler outside the copy pass");
             default -> {
                 if (name.startsWith("shadow") || name.equals("watershadow")) {
@@ -1202,7 +1234,7 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
                     if (warnedSamplers.add(name)) {
                         MetalliumIris.LOGGER.warn("[metallium-iris] Sampler '{}' needs the shadow pass (not on Metal yet); a white placeholder is bound", name);
                     }
-                    renderPass.setUniform(name, whiteView, nearest);
+                    renderPass.setUniform(uniform, whiteView, nearest);
                 } else {
                     // In GL an unassigned sampler reads texture unit 0, which Iris fills with colortex0 in fullscreen
                     // passes (IrisSamplers.addRenderTargetSamplers "default sampler").
@@ -1210,7 +1242,7 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
                         MetalliumIris.LOGGER.info("[metallium-iris] Sampler '{}' has no Iris binding in fullscreen passes; colortex0 is bound like in GL", name);
                     }
                     PostTargets.Target target = targets.get(0);
-                    renderPass.setUniform(name, target.view(readsAlt.contains(0)), linear);
+                    renderPass.setUniform(uniform, target.view(readsAlt.contains(0)), linear);
                 }
             }
         }
