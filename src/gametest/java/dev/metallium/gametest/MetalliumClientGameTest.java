@@ -234,6 +234,11 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
 
     @Override
     public void runTest(ClientGameTestContext context) {
+        // Test instances run silently (owner request): master volume 0 and music off.
+        context.runOnClient(client -> {
+            client.options.getSoundSourceOptionInstance(net.minecraft.sounds.SoundSource.MASTER).set(0.0);
+            client.options.getSoundSourceOptionInstance(net.minecraft.sounds.SoundSource.MUSIC).set(0.0);
+        });
         String backend = context.computeOnClient(client -> {
             DeviceInfo info = RenderSystem.getDevice().getDeviceInfo();
             return info.backendName() + " | " + info.name() + " | " + info.driverInfo();
