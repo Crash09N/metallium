@@ -71,6 +71,8 @@ jobs:
       - name: Run client game test on Metal
         env:
           METALLIUM_EXPECT_BACKEND: Metal
+          # Metal API validation: reports invalid bindings/formats/offsets in the log.
+          MTL_DEBUG_LAYER: '1'
         run: ./gradlew runClientGameTest --no-daemon ${{ matrix.variant == 'sodium' && '-PwithSodium' || matrix.variant == 'iris' && '-PwithIris' || '' }}
       - name: Report
         if: always()

@@ -5,6 +5,7 @@
   "priority": 1500,
   "client": [
     "GLDebugMixin",
+    "IrisDebugMixin",
     "IrisMixin",
     "IrisRenderSystemMixin",
     "MetalGpuTextureMixin",

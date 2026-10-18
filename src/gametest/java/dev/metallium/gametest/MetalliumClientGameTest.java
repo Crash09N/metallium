@@ -100,7 +100,30 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
         }
     }
 
+    /** Sodium's own section statistics (via reflection, Sodium is optional): built vs visible sections. */
+    private void sodiumStats(ClientGameTestContext context, String scene) {
+        if (!net.fabricmc.loader.api.FabricLoader.getInstance().isModLoaded("sodium")) {
+            return;
+        }
+        String stats = context.computeOnClient(client -> {
+            try {
+                Class<?> type = Class.forName("net.caffeinemc.mods.sodium.client.render.SodiumWorldRenderer");
+                Object renderer = type.getMethod("instanceNullable").invoke(null);
+                if (renderer == null) {
+                    return "no SodiumWorldRenderer";
+                }
+                Object chunks = type.getMethod("getChunksDebugString").invoke(renderer);
+                Object debug = type.getMethod("getDebugStrings", boolean.class).invoke(renderer, true);
+                return chunks + " | " + debug;
+            } catch (ReflectiveOperationException e) {
+                return "unavailable: " + e;
+            }
+        });
+        line(scene + ": sodium " + stats);
+    }
+
     private void measure(ClientGameTestContext context, String scene) {
+        sodiumStats(context, scene);
         // The gametest harness limits ticks per frame and the CI GPU is virtualised: a sanity number, not a benchmark.
         context.waitTicks(100);
         int fps = context.computeOnClient(Minecraft::getFps);
