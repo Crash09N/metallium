@@ -993,6 +993,7 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
             for (int i = 1; i <= 3; i++) {
                 context.waitTicks(400);
                 line("voxy: ingest phase " + (i * 20) + " s, " + glSummary());
+                line("voxy debug: " + context.computeOnClient(client -> voxyDebug()));
             }
             context.takeScreenshot("metallium-voxy-rd16");
             context.runOnClient(client -> client.options.renderDistance().set(4));
@@ -1005,6 +1006,7 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
             context.takeScreenshot("metallium-voxy-lods-high");
             f3Screenshot(context);
             line("voxy: final " + glSummary());
+            line("voxy debug: " + context.computeOnClient(client -> voxyDebug()));
             line(failures.isEmpty() ? "result: PASS" : "result: FAIL " + failures);
         } catch (Throwable t) {
             line("result: FAIL " + t);
@@ -1014,6 +1016,21 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
         }
         writeReport();
         Runtime.getRuntime().halt(failures.isEmpty() ? 0 : 1);
+    }
+
+    /** Voxy's own F3 debug lines (instance + render system), via reflection; render thread only. */
+    private static String voxyDebug() {
+        java.util.List<String> lines = new java.util.ArrayList<>();
+        try {
+            Object instance = Class.forName("me.cortex.voxy.commonImpl.VoxyCommon").getMethod("getInstance").invoke(null);
+            if (instance != null) instance.getClass().getMethod("addDebug", java.util.List.class).invoke(instance, lines);
+            Object render = Class.forName("me.cortex.voxy.client.core.IVoxyRenderSystemHolder").getMethod("getNullable").invoke(null);
+            if (render != null) render.getClass().getMethod("addDebugInfo", java.util.List.class).invoke(render, lines);
+            else lines.add("no render system");
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            lines.add("unavailable: " + e);
+        }
+        return String.join(" | ", lines);
     }
 
     /** metallium-gl status line + unimplemented functions seen so far (reflection: metallium-gl is optional). */
