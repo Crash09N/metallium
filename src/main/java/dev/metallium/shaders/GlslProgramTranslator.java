@@ -108,14 +108,15 @@ public final class GlslProgramTranslator {
     }
 
     /**
-     * Compiles all stages to SPIR-V (varyings located by name, as in {@link #translate}) and reflects the default
-     * uniform block layout of each stage. On failure no buffers are leaked.
+     * Compiles all stages to SPIR-V and reflects the default uniform block layout of each stage. Varyings are matched
+     * by name between the vertex and fragment stage by rewriting their {@code Location} decorations in the SPIR-V
+     * (robust against comma-separated declarations, interface qualifiers and macros, unlike a source rewrite).
+     * On failure no buffers are leaked.
      */
     public static Map<Stage, SpirvStage> compileToSpirv(final String programName, final Map<Stage, String> sources) throws TranslationException {
-        Map<Stage, String> located = assignVaryingLocations(sources);
         Map<Stage, SpirvStage> results = new EnumMap<>(Stage.class);
         try {
-            for (Map.Entry<Stage, String> entry : located.entrySet()) {
+            for (Map.Entry<Stage, String> entry : sources.entrySet()) {
                 ByteBuffer spirv = compileToSpirv(programName, entry.getKey(), entry.getValue());
                 try {
                     results.put(entry.getKey(), reflectDefaultBlock(entry.getKey(), spirv));
@@ -124,11 +125,85 @@ public final class GlslProgramTranslator {
                     throw e;
                 }
             }
+            if (results.containsKey(Stage.VERTEX) && results.containsKey(Stage.FRAGMENT)) {
+                matchVaryingsByName(programName, results.get(Stage.VERTEX).spirv(), results.get(Stage.FRAGMENT).spirv());
+            }
         } catch (TranslationException | RuntimeException e) {
             results.values().forEach(stage -> MemoryUtil.memFree(stage.spirv()));
             throw e;
         }
         return results;
+    }
+
+    private record Varying(String name, int locationWordOffset, int slots) {
+    }
+
+    /** Gives each vertex output / fragment input pair one unique location chosen by name, patching both modules. */
+    static void matchVaryingsByName(final String programName, final ByteBuffer vertex, final ByteBuffer fragment) throws TranslationException {
+        List<Varying> outputs = varyings(vertex, Spvc.SPVC_RESOURCE_TYPE_STAGE_OUTPUT);
+        List<Varying> inputs = varyings(fragment, Spvc.SPVC_RESOURCE_TYPE_STAGE_INPUT);
+        Map<String, Integer> slots = new java.util.TreeMap<>();
+        for (Varying v : outputs) {
+            slots.merge(v.name(), v.slots(), Math::max);
+        }
+        for (Varying v : inputs) {
+            if (!slots.containsKey(v.name())) {
+                throw new TranslationException(programName + ": fragment input '" + v.name() + "' is not written by the vertex stage");
+            }
+            slots.merge(v.name(), v.slots(), Math::max);
+        }
+        Map<String, Integer> locations = new java.util.HashMap<>();
+        int next = 0;
+        for (Map.Entry<String, Integer> entry : slots.entrySet()) {
+            locations.put(entry.getKey(), next);
+            next += entry.getValue();
+        }
+        IntBuffer vertexWords = vertex.asIntBuffer();
+        for (Varying v : outputs) {
+            vertexWords.put(v.locationWordOffset(), locations.get(v.name()));
+        }
+        IntBuffer fragmentWords = fragment.asIntBuffer();
+        for (Varying v : inputs) {
+            fragmentWords.put(v.locationWordOffset(), locations.get(v.name()));
+        }
+    }
+
+    /** Test hook: varying name -> SPIR-V word offset of its Location operand. */
+    static List<Map.Entry<String, Integer>> varyingsForTest(final ByteBuffer spirv, final int resourceType) throws TranslationException {
+        return varyings(spirv, resourceType).stream().map(v -> Map.entry(v.name(), v.locationWordOffset())).toList();
+    }
+
+    private static List<Varying> varyings(final ByteBuffer spirv, final int resourceType) throws TranslationException {
+        try (MemoryStack stack = MemoryStack.stackPush()) {
+            IntBuffer words = spirv.asIntBuffer();
+            PointerBuffer p = stack.mallocPointer(1);
+            check(Spvc.spvc_context_create(p), "context_create");
+            long context = p.get(0);
+            try {
+                check(Spvc.spvc_context_parse_spirv(context, words, words.remaining(), p), "parse_spirv");
+                long ir = p.get(0);
+                check(Spvc.spvc_context_create_compiler(context, Spvc.SPVC_BACKEND_NONE, ir, Spvc.SPVC_CAPTURE_MODE_TAKE_OWNERSHIP, p), "create_compiler");
+                long compiler = p.get(0);
+                check(Spvc.spvc_compiler_create_shader_resources(compiler, p), "create_shader_resources");
+                long shaderResources = p.get(0);
+                List<Varying> out = new ArrayList<>();
+                IntBuffer offset = stack.mallocInt(1);
+                for (SpvcReflectedResource resource : list(stack, shaderResources, resourceType)) {
+                    if (!Spvc.spvc_compiler_get_binary_offset_for_decoration(compiler, resource.id(), Spv.SpvDecorationLocation, offset)) {
+                        throw new TranslationException("varying " + resource.nameString() + " has no Location decoration");
+                    }
+                    long type = Spvc.spvc_compiler_get_type_handle(compiler, resource.type_id());
+                    int slots = Math.max(1, Spvc.spvc_type_get_columns(type));
+                    for (int d = 0; d < Spvc.spvc_type_get_num_array_dimensions(type); d++) {
+                        slots *= Math.max(1, Spvc.spvc_type_get_array_dimension(type, d));
+                    }
+                    out.add(new Varying(resource.nameString(), offset.get(0), slots));
+                }
+                return out;
+            } finally {
+                Spvc.spvc_context_destroy(context);
+            }
+        }
     }
 
     private static SpirvStage reflectDefaultBlock(final Stage stage, final ByteBuffer spirv) throws TranslationException {

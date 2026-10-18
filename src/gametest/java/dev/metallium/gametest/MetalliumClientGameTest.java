@@ -89,6 +89,7 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
         tryCommand(world, "weather clear");
         tryCommand(world, "gamemode spectator @a");
         context.waitTicks(40);
+        clearChat(context);
         Path off = context.takeScreenshot("metallium-iris-shaders-off");
 
         try {
@@ -106,6 +107,7 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
 
         line("iris test pack: pipeline=" + context.computeOnClient(client -> irisSelectPack(TEST_PACK, true)));
         context.waitTicks(60);
+        clearChat(context);
         Path on = context.takeScreenshot("metallium-iris-testpack");
         checkInverted(off, on);
 
@@ -127,12 +129,19 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
 
         line("iris shaders off: pipeline=" + context.computeOnClient(client -> irisSelectPack(TEST_PACK, false)));
         context.waitTicks(40);
+        clearChat(context);
         Path offAgain = context.takeScreenshot("metallium-iris-shaders-off-again");
         double same = matchFraction(off, offAgain, false);
         line(String.format("iris shaders off again: match with first shaders-off screenshot=%.2f", same));
         if (same < 0.80) {
             failures.add(String.format("shaders off after a pack differs from vanilla (match %.2f)", same));
         }
+    }
+
+    /** Chat messages (e.g. Metallium's shader-pack notices) would cover part of the compared area. */
+    private static void clearChat(ClientGameTestContext context) {
+        context.runOnClient(client -> client.gui.hud.getChat().clearMessages(false));
+        context.waitTick();
     }
 
     /** The test pack inverts colours: most pixels of {@code on} must be 255 minus the same pixel of {@code off}. */

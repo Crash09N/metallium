@@ -81,7 +81,11 @@ final class PostProgram implements AutoCloseable {
             List<BindGroupLayout.UniformDescription> uniforms = new ArrayList<>();
             Set<String> samplers = new LinkedHashSet<>();
             SPIRVModule vertexModule = null;
-            for (SpirvStage stage : stages.values()) {
+            // Fragment first: Metal allows 16 samplers per stage but the backend numbers textures per pipeline, so the
+            // stage with most samplers gets the low indices.
+            List<SpirvStage> ordered = new ArrayList<>(stages.values());
+            java.util.Collections.reverse(ordered);
+            for (SpirvStage stage : ordered) {
                 ShaderType type = stage.stage() == Stage.VERTEX ? ShaderType.VERTEX : ShaderType.FRAGMENT;
                 SPIRVModule module = new SPIRVModule(stage.spirv(), type);
                 modules.add(module);
@@ -161,9 +165,11 @@ final class PostProgram implements AutoCloseable {
                 blocks.values().forEach(PostUniforms.Block::free);
             }
             // The backend has translated the SPIR-V to MSL by now. Closing a module frees its SPIR-V buffer; stages
-            // without a module yet (early failure) are freed directly. Both maps iterate in Stage order.
+            // without a module yet (early failure) are freed directly.
+            Set<java.nio.ByteBuffer> owned = java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
+            modules.forEach(module -> owned.add(module.spv()));
             modules.forEach(SPIRVModule::close);
-            stages.values().stream().skip(modules.size()).forEach(stage -> MemoryUtil.memFree(stage.spirv()));
+            stages.values().stream().filter(stage -> !owned.contains(stage.spirv())).forEach(stage -> MemoryUtil.memFree(stage.spirv()));
         }
     }
 

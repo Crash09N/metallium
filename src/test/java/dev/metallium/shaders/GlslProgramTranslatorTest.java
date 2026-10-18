@@ -127,6 +127,48 @@ class GlslProgramTranslatorTest {
         }
     }
 
+    @Test
+    void spirvVaryingsMatchByNameWithCommaDeclarations() throws Exception {
+        String vs = """
+                #version 330 core
+                in vec3 Position;
+                flat out vec3 upVec, sunVec;
+                out vec2 texCoord;
+                out float fog[2];
+                void main() { upVec = vec3(1.0); sunVec = vec3(0.5); texCoord = Position.xy; fog[0] = 0.0; fog[1] = 1.0; gl_Position = vec4(Position, 1.0); }
+                """;
+        String fs = """
+                #version 330 core
+                in vec2 texCoord;
+                in float fog[2];
+                flat in vec3 sunVec;
+                flat in vec3 upVec;
+                layout(location = 0) out vec4 color;
+                void main() { color = vec4(texCoord, fog[1], 1.0) + vec4(sunVec + upVec, 0.0); }
+                """;
+        Map<Stage, GlslProgramTranslator.SpirvStage> stages = GlslProgramTranslator.compileToSpirv("deferred1", sources(vs, fs));
+        try {
+            Map<String, Integer> out = locations(stages.get(Stage.VERTEX).spirv(), org.lwjgl.util.spvc.Spvc.SPVC_RESOURCE_TYPE_STAGE_OUTPUT);
+            Map<String, Integer> in = locations(stages.get(Stage.FRAGMENT).spirv(), org.lwjgl.util.spvc.Spvc.SPVC_RESOURCE_TYPE_STAGE_INPUT);
+            assertEquals(out, in);
+            assertEquals(4, Set.copyOf(in.values()).size(), "unique locations: " + in);
+            // fog[2] occupies two consecutive locations: nothing else may use the second one.
+            int fog = in.get("fog");
+            assertFalse(in.containsValue(fog + 1), "array slots overlap: " + in);
+        } finally {
+            stages.values().forEach(stage -> org.lwjgl.system.MemoryUtil.memFree(stage.spirv()));
+        }
+    }
+
+    private static Map<String, Integer> locations(java.nio.ByteBuffer spirv, int resourceType) throws Exception {
+        java.nio.IntBuffer words = spirv.asIntBuffer();
+        Map<String, Integer> result = new java.util.TreeMap<>();
+        for (var varying : GlslProgramTranslator.varyingsForTest(spirv, resourceType)) {
+            result.put(varying.getKey(), words.get(varying.getValue()));
+        }
+        return result;
+    }
+
     private static GlslProgramTranslator.BlockMember member(GlslProgramTranslator.SpirvStage stage, String name) {
         return stage.defaultBlock().stream().filter(m -> m.name().equals(name)).findFirst()
                 .orElseThrow(() -> new AssertionError(name + " not in " + stage.defaultBlock()));

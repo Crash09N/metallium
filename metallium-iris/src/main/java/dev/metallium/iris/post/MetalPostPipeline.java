@@ -239,7 +239,8 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
             }
         }
         if (!skipped.isEmpty()) {
-            problems.add(skipped.size() + " gbuffers/shadow programs are not executed yet on Metal (vanilla scene is used): " + String.join(", ", skipped));
+            problems.add(skipped.size() + " gbuffers/shadow programs are not executed yet on Metal (the vanilla scene is used)");
+            MetalliumIris.LOGGER.warn("[metallium-iris] gbuffers/shadow programs not executed: {}", String.join(", ", skipped));
         }
         if (programSet.getComposite(ProgramArrayId.ShadowComposite).length > 0
                 && java.util.Arrays.stream(programSet.getComposite(ProgramArrayId.ShadowComposite)).anyMatch(s -> s != null && s.isValid())) {
@@ -393,6 +394,16 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
         customUniforms.push(program);
         CommandEncoder encoder = RenderSystem.getDevice().createCommandEncoder();
         Map<String, GpuBufferSlice> blocks = uploadBlocks(encoder, program);
+        // Create (and clear) buffers used for the first time before the render pass opens.
+        for (int buffer : pass.drawBuffers) {
+            targets.get(buffer);
+        }
+        for (String sampler : program.samplers) {
+            int colortex = colortexIndex(sampler);
+            if (colortex >= 0) {
+                targets.get(colortex);
+            }
+        }
 
         RenderPassDescriptor.Builder descriptor = RenderPassDescriptor.builder(() -> "iris " + pass.name);
         if (pass.drawBuffers.length == 0) {
@@ -434,10 +445,21 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
             case "noisetex" -> renderPass.setUniform(name, noiseView, linearRepeat);
             case "metallium_source" -> throw new IllegalStateException("copy sampler outside the copy pass");
             default -> {
-                if (warnedSamplers.add(name)) {
-                    MetalliumIris.LOGGER.warn("[metallium-iris] Sampler '{}' is not available on Metal yet; a white placeholder is bound", name);
+                if (name.startsWith("shadow") || name.equals("watershadow")) {
+                    // No shadow pass yet: a white (depth 1 / fully lit) placeholder means "no shadow".
+                    if (warnedSamplers.add(name)) {
+                        MetalliumIris.LOGGER.warn("[metallium-iris] Sampler '{}' needs the shadow pass (not on Metal yet); a white placeholder is bound", name);
+                    }
+                    renderPass.setUniform(name, whiteView, nearest);
+                } else {
+                    // In GL an unassigned sampler reads texture unit 0, which Iris fills with colortex0 in fullscreen
+                    // passes (IrisSamplers.addRenderTargetSamplers "default sampler").
+                    if (warnedSamplers.add(name)) {
+                        MetalliumIris.LOGGER.info("[metallium-iris] Sampler '{}' has no Iris binding in fullscreen passes; colortex0 is bound like in GL", name);
+                    }
+                    PostTargets.Target target = targets.get(0);
+                    renderPass.setUniform(name, target.view(readsAlt.contains(0)), linear);
                 }
-                renderPass.setUniform(name, whiteView, nearest);
             }
         }
     }
