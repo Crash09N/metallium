@@ -36,6 +36,12 @@ public final class MetalliumConfig {
     public PowerMode powerMode = PowerMode.AUTOMATIC;
     /** FPS cap for Balanced (and Automatic on battery). Low Power uses min(this, 30). */
     public int batteryFpsLimit = 60;
+    /**
+     * With Iris on Metal, shader packs do not see {@code MC_OS_MAC} (they use it to mean "Apple OpenGL 4.1: no compute,
+     * images or SSBOs" and switch features off, e.g. Complementary's colored lighting). Metal supports those features.
+     * Set to false to give packs the real OS macro again.
+     */
+    public boolean irisHideMacOs = true;
 
     public enum GraphicsEngine {
         METAL, OPENGL, VULKAN
