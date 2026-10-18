@@ -42,3 +42,8 @@ java {
 jar {
 	from('LICENSE')
 }
+
+// The adapter has no standalone dev client (it needs Iris + Sodium); use the root project's runs (-PwithIris).
+tasks.matching { it.name.startsWith('runClient') || it.name.startsWith('runServer') }.configureEach {
+	enabled = false
+}
