@@ -78,6 +78,8 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
     private static final String[] TEST_PACK_FILES = {"composite.vsh", "composite.fsh", "final.vsh", "final.fsh"};
     private static final String GBUFFER_PACK = "metallium-gbufferpack";
     private static final String[] GBUFFER_PACK_FILES = {"gbuffers_terrain.vsh", "gbuffers_terrain.fsh", "composite.vsh", "composite.fsh"};
+    private static final String SHADOW_PACK = "metallium-shadowpack";
+    private static final String[] SHADOW_PACK_FILES = {"gbuffers_terrain.vsh", "gbuffers_terrain.fsh", "shadow.vsh", "shadow.fsh", "composite.vsh", "composite.fsh"};
 
     /**
      * Iris shader packs (needs -PwithIris): with a fixed view, compares a shaders-off screenshot with one taken with the
@@ -100,6 +102,7 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
         try {
             installTestPack(context, TEST_PACK, TEST_PACK_FILES);
             installTestPack(context, GBUFFER_PACK, GBUFFER_PACK_FILES);
+            installTestPack(context, SHADOW_PACK, SHADOW_PACK_FILES);
         } catch (IOException e) {
             failures.add("could not install test shader pack: " + e);
             return;
@@ -116,6 +119,8 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
         context.waitTicks(100); // the pack switches Sodium to Iris's extended vertex format: chunks are rebuilt
         clearChat(context);
         checkGbufferMarker(context.takeScreenshot("metallium-iris-gbufferpack"));
+
+        shadowPackScenario(context, world);
 
         String external = externalPack(context);
         if (external != null) {
@@ -145,6 +150,38 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
         line(String.format("iris shaders off again: match with first shaders-off screenshot=%.2f", same));
         if (same < 0.80) {
             failures.add(String.format("shaders off after a pack differs from vanilla (match %.2f)", same));
+        }
+    }
+
+    /**
+     * Stage 4: the shadow test pack marks every pixel that its composite pass finds in the shadow map's shadow magenta.
+     * At noon the sun is overhead, so a floating stone platform in front of the camera shadows the ground right below
+     * it: that ground (centre of the lower screen half) must turn magenta, and without the platform it must not.
+     */
+    private void shadowPackScenario(ClientGameTestContext context, TestSingleplayerContext world) {
+        line("iris shadow test pack: pipeline=" + context.computeOnClient(client -> irisSelectPack(SHADOW_PACK, true)));
+        context.waitTicks(100);
+        clearChat(context);
+        Path open = context.takeScreenshot("metallium-iris-shadowpack-open");
+        tryCommand(world, "execute as @p at @s run fill ^-3 ^3 ^4 ^3 ^3 ^12 minecraft:stone");
+        context.waitTicks(60);
+        clearChat(context);
+        Path shaded = context.takeScreenshot("metallium-iris-shadowpack-platform");
+        tryCommand(world, "execute as @p at @s run fill ^-3 ^3 ^4 ^3 ^3 ^12 minecraft:air");
+        try {
+            java.awt.image.BufferedImage before = javax.imageio.ImageIO.read(open.toFile());
+            java.awt.image.BufferedImage after = javax.imageio.ImageIO.read(shaded.toFile());
+            // Ground 4..12 blocks ahead and +-3 blocks to the side, seen from eye height with pitch 0 (FOV 70).
+            double openGround = magentaFraction(before, 0.62, 0.76, 0.38, 0.62);
+            double shadedGround = magentaFraction(after, 0.62, 0.76, 0.38, 0.62);
+            double farGround = magentaFraction(after, 0.52, 0.56, 0.05, 0.95);
+            line(String.format("iris shadow test pack: magenta (in shadow) fraction under the platform=%.2f, same area without platform=%.2f, far ground=%.2f",
+                    shadedGround, openGround, farGround));
+            if (shadedGround < 0.60 || openGround > 0.20 || farGround > 0.30) {
+                failures.add(String.format("shadow pass -> composite shadow test not visible (shadowed %.2f, open %.2f, far %.2f)", shadedGround, openGround, farGround));
+            }
+        } catch (IOException e) {
+            failures.add("could not analyse shadow screenshots: " + e);
         }
     }
 
@@ -196,12 +233,16 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
     }
 
     private static double magentaFraction(java.awt.image.BufferedImage image, double fromY, double toY) {
+        return magentaFraction(image, fromY, toY, 0.05, 0.70);
+    }
+
+    private static double magentaFraction(java.awt.image.BufferedImage image, double fromY, double toY, double fromX, double toX) {
         int w = image.getWidth();
         int h = image.getHeight();
         int total = 0;
         int magenta = 0;
         for (int y = (int) (h * fromY); y < (int) (h * toY); y += 2) {
-            for (int x = (int) (w * 0.05); x < (int) (w * 0.70); x += 2) {
+            for (int x = (int) (w * fromX); x < (int) (w * toX); x += 2) {
                 int rgb = image.getRGB(x, y);
                 int r = (rgb >> 16) & 0xFF, g = (rgb >> 8) & 0xFF, b = rgb & 0xFF;
                 total++;

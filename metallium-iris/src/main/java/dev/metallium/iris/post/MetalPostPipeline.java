@@ -33,6 +33,7 @@ import net.irisshaders.iris.shaderpack.loading.ProgramArrayId;
 import net.irisshaders.iris.shaderpack.loading.ProgramGroup;
 import net.irisshaders.iris.shaderpack.loading.ProgramId;
 import net.irisshaders.iris.shaderpack.programs.ComputeSource;
+import net.irisshaders.iris.shaderpack.programs.ProgramFallbackResolver;
 import net.irisshaders.iris.shaderpack.programs.ProgramSet;
 import net.irisshaders.iris.shaderpack.programs.ProgramSource;
 import net.irisshaders.iris.shaderpack.properties.PackDirectives;
@@ -97,7 +98,9 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
     private final FrameUpdateNotifier updateNotifier = new FrameUpdateNotifier();
     private final CustomUniforms customUniforms;
     private final PostTargets targets;
-    private final List<Pass> beforeScene = new ArrayList<>();
+    private final List<Pass> begin = new ArrayList<>();
+    /** Iris runs these right after the shadow pass ({@code renderShadows}); without gbuffers, before the deferred passes. */
+    private final List<Pass> prepare = new ArrayList<>();
     private final List<Pass> deferred = new ArrayList<>();
     private final List<Pass> composite = new ArrayList<>();
     private final Pass finalPass;
@@ -108,6 +111,11 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
     /** Stage 3: gbuffers programs render the level into the pack's colortex buffers (null = stage-2 mode). */
     @org.jspecify.annotations.Nullable
     private final GbufferState gbuffers;
+    /** Stage 4: shadowtex0/1 and shadowcolor (always allocated; cleared = "fully lit" when no shadow pass runs). */
+    private final ShadowTargets shadowTargets;
+    @org.jspecify.annotations.Nullable
+    private final MetalShadowRenderer shadowRenderer;
+    private boolean prepareDone;
     private final IntList buffersToBeCleared;
     private final Map<GpuFormat, PostProgram> copyPrograms = new HashMap<>();
     private final List<String> problems = new ArrayList<>();
@@ -150,16 +158,23 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
         this.white = device.createTexture("iris placeholder", GpuTexture.USAGE_TEXTURE_BINDING | GpuTexture.USAGE_COPY_DST, GpuFormat.RGBA8_UNORM, 1, 1, 1, 1);
         this.whiteView = device.createTextureView(white);
         uploadPlaceholders(noiseSize);
+        this.shadowTargets = new ShadowTargets(directives.getShadowDirectives());
 
         boolean useGbuffers = !Boolean.getBoolean("metallium.iris.noGbuffers") && hasGbufferPrograms(programSet);
-        reportUnsupportedPrograms(useGbuffers);
+        var shadowEnabled = directives.getShadowDirectives().isShadowEnabled();
+        // Like IrisRenderingPipeline: a shadow pass when the pack has shadow programs (or forces shadow.enabled), unless
+        // shadow.enabled=false. It needs the gbuffers capture (Iris calls renderShadows only while a pack is in use).
+        boolean useShadows = useGbuffers && !Boolean.getBoolean("metallium.iris.noShadows")
+                && shadowEnabled != net.irisshaders.iris.helpers.OptionalBoolean.FALSE
+                && (hasShadowPrograms(programSet) || shadowEnabled == net.irisshaders.iris.helpers.OptionalBoolean.TRUE);
+        reportUnsupportedPrograms(useGbuffers, useShadows);
 
         RenderTarget main = Minecraft.getInstance().gameRenderer.mainRenderTarget();
         targets.resize(main.width, main.height);
 
         BufferFlipper flipper = new BufferFlipper();
-        build(flipper, ProgramArrayId.Begin, TextureStage.BEGIN, "begin_pre", beforeScene);
-        build(flipper, ProgramArrayId.Prepare, TextureStage.PREPARE, "prepare_pre", beforeScene);
+        build(flipper, ProgramArrayId.Begin, TextureStage.BEGIN, "begin_pre", begin);
+        build(flipper, ProgramArrayId.Prepare, TextureStage.PREPARE, "prepare_pre", prepare);
         this.sceneWritesAlt = flipper.snapshot();
         build(flipper, ProgramArrayId.Deferred, TextureStage.DEFERRED, "deferred_pre", deferred);
         this.translucentWritesAlt = flipper.snapshot();
@@ -173,9 +188,14 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
         if (gbuffers != null) {
             gbuffers.applyWorldRenderingSettings();
         }
+        this.shadowRenderer = useShadows
+                ? new MetalShadowRenderer(this, new ProgramFallbackResolver(programSet).resolveNullable(ProgramId.ShadowSolid), directives, shadowTargets)
+                : null;
 
-        String summary = "Metal shader pipeline: " + (gbuffers != null ? "gbuffers (" + gbuffers.attachmentSummary() + ") + " : "")
-                + (beforeScene.size() + deferred.size() + composite.size()) + " fullscreen passes" + (finalPass != null ? " + final" : "");
+        String summary = "Metal shader pipeline: "
+                + (shadowRenderer != null ? "shadow " + shadowTargets.resolution + "px (" + gbuffers.shadowAttachmentSummary() + ") + " : "")
+                + (gbuffers != null ? "gbuffers (" + gbuffers.attachmentSummary() + ") + " : "")
+                + (begin.size() + prepare.size() + deferred.size() + composite.size()) + " fullscreen passes" + (finalPass != null ? " + final" : "");
         MetalliumIris.LOGGER.info("[metallium-iris] {}", summary);
         reportToChat(summary);
     }
@@ -251,6 +271,15 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
         }
     }
 
+    static boolean hasShadowPrograms(final ProgramSet programSet) {
+        for (ProgramId id : ProgramId.values()) {
+            if (id.getGroup() == ProgramGroup.Shadow && programSet.get(id).isPresent()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     static boolean hasGbufferPrograms(final ProgramSet programSet) {
         for (ProgramId id : ProgramId.values()) {
             if (id.getGroup() == ProgramGroup.Gbuffers && programSet.get(id).isPresent()) {
@@ -260,23 +289,24 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
         return false;
     }
 
-    private void reportUnsupportedPrograms(final boolean gbuffersRun) {
+    private void reportUnsupportedPrograms(final boolean gbuffersRun, final boolean shadowsRun) {
         List<String> skipped = new ArrayList<>();
         for (ProgramId id : ProgramId.values()) {
             ProgramGroup group = id.getGroup();
-            boolean unsupported = group == ProgramGroup.Shadow || group == ProgramGroup.Dh || (group == ProgramGroup.Gbuffers && !gbuffersRun);
+            boolean unsupported = (group == ProgramGroup.Shadow && !shadowsRun) || group == ProgramGroup.Dh || (group == ProgramGroup.Gbuffers && !gbuffersRun);
             if (unsupported && programSet.get(id).isPresent()) {
                 skipped.add(id.getSourceName());
             }
         }
         if (!skipped.isEmpty()) {
-            problems.add(skipped.size() + (gbuffersRun ? " shadow/DH programs are not executed yet on Metal (no shadow pass)"
+            problems.add(skipped.size() + (shadowsRun ? " DH programs are not executed yet on Metal"
+                    : gbuffersRun ? " shadow/DH programs are not executed yet on Metal (no shadow pass)"
                     : " gbuffers/shadow programs are not executed yet on Metal (the vanilla scene is used)"));
             MetalliumIris.LOGGER.warn("[metallium-iris] programs not executed: {}", String.join(", ", skipped));
         }
         if (programSet.getComposite(ProgramArrayId.ShadowComposite).length > 0
                 && java.util.Arrays.stream(programSet.getComposite(ProgramArrayId.ShadowComposite)).anyMatch(s -> s != null && s.isValid())) {
-            problems.add("shadowcomp passes are not executed yet on Metal (no shadow pass)");
+            problems.add("shadowcomp passes are not executed yet on Metal");
         }
         int computes = countComputes(programSet.getSetup()) + countComputes(programSet.getShadowCompute()) + countComputes(programSet.getFinalCompute());
         for (ProgramArrayId id : ProgramArrayId.values()) {
@@ -379,12 +409,60 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
             customUniforms.update();
             state.beginFrame(main);
             clearBuffers();
-            for (Pass pass : beforeScene) {
+            for (Pass pass : begin) {
                 draw(pass, main);
+            }
+            prepareDone = false;
+            if (shadowRenderer == null) {
+                runPrepare(main);
             }
             state.beginCapture(sceneWritesAlt);
         } catch (RuntimeException e) {
             fail("gbuffers setup failed", e);
+        }
+    }
+
+    /**
+     * Stage 4. Iris's MixinLevelRenderer calls this before the main pass is added to the frame graph, so the shadow
+     * maps are rendered (recorded) before the level's passes; then the prepare passes run, as in Iris.
+     */
+    @Override
+    public void renderShadows(final net.irisshaders.iris.mixin.LevelRendererAccessor levelRenderer, final net.minecraft.client.Camera camera,
+                              final net.minecraft.client.renderer.state.level.CameraRenderState renderState) {
+        GbufferState state = gbuffers;
+        if (state == null || failed) {
+            return;
+        }
+        RenderTarget main = Minecraft.getInstance().gameRenderer.mainRenderTarget();
+        if (shadowRenderer != null) {
+            try {
+                state.prepareShadowAttachments();
+                shadowRenderer.renderShadows(levelRenderer, camera);
+            } catch (RuntimeException e) {
+                net.irisshaders.iris.shadows.ShadowRenderer.ACTIVE = false;
+                fail("shadow pass failed", e);
+                return;
+            }
+        }
+        try {
+            runPrepare(main);
+        } catch (RuntimeException e) {
+            fail("prepare passes failed", e);
+        }
+    }
+
+    private void runPrepare(final RenderTarget main) {
+        if (prepareDone) {
+            return;
+        }
+        prepareDone = true;
+        GbufferPasses.suspend();
+        try {
+            for (Pass pass : prepare) {
+                draw(pass, main);
+            }
+        } finally {
+            GbufferPasses.resume();
         }
     }
 
@@ -404,6 +482,7 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
         try {
             state.copyDepthNoTranslucents();
             RenderTarget main = Minecraft.getInstance().gameRenderer.mainRenderTarget();
+            runPrepare(main); // only if renderShadows did not run this frame
             GbufferPasses.suspend();
             try {
                 for (Pass pass : deferred) {
@@ -484,7 +563,10 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
                 updateNotifier.onNewFrame();
                 customUniforms.update();
                 clearBuffers();
-                for (Pass pass : beforeScene) {
+                for (Pass pass : begin) {
+                    draw(pass, main);
+                }
+                for (Pass pass : prepare) {
                     draw(pass, main);
                 }
                 // The vanilla/Sodium scene takes the place of the gbuffers output in colortex0.
@@ -547,7 +629,9 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
             renderPass.setVertexBuffer(0, quad.slice());
             blocks.forEach(renderPass::setUniform);
             for (String sampler : program.samplers) {
-                bindSampler(renderPass, sampler, pass.readsAlt, main);
+                if (!bindShadowSampler(renderPass, sampler, program.compareSamplers.contains(sampler), program.samplers.contains("watershadow"), false)) {
+                    bindSampler(renderPass, sampler, pass.readsAlt, main);
+                }
             }
             renderPass.draw(6, 1, 0, 0);
         }
@@ -591,6 +675,51 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
                     renderPass.setUniform(name, target.view(readsAlt.contains(0)), linear);
                 }
             }
+        }
+    }
+
+    /**
+     * Iris's {@code IrisSamplers.addShadowSamplers}: {@code shadowtex0}/{@code shadow} = all casters,
+     * {@code shadowtex1} = opaque casters (with {@code watershadow} declared: {@code watershadow}/{@code shadowtex0} and
+     * {@code shadow}/{@code shadowtex1}), {@code shadowtexNHW} = the same with hardware compare, {@code shadowcolorN} =
+     * shadow colour buffers. {@code sampler2DShadow}s get a depth-compare sampler (Metal {@code sample_compare}).
+     * During the shadow pass itself shadowtex0 is the attachment, so reads get shadowtex1 / white instead.
+     *
+     * @return false if {@code name} is not a shadow sampler
+     */
+    boolean bindShadowSampler(final RenderPass pass, final String name, final boolean compare, final boolean waterShadow, final boolean inShadowPass) {
+        int depth = switch (name) {
+            case "shadowtex0", "shadowtex0HW" -> 0;
+            case "watershadow" -> 0;
+            case "shadowtex1", "shadowtex1HW" -> 1;
+            case "shadow" -> waterShadow ? 1 : 0;
+            default -> -1;
+        };
+        if (depth >= 0) {
+            boolean hardware = compare || name.endsWith("HW");
+            GpuTextureView view = depth == 0 && !inShadowPass ? shadowTargets.depthView : shadowTargets.depthNoTranslucentsView;
+            pass.setUniform(name, view, shadowTargets.depthSampler(depth, hardware));
+            return true;
+        }
+        int color = name.equals("shadowcolor") ? 0 : name.startsWith("shadowcolor") ? parseIndex(name.substring("shadowcolor".length())) : -1;
+        if (color >= 0 && color < ShadowTargets.COLOR_COUNT) {
+            PostTargets.Target target = shadowTargets.colorIfPresent(color);
+            if (target == null || inShadowPass) {
+                // Not written by any shadow program: Iris creates it cleared (default clear colour white).
+                pass.setUniform(name, whiteView, nearest);
+            } else {
+                pass.setUniform(name, target.view(shadowTargets.isFlipped(color)), shadowTargets.colorSampler(color));
+            }
+            return true;
+        }
+        return false;
+    }
+
+    private static int parseIndex(final String digits) {
+        try {
+            return Integer.parseInt(digits);
+        } catch (NumberFormatException e) {
+            return -1;
         }
     }
 
@@ -767,6 +896,10 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
         return whiteView;
     }
 
+    ShadowTargets shadowTargets() {
+        return shadowTargets;
+    }
+
     List<String> problems() {
         return problems;
     }
@@ -776,7 +909,8 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
         if (gbuffers != null) {
             gbuffers.close();
         }
-        beforeScene.forEach(pass -> pass.program.close());
+        begin.forEach(pass -> pass.program.close());
+        prepare.forEach(pass -> pass.program.close());
         deferred.forEach(pass -> pass.program.close());
         composite.forEach(pass -> pass.program.close());
         if (finalPass != null) {
@@ -784,6 +918,10 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
         }
         copyPrograms.values().forEach(PostProgram::close);
         targets.close();
+        shadowTargets.close();
+        if (shadowRenderer != null) {
+            shadowRenderer.close();
+        }
         quad.close();
         noiseView.close();
         noise.close();
