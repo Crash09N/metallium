@@ -40,3 +40,33 @@ jobs:
         run: system_profiler SPDisplaysDataType || true
       - name: Metal smoke test
         run: ./gradlew metalSmokeTest --no-daemon
+
+  client-gametest:
+    name: Minecraft on Metal (macOS arm64)
+    runs-on: macos-15
+    needs: metal
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Run client game test on Metal
+        env:
+          METALLIUM_EXPECT_BACKEND: Metal
+        run: ./gradlew runClientGameTest --no-daemon
+      - name: Report
+        if: always()
+        run: cat build/run/clientGameTest/metallium-gametest-report.txt || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: metal-gametest-results
+          path: |
+            build/run/clientGameTest/screenshots/
+            build/run/clientGameTest/logs/
+            build/run/clientGameTest/crash-reports/
+            build/run/clientGameTest/metallium-gametest-report.txt
+          if-no-files-found: warn

@@ -63,3 +63,24 @@ tasks.register('metalSmokeTest', JavaExec) {
 	mainClass = 'dev.metallium.smoketest.MetalSmokeTest'
 	jvmArgs '--enable-native-access=ALL-UNNAMED'
 }
+
+// Client game tests (real game, real window): ./gradlew runClientGameTest
+fabricApi {
+	configureTests {
+		createSourceSet = true
+		modId = 'metallium-gametest'
+		enableGameTests = false
+		enableClientGameTests = true
+		eula = true
+	}
+}
+
+dependencies {
+	gametestImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
+}
+
+loom.runs.clientGameTest {
+	vmArg '-Xmx4G'
+	vmArg '--enable-native-access=ALL-UNNAMED'
+	vmArg "-Dmetallium.gametest.expectBackend=${System.getenv('METALLIUM_EXPECT_BACKEND') ?: ''}"
+}

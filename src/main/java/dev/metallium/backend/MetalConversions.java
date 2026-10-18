@@ -59,7 +59,8 @@ final class MetalConversions {
             case D16_UNORM -> MTLPixelFormat.Depth16Unorm;
             case D32_FLOAT -> MTLPixelFormat.Depth32Float;
             case S8_UINT -> MTLPixelFormat.Stencil8;
-            case D24_UNORM_S8_UINT -> MTLPixelFormat.Depth24Unorm_Stencil8;
+            // Apple GPUs have no Depth24Unorm_Stencil8; use the closest supported combined format.
+            case D24_UNORM_S8_UINT -> MTLPixelFormat.Depth32Float_Stencil8;
             case D32_FLOAT_S8_UINT -> MTLPixelFormat.Depth32Float_Stencil8;
             default -> throw new IllegalStateException("Unsupported Metal texel buffer format: " + format);
         };

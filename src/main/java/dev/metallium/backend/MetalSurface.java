@@ -87,7 +87,11 @@ final class MetalSurface implements GpuSurfaceBackend {
 
     @Override
     public void present() {
-        pendingPresentEncoder.submit();
+        MetalCommandEncoder encoder = this.pendingPresentEncoder;
+        this.pendingPresentEncoder = null;
+        if (encoder != null) {
+            encoder.submit();
+        }
     }
 
     @Override
