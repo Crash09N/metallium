@@ -259,20 +259,36 @@ final class GlDsa {
         }
         int w = Math.max(1, texture.width >> level);
         int h = Math.max(1, texture.height >> level);
-        long size = (long) w * h * storage.bytesPerPixel;
-        if (out.remaining() < size) {
+        int bpp = storage.bytesPerPixel;
+        long size = (long) w * h * bpp;
+        // GL pack state: row length / skips / alignment describe the client layout.
+        long rowPixels = gl.packRowLength > 0 ? gl.packRowLength : w;
+        long align = Math.max(1, gl.packAlignment);
+        long stride = (rowPixels * bpp + align - 1) / align * align;
+        long first = gl.packSkipRows * stride + (long) gl.packSkipPixels * bpp;
+        long needed = first + (h - 1) * stride + (long) w * bpp;
+        if (out.remaining() < needed) {
             gl.error(GL_INVALID_OPERATION);
             return;
         }
-        if (!gl.device.readTexture(texture.store, level, out)) {
-            MetalGLLog.unsupported("glGetTextureImage in this context");
-            return;
-        }
-        if (rgba8 && format == GL_BGRA) {
-            for (int i = out.position(); i < out.position() + size; i += 4) {
-                byte r = out.get(i);
-                out.put(i, out.get(i + 2)).put(i + 2, r);
+        ByteBuffer tight = MemoryUtil.memAlloc((int) size);
+        try {
+            if (!gl.device.readTexture(texture.store, level, tight)) {
+                MetalGLLog.unsupported("glGetTextureImage in this context");
+                return;
             }
+            if (rgba8 && format == GL_BGRA) {
+                for (int i = 0; i < size; i += 4) {
+                    byte r = tight.get(i);
+                    tight.put(i, tight.get(i + 2)).put(i + 2, r);
+                }
+            }
+            long base = MemoryUtil.memAddress(out) + first;
+            for (int y = 0; y < h; y++) {
+                MemoryUtil.memCopy(MemoryUtil.memAddress(tight) + (long) y * w * bpp, base + y * stride, (long) w * bpp);
+            }
+        } finally {
+            MemoryUtil.memFree(tight);
         }
     }
 

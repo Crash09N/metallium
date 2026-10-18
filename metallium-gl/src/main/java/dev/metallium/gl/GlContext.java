@@ -119,6 +119,9 @@ public final class GlContext {
     float lineWidth = 1f;
     GlPixels.Unpack unpack = GlPixels.Unpack.DEFAULT;
     int packAlignment = 4;
+    int packRowLength;
+    int packSkipRows;
+    int packSkipPixels;
     final float[][] currentAttrib = new float[MAX_VERTEX_ATTRIBS][];
 
     public GlContext(final GlDevice device) {
@@ -839,8 +842,10 @@ public final class GlContext {
             case GL_UNPACK_SKIP_ROWS -> unpack = new GlPixels.Unpack(unpack.alignment(), unpack.rowLength(), value, unpack.skipPixels());
             case GL_UNPACK_SKIP_PIXELS -> unpack = new GlPixels.Unpack(unpack.alignment(), unpack.rowLength(), unpack.skipRows(), value);
             case GL_PACK_ALIGNMENT -> packAlignment = value;
-            case GL_PACK_ROW_LENGTH, GL_PACK_SKIP_ROWS, GL_PACK_SKIP_PIXELS, GL_PACK_IMAGE_HEIGHT, GL_PACK_SKIP_IMAGES,
-                 GL_UNPACK_IMAGE_HEIGHT, GL_UNPACK_SKIP_IMAGES -> {
+            case GL_PACK_ROW_LENGTH -> packRowLength = Math.max(0, value);
+            case GL_PACK_SKIP_ROWS -> packSkipRows = Math.max(0, value);
+            case GL_PACK_SKIP_PIXELS -> packSkipPixels = Math.max(0, value);
+            case GL_PACK_IMAGE_HEIGHT, GL_PACK_SKIP_IMAGES, GL_UNPACK_IMAGE_HEIGHT, GL_UNPACK_SKIP_IMAGES -> {
                 if (value != 0) MetalGLLog.unsupported("glPixelStorei pname 0x" + Integer.toHexString(pname) + " = " + value);
             }
             default -> MetalGLLog.unsupported("glPixelStorei pname 0x" + Integer.toHexString(pname));

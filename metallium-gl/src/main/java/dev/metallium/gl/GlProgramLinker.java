@@ -41,7 +41,7 @@ final class GlProgramLinker {
     private static final Pattern VERTEX_INPUT = Pattern.compile("(?m)^(\\s*)((?:(?:highp|mediump|lowp|flat|smooth)\\s+)*)(in|attribute)\\s+(\\w+)\\s+(\\w+)\\s*;");
     /** GL extensions whose features metallium-gl does not implement; shaders requiring them fail to compile, as in GL. */
     private static final Pattern UNSUPPORTED_EXTENSION = Pattern.compile(
-            "(?m)^\\s*#\\s*extension\\s+(GL_ARB_gpu_shader_int64|GL_NV_\\w+|GL_NVX_\\w+|GL_AMD_\\w+|GL_ARB_bindless_texture|GL_ARB_sparse_\\w+)\\s*:\\s*(require|enable)");
+            "(?m)^[ \\t]*#[ \\t]*extension[ \\t]+(GL_ARB_gpu_shader_int64|GL_NV_\\w+|GL_NVX_\\w+|GL_AMD_\\w+|GL_ARB_bindless_texture|GL_ARB_sparse_\\w+)[ \\t]*:[ \\t]*(require|enable|warn)[ \\t]*$");
 
     private GlProgramLinker() {
     }
@@ -99,8 +99,10 @@ final class GlProgramLinker {
     /** Compiles one stage alone, for glCompileShader's status and info log. Returns null on success, else the log. */
     static @Nullable String checkCompile(final String label, final Stage stage, final String source) {
         Matcher unsupported = UNSUPPORTED_EXTENSION.matcher(source);
-        if (unsupported.find()) {
-            return "0:0: error: extension " + unsupported.group(1) + " is not supported (metallium-gl)";
+        while (unsupported.find()) {
+            if (unsupported.group(2).equals("require")) {
+                return "0:0: error: extension " + unsupported.group(1) + " is not supported (metallium-gl)";
+            }
         }
         try {
             Map<Stage, SpirvStage> result = GlslProgramTranslator.compileToSpirv(label, Map.of(stage, glCompat(source)));
@@ -291,7 +293,10 @@ final class GlProgramLinker {
      * GL-only built-ins that Vulkan GLSL (glslang's target) lacks, rewritten to plain uniforms the context fills in:
      * {@code gl_DepthRange.near/far/diff} → {@code metallium_DepthRange{Near,Far,Diff}} (set from glDepthRange per draw).
      */
-    static String glCompat(final String source) {
+    static String glCompat(final String original) {
+        // "#extension X : enable" of an unsupported extension is only a warning in GL, and the X macro stays undefined:
+        // drop the directive so glslang does not enable (and define) it either.
+        String source = UNSUPPORTED_EXTENSION.matcher(original).replaceAll("// metallium-gl: $1 not supported");
         if (!source.contains("gl_DepthRange")) {
             return source;
         }
