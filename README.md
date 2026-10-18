@@ -82,4 +82,10 @@ project's code may legally be copied. Rows will be updated whenever code is actu
 | [glsl-transformer](https://github.com/IrisShaders/glsl-transformer) | douira | AGPL-3.0 | Used only through Iris at runtime; not bundled. |
 | Minecraft | Mojang Studios | Minecraft EULA | Decompiled for research only; never redistributed. |
 
+### Compatibility only (no code used)
+
+| Project | Authors | License | Role |
+|---|---|---|---|
+| [Physics Mod](https://minecraftphysicsmod.com/) | Haubna | All rights reserved | Compatibility only, no code used. Metallium's `dev.metallium.compat.physicsmod` mixins (written for Metallium, found by bytecode inspection, mod never bundled or redistributed) let verified versions run on Metal. |
+
 Licence obligations are summarised in section K of the research report.

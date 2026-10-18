@@ -767,6 +767,19 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
             crashRecoveryRun(context, backend);
             return;
         }
+        if ("physics".equals(System.getProperty("metallium.gametest.mode"))) {
+            try {
+                new PhysicsScenario(this::line, failures).run(context, backend);
+                line(failures.isEmpty() ? "result: PASS" : "result: FAIL " + failures);
+            } catch (Throwable t) {
+                line("result: FAIL " + t);
+                throw t;
+            } finally {
+                writeReport();
+            }
+            if (!failures.isEmpty()) throw new AssertionError(String.join("; ", failures));
+            return;
+        }
         context.takeScreenshot("metallium-title");
         graphicsApiLabelsTest(context);
 

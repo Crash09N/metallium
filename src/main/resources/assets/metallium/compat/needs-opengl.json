@@ -1,0 +1,17 @@
+{
+  "_comment": [
+    "Mods known to need Minecraft's OpenGL backend (they build OpenGL backend objects themselves, so the JVM aborts on Metal).",
+    "Metallium asks the player before start-up instead of crashing (see dev.metallium.compat.OpenGlRequirements).",
+    "metalliumCompat: Fabric version predicate of the mod versions that Metallium's own compatibility code runs on Metal;",
+    "those versions are not asked about. Mods not listed here are still caught by the scan heuristic",
+    "(classes that construct or subclass com.mojang.renderpearl.backend.opengl.*)."
+  ],
+  "mods": [
+    {
+      "id": "physicsmod",
+      "name": "Physics Mod",
+      "reason": "builds Minecraft's OpenGL backend objects (GlSampler, GlTexture, GlDevice) on every non-Vulkan device",
+      "metalliumCompat": "3.2.5"
+    }
+  ]
+}
