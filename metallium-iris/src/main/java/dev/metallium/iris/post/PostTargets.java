@@ -87,6 +87,12 @@ final class PostTargets implements AutoCloseable {
         return target;
     }
 
+    /** The buffer if it exists already (creating one clears it, which is not possible inside a render pass). */
+    @org.jspecify.annotations.Nullable
+    Target getIfPresent(final int index) {
+        return index >= 0 && index < COUNT ? targets[index] : null;
+    }
+
     /** Clears both textures of a buffer to its pack-defined (or Iris default) clear colour. */
     void clear(final int index, final boolean both) {
         Target target = get(index);
@@ -98,10 +104,17 @@ final class PostTargets implements AutoCloseable {
         }
     }
 
-    /** Per-frame clear (like Iris, only buffers that exist are cleared; new buffers start cleared). */
-    void clearIfPresent(final int index) {
+    /**
+     * Per-frame clear (like Iris, only buffers that exist are cleared; new buffers start cleared). colortex0 without a
+     * pack-defined clear colour is cleared to {@code fogColor} (Iris's ClearPassCreator).
+     */
+    void clearIfPresent(final int index, final Vector4f fogColor) {
         if (index >= 0 && index < COUNT && targets[index] != null) {
-            clear(index, true);
+            PackRenderTargetDirectives.RenderTargetSettings s = settings.get(index);
+            Vector4f color = index == 0 && (s == null || s.getClearColor().isEmpty()) ? fogColor : clearColor(index);
+            var encoder = RenderSystem.getDevice().createCommandEncoder();
+            encoder.clearColorTexture(targets[index].main, color);
+            encoder.clearColorTexture(targets[index].alt, color);
         }
     }
 

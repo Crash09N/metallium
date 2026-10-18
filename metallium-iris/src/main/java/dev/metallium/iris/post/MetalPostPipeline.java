@@ -21,6 +21,11 @@ import it.unimi.dsi.fastutil.objects.Object2ObjectMap;
 import net.irisshaders.iris.gl.state.FogMode;
 import net.irisshaders.iris.gl.texture.TextureType;
 import net.irisshaders.iris.helpers.Tri;
+import net.irisshaders.iris.pipeline.WorldRenderingPhase;
+import net.irisshaders.iris.shaderpack.properties.CloudSetting;
+import net.irisshaders.iris.uniforms.CapturedRenderingState;
+import org.joml.Vector3d;
+import org.joml.Vector4f;
 import net.irisshaders.iris.pipeline.VanillaRenderingPipeline;
 import net.irisshaders.iris.pipeline.transform.PatchShaderType;
 import net.irisshaders.iris.pipeline.transform.TransformPatcher;
@@ -91,10 +96,16 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
     private final CustomUniforms customUniforms;
     private final PostTargets targets;
     private final List<Pass> beforeScene = new ArrayList<>();
-    private final List<Pass> afterScene = new ArrayList<>();
+    private final List<Pass> deferred = new ArrayList<>();
+    private final List<Pass> composite = new ArrayList<>();
     private final Pass finalPass;
     private final ImmutableSet<Integer> sceneWritesAlt;
+    /** Flip state after the deferred passes: what translucent gbuffers write to (Iris's flippedAfterTranslucent). */
+    private final ImmutableSet<Integer> translucentWritesAlt;
     private final ImmutableSet<Integer> finalReadsAlt;
+    /** Stage 3: gbuffers programs render the level into the pack's colortex buffers (null = stage-2 mode). */
+    @org.jspecify.annotations.Nullable
+    private final GbufferState gbuffers;
     private final IntList buffersToBeCleared;
     private final Map<GpuFormat, PostProgram> copyPrograms = new HashMap<>();
     private final List<String> problems = new ArrayList<>();
@@ -108,6 +119,7 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
     private final GpuTextureView whiteView;
     private final Set<String> warnedSamplers = new LinkedHashSet<>();
     private boolean failed;
+    private WorldRenderingPhase phase = WorldRenderingPhase.NONE;
 
     private record Pass(String name, PostProgram program, int[] drawBuffers, ImmutableSet<Integer> readsAlt) {
     }
@@ -137,7 +149,8 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
         this.whiteView = device.createTextureView(white);
         uploadPlaceholders(noiseSize);
 
-        reportUnsupportedPrograms();
+        boolean useGbuffers = !Boolean.getBoolean("metallium.iris.noGbuffers") && hasGbufferPrograms(programSet);
+        reportUnsupportedPrograms(useGbuffers);
 
         RenderTarget main = Minecraft.getInstance().gameRenderer.mainRenderTarget();
         targets.resize(main.width, main.height);
@@ -146,15 +159,21 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
         build(flipper, ProgramArrayId.Begin, TextureStage.BEGIN, "begin_pre", beforeScene);
         build(flipper, ProgramArrayId.Prepare, TextureStage.PREPARE, "prepare_pre", beforeScene);
         this.sceneWritesAlt = flipper.snapshot();
-        build(flipper, ProgramArrayId.Deferred, TextureStage.DEFERRED, "deferred_pre", afterScene);
-        build(flipper, ProgramArrayId.Composite, TextureStage.COMPOSITE_AND_FINAL, "composite_pre", afterScene);
+        build(flipper, ProgramArrayId.Deferred, TextureStage.DEFERRED, "deferred_pre", deferred);
+        this.translucentWritesAlt = flipper.snapshot();
+        build(flipper, ProgramArrayId.Composite, TextureStage.COMPOSITE_AND_FINAL, "composite_pre", composite);
         this.finalReadsAlt = flipper.snapshot();
         this.finalPass = programSet.get(ProgramId.Final)
                 .map(source -> compilePass(source, TextureStage.COMPOSITE_AND_FINAL, finalReadsAlt, new int[0], List.of(main.getColorTexture().getFormat())))
                 .orElse(null);
 
-        String summary = "Metal post-processing pipeline: " + (beforeScene.size() + afterScene.size()) + " fullscreen passes"
-                + (finalPass != null ? " + final" : "");
+        this.gbuffers = useGbuffers ? new GbufferState(this, programSet) : null;
+        if (gbuffers != null) {
+            gbuffers.applyWorldRenderingSettings();
+        }
+
+        String summary = "Metal shader pipeline: " + (gbuffers != null ? "gbuffers (" + gbuffers.attachmentSummary() + ") + " : "")
+                + (beforeScene.size() + deferred.size() + composite.size()) + " fullscreen passes" + (finalPass != null ? " + final" : "");
         MetalliumIris.LOGGER.info("[metallium-iris] {}", summary);
         reportToChat(summary);
     }
@@ -230,17 +249,28 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
         }
     }
 
-    private void reportUnsupportedPrograms() {
+    static boolean hasGbufferPrograms(final ProgramSet programSet) {
+        for (ProgramId id : ProgramId.values()) {
+            if (id.getGroup() == ProgramGroup.Gbuffers && programSet.get(id).isPresent()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void reportUnsupportedPrograms(final boolean gbuffersRun) {
         List<String> skipped = new ArrayList<>();
         for (ProgramId id : ProgramId.values()) {
             ProgramGroup group = id.getGroup();
-            if ((group == ProgramGroup.Gbuffers || group == ProgramGroup.Shadow || group == ProgramGroup.Dh) && programSet.get(id).isPresent()) {
+            boolean unsupported = group == ProgramGroup.Shadow || group == ProgramGroup.Dh || (group == ProgramGroup.Gbuffers && !gbuffersRun);
+            if (unsupported && programSet.get(id).isPresent()) {
                 skipped.add(id.getSourceName());
             }
         }
         if (!skipped.isEmpty()) {
-            problems.add(skipped.size() + " gbuffers/shadow programs are not executed yet on Metal (the vanilla scene is used)");
-            MetalliumIris.LOGGER.warn("[metallium-iris] gbuffers/shadow programs not executed: {}", String.join(", ", skipped));
+            problems.add(skipped.size() + (gbuffersRun ? " shadow/DH programs are not executed yet on Metal (no shadow pass)"
+                    : " gbuffers/shadow programs are not executed yet on Metal (the vanilla scene is used)"));
+            MetalliumIris.LOGGER.warn("[metallium-iris] programs not executed: {}", String.join(", ", skipped));
         }
         if (programSet.getComposite(ProgramArrayId.ShadowComposite).length > 0
                 && java.util.Arrays.stream(programSet.getComposite(ProgramArrayId.ShadowComposite)).anyMatch(s -> s != null && s.isValid())) {
@@ -325,21 +355,88 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
 
     @Override
     public void beginLevelRendering() {
-        // No GL program to unbind; per-frame work happens in finalizeLevelRendering.
+        GbufferState state = gbuffers;
+        if (state == null || failed) {
+            return; // stage-2 mode: all work happens in finalizeLevelRendering
+        }
+        try {
+            RenderTarget main = Minecraft.getInstance().gameRenderer.mainRenderTarget();
+            targets.resize(main.width, main.height);
+            updateNotifier.onNewFrame();
+            customUniforms.update();
+            state.beginFrame(main);
+            clearBuffers();
+            for (Pass pass : beforeScene) {
+                draw(pass, main);
+            }
+            state.beginCapture(sceneWritesAlt);
+        } catch (RuntimeException e) {
+            fail("gbuffers setup failed", e);
+        }
+    }
+
+    @Override
+    public void beginHand() {
+        if (gbuffers != null && !failed) {
+            gbuffers.copyDepthNoHand();
+        }
+    }
+
+    @Override
+    public void beginTranslucents() {
+        GbufferState state = gbuffers;
+        if (state == null || failed) {
+            return;
+        }
+        try {
+            state.copyDepthNoTranslucents();
+            RenderTarget main = Minecraft.getInstance().gameRenderer.mainRenderTarget();
+            GbufferPasses.suspend();
+            try {
+                for (Pass pass : deferred) {
+                    draw(pass, main);
+                }
+            } finally {
+                GbufferPasses.resume();
+            }
+            state.beginCapture(translucentWritesAlt);
+        } catch (RuntimeException e) {
+            fail("deferred passes failed", e);
+        }
     }
 
     @Override
     public void finalizeLevelRendering() {
+        if (gbuffers != null) {
+            gbuffers.endCapture();
+        }
         if (failed) {
             return;
         }
         try {
             render();
         } catch (RuntimeException e) {
-            failed = true;
-            MetalliumIris.LOGGER.error("[metallium-iris] Metal post-processing failed; showing the vanilla scene from now on", e);
-            reportProblem("post-processing failed: " + e);
+            fail("post-processing failed", e);
         }
+    }
+
+    void fail(final String what, final RuntimeException e) {
+        failed = true;
+        if (gbuffers != null) {
+            gbuffers.endCapture();
+        }
+        MetalliumIris.LOGGER.error("[metallium-iris] Metal shader pack: {}; showing the vanilla scene from now on", what, e);
+        reportProblem(what + ": " + e);
+    }
+
+    @Override
+    public WorldRenderingPhase getPhase() {
+        return phase;
+    }
+
+    @Override
+    public void setPhase(final WorldRenderingPhase phase) {
+        this.phase = phase;
     }
 
     private void reportProblem(final String message) {
@@ -350,41 +447,57 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
         }
     }
 
+    /** Iris's clear passes: buffers with clearing enabled; colortex0 defaults to the fog colour. */
+    private void clearBuffers() {
+        Vector3d fog = CapturedRenderingState.INSTANCE.getFogColor();
+        Vector4f fogColor = new Vector4f((float) fog.x, (float) fog.y, (float) fog.z, 1.0f);
+        for (int buffer : buffersToBeCleared) {
+            if (buffer != 0 || gbuffers != null) {
+                targets.clearIfPresent(buffer, fogColor);
+            }
+        }
+    }
+
     private void render() {
         RenderTarget main = Minecraft.getInstance().gameRenderer.mainRenderTarget();
-        if (targets.resize(main.width, main.height)) {
-            MetalliumIris.LOGGER.debug("[metallium-iris] post targets resized to {}x{}", main.width, main.height);
-        }
-        updateNotifier.onNewFrame();
-        customUniforms.update();
-
-        for (int buffer : buffersToBeCleared) {
-            if (buffer != 0) {
-                targets.clearIfPresent(buffer);
+        GbufferPasses.suspend();
+        try {
+            if (gbuffers == null) {
+                if (targets.resize(main.width, main.height)) {
+                    MetalliumIris.LOGGER.debug("[metallium-iris] post targets resized to {}x{}", main.width, main.height);
+                }
+                updateNotifier.onNewFrame();
+                customUniforms.update();
+                clearBuffers();
+                for (Pass pass : beforeScene) {
+                    draw(pass, main);
+                }
+                // The vanilla/Sodium scene takes the place of the gbuffers output in colortex0.
+                copy(main.getColorTexture(), main.getColorTextureView(), targets.get(0).texture(sceneWritesAlt.contains(0)), targets.get(0).view(sceneWritesAlt.contains(0)));
+                for (Pass pass : deferred) {
+                    draw(pass, main);
+                }
             }
-        }
-        for (Pass pass : beforeScene) {
-            draw(pass, main);
-        }
-        // The vanilla/Sodium scene takes the place of the gbuffers output in colortex0.
-        copy(main.getColorTexture(), main.getColorTextureView(), targets.get(0).texture(sceneWritesAlt.contains(0)), targets.get(0).view(sceneWritesAlt.contains(0)));
-        for (Pass pass : afterScene) {
-            draw(pass, main);
-        }
-        PostTargets.Target colortex0 = targets.get(0);
-        if (finalPass != null) {
-            draw(finalPass, main);
-        } else {
-            copy(colortex0.texture(finalReadsAlt.contains(0)), colortex0.view(finalReadsAlt.contains(0)), main.getColorTexture(), main.getColorTextureView());
-        }
-        // Like Iris's swap passes: buffers that ended on their alt texture are copied back so the next frame starts
-        // from the main texture again (history buffers keep their content).
-        CommandEncoder encoder = RenderSystem.getDevice().createCommandEncoder();
-        for (int buffer : finalReadsAlt) {
-            if (!buffersToBeCleared.contains(buffer)) {
-                PostTargets.Target target = targets.get(buffer);
-                encoder.copyTextureToTexture(target.alt, target.main, 0, 0, 0, 0, 0, targets.width(), targets.height());
+            for (Pass pass : composite) {
+                draw(pass, main);
             }
+            PostTargets.Target colortex0 = targets.get(0);
+            if (finalPass != null) {
+                draw(finalPass, main);
+            } else {
+                copy(colortex0.texture(finalReadsAlt.contains(0)), colortex0.view(finalReadsAlt.contains(0)), main.getColorTexture(), main.getColorTextureView());
+            }
+            // Like Iris's swap passes: buffers that ended on their alt texture are copied back so the next frame starts
+            // from the main texture again (history buffers keep their content).
+            CommandEncoder encoder = RenderSystem.getDevice().createCommandEncoder();
+            for (int buffer : finalReadsAlt) {
+                if (!buffersToBeCleared.contains(buffer)) {
+                    PostTargets.Target target = targets.get(buffer);
+                    encoder.copyTextureToTexture(target.alt, target.main, 0, 0, 0, 0, 0, targets.width(), targets.height());
+                }
+            }
+        } finally {
+            GbufferPasses.resume();
         }
     }
 
@@ -441,7 +554,9 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
             return;
         }
         switch (name) {
-            case "depthtex0", "gdepthtex", "depthtex1", "depthtex2" -> renderPass.setUniform(name, main.getDepthTextureView(), nearest);
+            case "depthtex0", "gdepthtex" -> renderPass.setUniform(name, main.getDepthTextureView(), nearest);
+            case "depthtex1" -> renderPass.setUniform(name, gbuffers != null ? gbuffers.depthNoTranslucents() : main.getDepthTextureView(), nearest);
+            case "depthtex2" -> renderPass.setUniform(name, gbuffers != null ? gbuffers.depthNoHand() : main.getDepthTextureView(), nearest);
             case "noisetex" -> renderPass.setUniform(name, noiseView, linearRepeat);
             case "metallium_source" -> throw new IllegalStateException("copy sampler outside the copy pass");
             default -> {
@@ -464,7 +579,7 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
         }
     }
 
-    private static int colortexIndex(final String name) {
+    static int colortexIndex(final String name) {
         if (name.startsWith("colortex")) {
             try {
                 int index = Integer.parseInt(name.substring("colortex".length()));
@@ -517,10 +632,124 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
         return directives.getSunPathRotation();
     }
 
+    // Pack directives that Iris's mixins query (sun/moon/stars/weather...); only once the pack's gbuffers draw the world.
+
+    @Override
+    public boolean shouldRenderSun() {
+        return gbuffers != null ? directives.shouldRenderSun() : super.shouldRenderSun();
+    }
+
+    @Override
+    public boolean shouldRenderMoon() {
+        return gbuffers != null ? directives.shouldRenderMoon() : super.shouldRenderMoon();
+    }
+
+    @Override
+    public boolean shouldRenderStars() {
+        return gbuffers != null ? directives.shouldRenderStars() : super.shouldRenderStars();
+    }
+
+    @Override
+    public boolean shouldRenderSkyDisc() {
+        return gbuffers != null ? directives.shouldRenderSkyDisc() : super.shouldRenderSkyDisc();
+    }
+
+    @Override
+    public boolean shouldRenderWeather() {
+        return gbuffers != null ? directives.shouldRenderWeather() : super.shouldRenderWeather();
+    }
+
+    @Override
+    public boolean shouldRenderWeatherParticles() {
+        return gbuffers != null ? directives.shouldRenderWeatherParticles() : super.shouldRenderWeatherParticles();
+    }
+
+    @Override
+    public boolean shouldRenderUnderwaterOverlay() {
+        return gbuffers != null ? directives.underwaterOverlay() : super.shouldRenderUnderwaterOverlay();
+    }
+
+    @Override
+    public boolean shouldRenderVignette() {
+        return gbuffers != null ? directives.vignette() : super.shouldRenderVignette();
+    }
+
+    @Override
+    public CloudSetting getCloudSetting() {
+        return gbuffers != null ? directives.getCloudSetting() : super.getCloudSetting();
+    }
+
+    // ---------------------------------------------------------------------------------------------- gbuffers (stage 3)
+
+    /** {@link GbufferPasses#retarget}: the pack's gbuffer attachments in place of the main colour attachment. */
+    RenderPassDescriptor gbufferDescriptor(final RenderPassDescriptor original, final Optional<org.joml.Vector4fc> clearColor) {
+        return gbuffers.descriptor(original, clearColor);
+    }
+
+    com.mojang.renderpearl.api.pipeline.CompiledRenderPipeline gbufferPipeline(final com.mojang.renderpearl.api.pipeline.CompiledRenderPipeline original) {
+        try {
+            return gbuffers.substitute(original);
+        } catch (RuntimeException e) {
+            MetalliumIris.LOGGER.error("[metallium-iris] gbuffers pipeline substitution failed", e);
+            return original;
+        }
+    }
+
+    void bindGbufferResources(final RenderPass pass, final com.mojang.renderpearl.api.pipeline.CompiledRenderPipeline bound) {
+        try {
+            gbuffers.bind(pass, bound);
+        } catch (RuntimeException e) {
+            // Never throw inside a vanilla render pass: the draw goes ahead with whatever was bound before.
+            if (warnedSamplers.add("bind failure " + e)) {
+                MetalliumIris.LOGGER.error("[metallium-iris] binding gbuffers resources failed", e);
+            }
+        }
+    }
+
+    PostTargets targets() {
+        return targets;
+    }
+
+    CustomUniforms customUniforms() {
+        return customUniforms;
+    }
+
+    ProgramSet programSet() {
+        return programSet;
+    }
+
+    GpuSampler nearestSampler() {
+        return nearest;
+    }
+
+    GpuSampler linearSampler() {
+        return linear;
+    }
+
+    GpuSampler linearRepeatSampler() {
+        return linearRepeat;
+    }
+
+    GpuTextureView noiseView() {
+        return noiseView;
+    }
+
+    GpuTextureView whiteView() {
+        return whiteView;
+    }
+
+    List<String> problems() {
+        return problems;
+    }
+
     @Override
     public void destroy() {
+        if (gbuffers != null) {
+            gbuffers.close();
+        }
         beforeScene.forEach(pass -> pass.program.close());
-        afterScene.forEach(pass -> pass.program.close());
+        deferred.forEach(pass -> pass.program.close());
+        composite.forEach(pass -> pass.program.close());
         if (finalPass != null) {
             finalPass.program.close();
         }

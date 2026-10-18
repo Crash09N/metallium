@@ -76,6 +76,8 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
 
     private static final String TEST_PACK = "metallium-testpack";
     private static final String[] TEST_PACK_FILES = {"composite.vsh", "composite.fsh", "final.vsh", "final.fsh"};
+    private static final String GBUFFER_PACK = "metallium-gbufferpack";
+    private static final String[] GBUFFER_PACK_FILES = {"gbuffers_terrain.vsh", "gbuffers_terrain.fsh", "composite.vsh", "composite.fsh"};
 
     /**
      * Iris shader packs (needs -PwithIris): with a fixed view, compares a shaders-off screenshot with one taken with the
@@ -88,18 +90,16 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
         tryCommand(world, "gamerule advance_time false");
         tryCommand(world, "weather clear");
         tryCommand(world, "gamemode spectator @a");
+        // Entities in view for the gbuffers (entities program) - NoAI so every screenshot sees the same scene.
+        tryCommand(world, "execute as @p at @s run summon minecraft:pig ^-1 ^-1 ^7 {NoAI:1b,Rotation:[90f,0f]}");
+        tryCommand(world, "execute as @p at @s run summon minecraft:sheep ^2 ^-1 ^8 {NoAI:1b,Rotation:[90f,0f]}");
         context.waitTicks(40);
         clearChat(context);
         Path off = context.takeScreenshot("metallium-iris-shaders-off");
 
         try {
-            Path packDir = context.computeOnClient(client -> irisShaderpacksDirectory()).resolve(TEST_PACK).resolve("shaders");
-            Files.createDirectories(packDir);
-            for (String file : TEST_PACK_FILES) {
-                try (var in = MetalliumClientGameTest.class.getResourceAsStream("/" + TEST_PACK + "/shaders/" + file)) {
-                    Files.copy(java.util.Objects.requireNonNull(in, file), packDir.resolve(file), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
-                }
-            }
+            installTestPack(context, TEST_PACK, TEST_PACK_FILES);
+            installTestPack(context, GBUFFER_PACK, GBUFFER_PACK_FILES);
         } catch (IOException e) {
             failures.add("could not install test shader pack: " + e);
             return;
@@ -111,20 +111,18 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
         Path on = context.takeScreenshot("metallium-iris-testpack");
         checkInverted(off, on);
 
-        String external = System.getProperty("metallium.gametest.shaderpack", "");
-        if (!external.isEmpty()) {
-            try {
-                Path source = Path.of(external);
-                Path target = context.computeOnClient(client -> irisShaderpacksDirectory()).resolve(source.getFileName().toString());
-                Files.copy(source, target, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
-                line("external pack " + source.getFileName() + ": pipeline="
-                        + context.computeOnClient(client -> irisSelectPack(source.getFileName().toString(), true)));
-                context.waitTicks(100);
-                context.takeScreenshot("metallium-iris-external-pack");
-                line("external pack: still running after 100 ticks");
-            } catch (IOException e) {
-                line("external pack could not be copied: " + e);
-            }
+        // Stage 3: gbuffers_terrain writes a marker into colortex1, the composite pass turns marked pixels magenta.
+        line("iris gbuffers test pack: pipeline=" + context.computeOnClient(client -> irisSelectPack(GBUFFER_PACK, true)));
+        context.waitTicks(100); // the pack switches Sodium to Iris's extended vertex format: chunks are rebuilt
+        clearChat(context);
+        checkGbufferMarker(context.takeScreenshot("metallium-iris-gbufferpack"));
+
+        String external = externalPack(context);
+        if (external != null) {
+            line("external pack " + external + ": pipeline=" + context.computeOnClient(client -> irisSelectPack(external, true)));
+            context.waitTicks(100);
+            context.takeScreenshot("metallium-iris-external-pack");
+            line("external pack: still running after 100 ticks");
         }
 
         line("iris shaders off: pipeline=" + context.computeOnClient(client -> irisSelectPack(TEST_PACK, false)));
@@ -136,6 +134,71 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
         if (same < 0.80) {
             failures.add(String.format("shaders off after a pack differs from vanilla (match %.2f)", same));
         }
+    }
+
+    private static void installTestPack(ClientGameTestContext context, String pack, String[] files) throws IOException {
+        Path packDir = context.computeOnClient(client -> irisShaderpacksDirectory()).resolve(pack).resolve("shaders");
+        Files.createDirectories(packDir);
+        for (String file : files) {
+            try (var in = MetalliumClientGameTest.class.getResourceAsStream("/" + pack + "/shaders/" + file)) {
+                Files.copy(java.util.Objects.requireNonNull(in, file), packDir.resolve(file), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            }
+        }
+    }
+
+    /** Copies -Dmetallium.gametest.shaderpack (a local pack, never in the repository) into the run's pack folder. */
+    private String externalPack(ClientGameTestContext context) {
+        String external = System.getProperty("metallium.gametest.shaderpack", "");
+        if (external.isEmpty()) {
+            return null;
+        }
+        try {
+            Path source = Path.of(external);
+            Path target = context.computeOnClient(client -> irisShaderpacksDirectory()).resolve(source.getFileName().toString());
+            if (!Files.exists(target)) {
+                Files.copy(source, target);
+            }
+            return source.getFileName().toString();
+        } catch (IOException e) {
+            line("external pack could not be copied: " + e);
+            return null;
+        }
+    }
+
+    /**
+     * Gbuffers test pack: terrain (lower band of the flat-world view) must be magenta, i.e. gbuffers_terrain ran on
+     * Metal and wrote colortex1, which the composite pass read; the sky (upper band) must not be.
+     */
+    private void checkGbufferMarker(Path screenshot) {
+        try {
+            java.awt.image.BufferedImage image = javax.imageio.ImageIO.read(screenshot.toFile());
+            double terrain = magentaFraction(image, 0.60, 0.85);
+            double sky = magentaFraction(image, 0.05, 0.30);
+            line(String.format("iris gbuffers test pack: magenta (gbuffer marker) fraction terrain band=%.2f, sky band=%.2f", terrain, sky));
+            if (terrain < 0.80 || sky > 0.20) {
+                failures.add(String.format("gbuffers -> composite data flow not visible (terrain %.2f, sky %.2f)", terrain, sky));
+            }
+        } catch (IOException e) {
+            failures.add("could not analyse gbuffers screenshot: " + e);
+        }
+    }
+
+    private static double magentaFraction(java.awt.image.BufferedImage image, double fromY, double toY) {
+        int w = image.getWidth();
+        int h = image.getHeight();
+        int total = 0;
+        int magenta = 0;
+        for (int y = (int) (h * fromY); y < (int) (h * toY); y += 2) {
+            for (int x = (int) (w * 0.05); x < (int) (w * 0.70); x += 2) {
+                int rgb = image.getRGB(x, y);
+                int r = (rgb >> 16) & 0xFF, g = (rgb >> 8) & 0xFF, b = rgb & 0xFF;
+                total++;
+                if (r > 200 && g < 60 && b > 200) {
+                    magenta++;
+                }
+            }
+        }
+        return (double) magenta / Math.max(1, total);
     }
 
     /** Chat messages (e.g. Metallium's shader-pack notices) would cover part of the compared area. */
@@ -282,6 +345,20 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
                 context.waitTicks(SETTLE_TICKS);
                 checkTerrainVisible(context.takeScreenshot("metallium-natural-world"), "natural world");
                 measure(context, "natural world");
+                if (net.fabricmc.loader.api.FabricLoader.getInstance().isModLoaded("iris")) {
+                    String external = externalPack(context);
+                    if (external != null) {
+                        tryCommand(world, "time set 1000");
+                        tryCommand(world, "execute as @p at @s run summon minecraft:cow ^ ^-1 ^6 {NoAI:1b}");
+                        line("external pack (natural world): pipeline=" + context.computeOnClient(client -> irisSelectPack(external, true)));
+                        context.waitTicks(SETTLE_TICKS);
+                        clearChat(context);
+                        context.takeScreenshot("metallium-iris-external-pack-natural");
+                        measure(context, "natural world, external pack");
+                        context.computeOnClient(client -> irisSelectPack(external, false));
+                        context.waitTicks(20);
+                    }
+                }
             }
             if (!failures.isEmpty()) {
                 if (backend.contains("Paravirtual")) {

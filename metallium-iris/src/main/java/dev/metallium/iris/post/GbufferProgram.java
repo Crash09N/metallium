@@ -1,0 +1,362 @@
+package dev.metallium.iris.post;
+
+import com.mojang.blaze3d.systems.RenderSystem;
+import com.mojang.renderpearl.api.GpuFormat;
+import com.mojang.renderpearl.api.pipeline.BindGroupLayout;
+import com.mojang.renderpearl.api.pipeline.BlendFunction;
+import com.mojang.renderpearl.api.pipeline.ColorTargetState;
+import com.mojang.renderpearl.api.pipeline.RenderPipeline;
+import com.mojang.renderpearl.api.pipeline.ShaderType;
+import com.mojang.renderpearl.api.pipeline.UniformType;
+import com.mojang.renderpearl.api.vertex.VertexFormat;
+import com.mojang.renderpearl.api.vertex.VertexFormatElement;
+import com.mojang.renderpearl.backend.api.BackendRenderPipeline;
+import com.mojang.renderpearl.backend.api.GpuDeviceBackend;
+import com.mojang.renderpearl.backend.api.SpvModule;
+import com.mojang.renderpearl.frontend.FrontendRenderPipeline;
+import com.mojang.renderpearl.frontend.shaders.SPIRVModule;
+import com.mojang.renderpearl.util.ShaderCompileException;
+import dev.metallium.iris.mixin.FrontendGpuDeviceAccessor;
+import dev.metallium.shaders.GlslProgramTranslator;
+import dev.metallium.shaders.GlslProgramTranslator.SpirvStage;
+import dev.metallium.shaders.GlslProgramTranslator.Stage;
+import it.unimi.dsi.fastutil.objects.Object2IntMaps;
+import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
+import org.jspecify.annotations.Nullable;
+import org.lwjgl.system.MemoryUtil;
+import org.lwjgl.util.spvc.Spvc;
+
+import java.nio.ByteBuffer;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.EnumMap;
+import java.util.HashMap;
+import java.util.IdentityHashMap;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+/**
+ * A shader pack's gbuffers program (after Iris's {@code patchVanilla}/{@code patchSodium}) compiled for the Metal
+ * backend as a replacement for one vanilla or Sodium {@link RenderPipeline}: same vertex layout, depth, cull and
+ * topology as the replaced pipeline, but with the pack's shaders and one colour target per gbuffer attachment of the
+ * captured render pass (see {@link GbufferPasses}). Outputs of the pack's {@code DRAWBUFFERS} slot {@code i} are moved
+ * to the attachment index of that colortex; attachments the program does not write get an empty write mask.
+ *
+ * <p>Uniform names are translated to what the frontend sets on the pass: Iris renames vanilla's uniform blocks to
+ * {@code iris_<Name>} and the vanilla samplers to {@code gtexture/lightmap/iris_overlay}; those are bound under the
+ * vanilla/Sodium names ({@code DynamicTransforms}, {@code Sampler0}, {@code u_BlockTex}, ...), everything else (loose
+ * uniforms, colortex/depthtex/noise/shadow samplers) is bound by {@link GbufferPasses} after {@code setPipeline}.
+ */
+final class GbufferProgram implements AutoCloseable {
+    private static final Pattern VERTEX_INPUT = Pattern.compile(
+            "^[ \\t]*(?:layout\\s*\\([^)]*\\)\\s*)?(?:(?:flat|smooth|noperspective|centroid|invariant|highp|mediump|lowp)\\s+)*in\\s+([A-Za-z_][A-Za-z0-9_]*)\\s+([A-Za-z_][A-Za-z0-9_]*)\\s*;",
+            Pattern.MULTILINE);
+    private static final Pattern SODIUM_PUSH_CONSTANTS = Pattern.compile("layout\\s*\\(\\s*std140\\s*\\)\\s*uniform\\s+iris_SodiumPushConstants\\b");
+    /** Pack sampler name -> vanilla/Sodium names the frontend binds for the same texture unit (Iris's IrisBindings). */
+    private static final Map<String, List<String>> SAMPLER_ALIASES = Map.of(
+            "gtexture", List.of("Sampler0", "u_BlockTex"),
+            "tex", List.of("Sampler0", "u_BlockTex"),
+            "texture", List.of("Sampler0", "u_BlockTex"),
+            "u_MainSampler", List.of("Sampler0", "u_BlockTex"),
+            "lightmap", List.of("Sampler2", "u_LightTex"),
+            "iris_overlay", List.of("Sampler1"));
+    /** Iris prefixes vanilla's uniform blocks with {@code iris_} in gbuffers programs. */
+    private static final Set<String> VANILLA_BLOCKS = Set.of("DynamicTransforms", "Projection", "Globals", "Fog", "Lighting", "CloudInfo");
+    private static final int UNUSED_BINDING = 1000;
+    /** Metal: 16 sampler states per stage; the backend numbers textures per pipeline. */
+    private static final int MAX_TEXTURES = 16;
+
+    final String name;
+    final FrontendRenderPipeline pipeline;
+    /** Combined image samplers bound by Metallium (not delivered by the vanilla/Sodium renderer). */
+    final Set<String> ownSamplers;
+    /** Vanilla uniform blocks the replaced pipeline does not have (bound from RenderSystem by Metallium). */
+    final Set<String> extraBlocks;
+    /** Uniform-buffer name -> CPU default block of one stage. */
+    final Map<String, PostUniforms.Block> blocks;
+    final PostUniforms.Holder uniforms;
+    /** Alpha-test reference for {@code iris_currentAlphaTest} (Iris's CapturedRenderingState). */
+    final float alphaReference;
+    final int normalMatrix;
+    final int modelViewInverse;
+    final int projectionInverse;
+
+    private GbufferProgram(final String name, final FrontendRenderPipeline pipeline, final Set<String> ownSamplers, final Set<String> extraBlocks,
+                           final Map<String, PostUniforms.Block> blocks, final float alphaReference) {
+        this.name = name;
+        this.pipeline = pipeline;
+        this.ownSamplers = ownSamplers;
+        this.extraBlocks = extraBlocks;
+        this.blocks = blocks;
+        this.uniforms = new PostUniforms.Holder(name, List.copyOf(blocks.values()));
+        this.alphaReference = alphaReference;
+        this.normalMatrix = uniforms.location("iris_NormalMat", net.irisshaders.iris.gl.uniform.UniformType.MAT3).orElse(-1);
+        this.modelViewInverse = uniforms.location("iris_ModelViewMatInverse", net.irisshaders.iris.gl.uniform.UniformType.MAT4).orElse(-1);
+        this.projectionInverse = uniforms.location("iris_ProjMatInverse", net.irisshaders.iris.gl.uniform.UniformType.MAT4).orElse(-1);
+    }
+
+    /**
+     * What to build.
+     *
+     * @param source        the replaced vanilla/Sodium pipeline (vertex layout, depth, cull, topology, frontend uniform names)
+     * @param vertexFormat  actual layout of vertex buffer slot 0 (for Sodium: Iris's extended terrain format)
+     * @param drawBuffers   the program's {@code DRAWBUFFERS} (colortex indices, by output location)
+     * @param attachments   colortex index of each colour attachment of the captured pass
+     * @param blend         blend for written float attachments (pack override or the replaced pipeline's blend)
+     * @param bufferBlends  per-colortex blend overrides ({@code blend.<program>.<buffer>})
+     */
+    record Spec(String name, String vertex, String fragment, RenderPipeline source, VertexFormat vertexFormat,
+                int[] drawBuffers, int[] attachments, List<GpuFormat> attachmentFormats,
+                Optional<BlendFunction> blend, Map<Integer, Optional<BlendFunction>> bufferBlends, float alphaReference) {
+    }
+
+    static GbufferProgram compile(final Spec spec) throws Exception {
+        Set<String> available = new LinkedHashSet<>();
+        if (spec.vertexFormat != null) {
+            for (VertexFormatElement element : spec.vertexFormat.getElements()) {
+                available.add(element.name());
+            }
+        }
+        Map<Stage, String> sources = new EnumMap<>(Stage.class);
+        sources.put(Stage.VERTEX, defaultMissingInputs(SODIUM_PUSH_CONSTANTS.matcher(spec.vertex).replaceAll("layout(push_constant) uniform iris_SodiumPushConstants"), available));
+        sources.put(Stage.FRAGMENT, spec.fragment);
+        Map<Stage, SpirvStage> stages = GlslProgramTranslator.compileToSpirv(spec.name, sources);
+
+        List<SPIRVModule> modules = new ArrayList<>();
+        Map<String, PostUniforms.Block> blocks = new LinkedHashMap<>();
+        try {
+            int[] outputMap = new int[16];
+            java.util.Arrays.fill(outputMap, -1);
+            for (int i = 0; i < spec.drawBuffers.length && i < outputMap.length; i++) {
+                outputMap[i] = indexOf(spec.attachments, spec.drawBuffers[i]);
+            }
+            int unused = spec.attachments.length;
+            GlslProgramTranslator.remapOutputLocations(stages.get(Stage.FRAGMENT).spirv(), location -> {
+                int mapped = location >= 0 && location < outputMap.length ? outputMap[location] : -1;
+                // Outputs without an attachment go past the last attachment (Metal ignores them).
+                return mapped >= 0 ? mapped : unused + location;
+            });
+
+            Map<String, BindGroupLayout.UniformDescription> sourceUniforms = new HashMap<>();
+            for (BindGroupLayout.UniformDescription description : BindGroupLayout.flattenUniforms(spec.source.getBindGroupLayouts())) {
+                sourceUniforms.put(description.name(), description);
+            }
+
+            List<BackendRenderPipeline.CreateInfo.Shader> shaders = new ArrayList<>();
+            Object2IntOpenHashMap<String> bindings = new Object2IntOpenHashMap<>();
+            List<BindGroupLayout.UniformDescription> uniforms = new ArrayList<>();
+            Set<String> ownSamplers = new LinkedHashSet<>();
+            Set<String> extraBlocks = new LinkedHashSet<>();
+            int unusedBindings = 0;
+            SPIRVModule vertexModule = null;
+            List<SpirvStage> ordered = new ArrayList<>(stages.values());
+            Collections.reverse(ordered); // fragment first: it gets the low texture indices (16 samplers per stage)
+            for (SpirvStage stage : ordered) {
+                ShaderType type = stage.stage() == Stage.VERTEX ? ShaderType.VERTEX : ShaderType.FRAGMENT;
+                SPIRVModule module = new SPIRVModule(stage.spirv(), type);
+                modules.add(module);
+                if (type == ShaderType.VERTEX) {
+                    vertexModule = module;
+                }
+                Set<String> active = GlslProgramTranslator.activeResourceNames(stage.spirv());
+                for (SpvModule.Reflection.Descriptor descriptor : module.reflect().descriptors()) {
+                    if (!active.contains(descriptor.name())) {
+                        // Declared but unused: out of the backend's binding table (not emitted in MSL).
+                        descriptor.binding(UNUSED_BINDING + unusedBindings++);
+                        descriptor.descriptorSetIndex(0);
+                        continue;
+                    }
+                    BindGroupLayout.UniformDescription description;
+                    switch (descriptor.resourceType()) {
+                        case Spvc.SPVC_RESOURCE_TYPE_UNIFORM_BUFFER -> {
+                            String block = descriptor.name();
+                            if (block.equals(stage.defaultBlockName())) {
+                                String uniformName = "metallium_defaults_" + type.getName();
+                                blocks.put(uniformName, new PostUniforms.Block(stage.defaultBlockSize(), stage.defaultBlock()));
+                                description = new BindGroupLayout.UniformDescription(uniformName, UniformType.UNIFORM_BUFFER);
+                            } else {
+                                String frontendName = block.startsWith("iris_") && VANILLA_BLOCKS.contains(block.substring(5)) ? block.substring(5) : block;
+                                description = sourceUniforms.get(frontendName);
+                                if (description == null && VANILLA_BLOCKS.contains(frontendName)) {
+                                    // Iris declares Fog/Projection/Globals in every vanilla-patched program; when the
+                                    // replaced pipeline does not use them, GbufferState binds RenderSystem's buffers.
+                                    description = new BindGroupLayout.UniformDescription(frontendName, UniformType.UNIFORM_BUFFER);
+                                    extraBlocks.add(frontendName);
+                                }
+                                if (description == null) {
+                                    throw new PostProgram.UnsupportedProgramException("uniform block '" + block + "' is not provided by " + spec.source.getLocation());
+                                }
+                            }
+                        }
+                        case Spvc.SPVC_RESOURCE_TYPE_SAMPLED_IMAGE, Spvc.SPVC_RESOURCE_TYPE_SEPARATE_IMAGE -> {
+                            String sampler = descriptor.name();
+                            description = sourceUniforms.get(sampler);
+                            if (description == null) {
+                                for (String alias : SAMPLER_ALIASES.getOrDefault(sampler, List.of())) {
+                                    if (sourceUniforms.containsKey(alias)) {
+                                        description = sourceUniforms.get(alias);
+                                        break;
+                                    }
+                                }
+                            }
+                            if (description == null) {
+                                int dim = descriptor.type().dimensions();
+                                if (dim == 5) { // SpvDimBuffer
+                                    throw new PostProgram.UnsupportedProgramException("texel buffer '" + sampler + "' is not provided by " + spec.source.getLocation());
+                                }
+                                if (dim != 1 && dim != 4) { // SpvDim2D, SpvDimRect
+                                    throw new PostProgram.UnsupportedProgramException("sampler '" + sampler + "' has dimension " + dim + " (only 2D textures are supported yet)");
+                                }
+                                description = new BindGroupLayout.UniformDescription(sampler, UniformType.COMBINED_IMAGE_SAMPLER);
+                                ownSamplers.add(sampler);
+                            }
+                        }
+                        case Spvc.SPVC_RESOURCE_TYPE_STORAGE_IMAGE -> throw new PostProgram.UnsupportedProgramException("image '" + descriptor.name() + "' (image load/store needs stage 5)");
+                        case Spvc.SPVC_RESOURCE_TYPE_STORAGE_BUFFER -> throw new PostProgram.UnsupportedProgramException("buffer '" + descriptor.name() + "' (SSBOs need stage 5)");
+                        default -> throw new PostProgram.UnsupportedProgramException("resource '" + descriptor.name() + "' of type " + descriptor.resourceType());
+                    }
+                    String uniformName = description.name();
+                    int binding = bindings.computeIfAbsent(uniformName, key -> bindings.size());
+                    if (binding == uniforms.size()) {
+                        uniforms.add(description);
+                    }
+                    descriptor.binding(binding);
+                    descriptor.descriptorSetIndex(0);
+                }
+                shaders.add(new BackendRenderPipeline.CreateInfo.Shader(spec.name + "." + type.getName(), "main", module));
+            }
+
+            long textures = uniforms.stream().filter(u -> u.type() != UniformType.UNIFORM_BUFFER).count();
+            if (textures > MAX_TEXTURES) {
+                throw new PostProgram.UnsupportedProgramException("uses " + textures + " textures; Metal allows " + MAX_TEXTURES + " samplers per stage");
+            }
+
+            List<BackendRenderPipeline.CreateInfo.AttribBinding> attribs = new ArrayList<>();
+            for (SpvModule.Reflection.InterfaceVariable input : vertexModule.reflect().inputs()) {
+                VertexFormatElement element = spec.vertexFormat == null ? null : element(spec.vertexFormat, input.name());
+                if (element == null) {
+                    throw new PostProgram.UnsupportedProgramException("vertex input '" + input.name() + "' has no vertex element");
+                }
+                attribs.add(new BackendRenderPipeline.CreateInfo.AttribBinding(0, input.location(), element.offset(), element.format()));
+            }
+
+            List<ColorTargetState> colorTargets = new ArrayList<>();
+            int sourceMask = spec.source.getColorTargetStates().isEmpty() ? ColorTargetState.WRITE_ALL : spec.source.getColorTargetStates().getFirst().writeMask() & ColorTargetState.WRITE_ALL;
+            for (int i = 0; i < spec.attachments.length; i++) {
+                int buffer = spec.attachments[i];
+                GpuFormat format = spec.attachmentFormats.get(i);
+                boolean written = indexOf(spec.drawBuffers, buffer) >= 0;
+                Optional<BlendFunction> blend = spec.bufferBlends.getOrDefault(buffer, spec.blend);
+                if (isInteger(format)) {
+                    blend = Optional.empty();
+                }
+                colorTargets.add(new ColorTargetState(blend, format, written ? sourceMask : ColorTargetState.WRITE_NONE));
+            }
+
+            List<VertexFormat> frontendFormats = new ArrayList<>(Collections.nCopies(16, null));
+            frontendFormats.set(0, spec.vertexFormat);
+            BackendRenderPipeline.CreateInfo info = new BackendRenderPipeline.CreateInfo(
+                    "iris/" + spec.name,
+                    List.copyOf(shaders),
+                    spec.vertexFormat == null ? List.of()
+                            : List.of(new BackendRenderPipeline.CreateInfo.VertexBuffer(0, spec.vertexFormat.getVertexSize(), spec.vertexFormat.getStepRate())),
+                    List.copyOf(attribs),
+                    List.copyOf(uniforms),
+                    spec.source.pushConstantSize(),
+                    spec.source.getDepthStencilState(),
+                    spec.source.getPolygonMode(),
+                    spec.source.isCull(),
+                    List.copyOf(colorTargets),
+                    spec.source.getPrimitiveTopology());
+
+            GpuDeviceBackend backend = ((FrontendGpuDeviceAccessor) RenderSystem.getDevice()).metallium$getBackend();
+            BackendRenderPipeline compiled = backend.compilePipeline(info).finishCompile();
+            if (compiled == null) {
+                throw new ShaderCompileException("the backend could not compile the translated program (see the log for the MSL error)");
+            }
+            FrontendRenderPipeline pipeline = new FrontendRenderPipeline("iris/" + spec.name, compiled, Collections.unmodifiableList(frontendFormats),
+                    Object2IntMaps.unmodifiable(bindings), List.copyOf(uniforms), List.copyOf(colorTargets), spec.source.wantsDepthTexture(), spec.source.pushConstantSize());
+            GbufferProgram program = new GbufferProgram(spec.name, pipeline, ownSamplers, extraBlocks, blocks, spec.alphaReference);
+            blocks = null; // owned by the program now
+            return program;
+        } finally {
+            if (blocks != null) {
+                blocks.values().forEach(PostUniforms.Block::free);
+            }
+            Set<ByteBuffer> owned = Collections.newSetFromMap(new IdentityHashMap<>());
+            modules.forEach(module -> owned.add(module.spv()));
+            modules.forEach(SPIRVModule::close);
+            stages.values().stream().filter(stage -> !owned.contains(stage.spirv())).forEach(stage -> MemoryUtil.memFree(stage.spirv()));
+        }
+    }
+
+    /** Vertex element for a shader input: Iris names vanilla attributes {@code iris_<Element>}, Sodium's keep their names. */
+    @Nullable
+    private static VertexFormatElement element(final VertexFormat format, final String input) {
+        for (VertexFormatElement element : format.getElements()) {
+            if (input.equals(element.name()) || input.equals("iris_" + element.name())) {
+                return element;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Inputs the replaced pipeline's vertex layout does not provide (e.g. {@code mc_Entity}, {@code at_tangent} for
+     * vanilla formats without Iris's extensions) become constants, like an unbound GL attribute with a default value.
+     */
+    static String defaultMissingInputs(final String vertex, final Set<String> available) {
+        Matcher matcher = VERTEX_INPUT.matcher(vertex);
+        StringBuilder out = new StringBuilder();
+        while (matcher.find()) {
+            String type = matcher.group(1);
+            String name = matcher.group(2);
+            boolean present = available.contains(name) || (name.startsWith("iris_") && available.contains(name.substring(5)));
+            String replacement = present ? matcher.group() : type + " " + name + " = " + defaultValue(type, name) + ";";
+            matcher.appendReplacement(out, Matcher.quoteReplacement(replacement));
+        }
+        matcher.appendTail(out);
+        return out.toString();
+    }
+
+    private static String defaultValue(final String type, final String name) {
+        boolean unsigned = type.startsWith("u");
+        return switch (name) {
+            case "mc_Entity", "iris_Entity" -> unsigned ? type + "(0)" : type + "(-1)";
+            case "iris_Color" -> type + "(1)";
+            case "iris_UV2" -> type + "(240)";
+            case "iris_UV1" -> type.endsWith("2") ? type + "(0, 10)" : type + "(0)";
+            case "iris_LineWidth" -> type + "(1)";
+            case "at_tangent" -> type.equals("vec4") ? "vec4(1.0, 0.0, 0.0, 1.0)" : type + "(0)";
+            case "iris_Normal" -> type.equals("vec3") ? "vec3(0.0, 1.0, 0.0)" : type + "(0)";
+            default -> type + "(0)";
+        };
+    }
+
+    static int indexOf(final int[] values, final int value) {
+        for (int i = 0; i < values.length; i++) {
+            if (values[i] == value) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    static boolean isInteger(final GpuFormat format) {
+        String type = format.componentType().name();
+        return type.contains("INT") || format == GpuFormat.RGB10A2_UINT;
+    }
+
+    @Override
+    public void close() {
+        uniforms.release();
+        pipeline.close();
+        blocks.values().forEach(PostUniforms.Block::free);
+    }
+}

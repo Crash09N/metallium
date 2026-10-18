@@ -5,7 +5,10 @@
   "compatibilityLevel": "JAVA_25",
   "priority": 1500,
   "client": [
+    "BlendModeOverrideAccessor",
+    "FrontendCommandEncoderMixin",
     "FrontendGpuDeviceAccessor",
+    "FrontendRenderPassMixin",
     "GLDebugMixin",
     "GlStateManagerGuardMixin",
     "IrisCreatePipelineMixin",
@@ -15,6 +18,7 @@
     "IrisRenderSystemUniformMixin",
     "MatrixUniformMixin",
     "MetalGpuTextureMixin",
+    "RenderSystemPipelineMixin",
     "SamplerLimitsMixin",
     "VanillaRenderingPipelineMixin"
   ],
