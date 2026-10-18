@@ -78,6 +78,7 @@ class ComputeTranslatorTest {
                 layout(local_size_x = 256) in;
                 layout(rgba16f) writeonly uniform image2D colorimg4;
                 shared vec3 shared_memory[256][9];
+                vec3 evaluate(vec3 sh[9], vec3 n) { return sh[0] + sh[4] * n.y; }
                 void main() {
                     uint i = gl_LocalInvocationID.x;
                     for (uint j = 0u; j < 9u; ++j) shared_memory[i][j] = vec3(float(i + j));
@@ -87,6 +88,7 @@ class ComputeTranslatorTest {
                         barrier();
                     }
                     if (i < 9u) imageStore(colorimg4, ivec2(i, 0), vec4(shared_memory[0][i], 1.0));
+                    if (i == 0u) imageStore(colorimg4, ivec2(9, 0), vec4(evaluate(shared_memory[0], vec3(0.0, 1.0, 0.0)), 1.0));
                 }
                 """;
         Map<Stage, SpirvStage> stages = GlslProgramTranslator.compileToSpirv("deferred4_a", Map.of(Stage.COMPUTE, source));

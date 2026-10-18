@@ -99,12 +99,14 @@ final class ComputePass implements AutoCloseable {
                 state = buildPipeline(compute, kernel.msl(), kernel.entryPoint());
             } catch (NSErrorException e) {
                 if (!String.valueOf(e.getMessage()).contains("hreadgroup memory")) {
+                    dumpSource(name, glsl, kernel.msl());
                     throw new GlslProgramTranslator.TranslationException(name + ": MSL compile failed: " + e.getMessage());
                 }
                 // GL packs size shared arrays with 12-byte vec3s; pack them for Metal's 32 KiB limit.
                 try {
                     state = buildPipeline(compute, ComputeTranslator.packThreadgroupVectors(kernel.msl()), kernel.entryPoint());
                 } catch (NSErrorException again) {
+                    dumpSource(name, glsl, ComputeTranslator.packThreadgroupVectors(kernel.msl()));
                     throw new GlslProgramTranslator.TranslationException(name + ": MSL compile failed: " + again.getMessage());
                 }
             }
@@ -121,6 +123,18 @@ final class ComputePass implements AutoCloseable {
                 block.free();
             }
             MemoryUtil.memFree(stage.spirv());
+        }
+    }
+
+    /** Writes the post-Iris GLSL and the generated MSL of a kernel Metal rejected to {@code <game dir>/metallium-debug/}. */
+    private static void dumpSource(final String name, final String glsl, final String msl) {
+        try {
+            java.nio.file.Path dir = net.fabricmc.loader.api.FabricLoader.getInstance().getGameDir().resolve("metallium-debug");
+            java.nio.file.Files.createDirectories(dir);
+            java.nio.file.Files.writeString(dir.resolve(name.replace('/', '_') + ".csh.glsl"), glsl);
+            java.nio.file.Files.writeString(dir.resolve(name.replace('/', '_') + ".metal"), msl);
+        } catch (java.io.IOException | RuntimeException e) {
+            dev.metallium.iris.MetalliumIris.LOGGER.debug("[metallium-iris] could not write debug sources for {}", name, e);
         }
     }
 

@@ -244,6 +244,12 @@ final class MetalCrossShaderCompiler {
                         Spvc.spvc_compiler_options_set_bool(options, Spvc.SPVC_COMPILER_OPTION_FLIP_VERTEX_Y, true),
                         "spvc_compiler_options_set_bool(FLIP_VERTEX_Y)"
                 );
+                // GL lets a fragment shader write fewer components than the attachment has (shader packs write vec3
+                // into RGBA buffers); Metal rejects the pipeline unless the outputs are padded to four components.
+                checkSpvc(
+                        Spvc.spvc_compiler_options_set_bool(options, Spvc.SPVC_COMPILER_OPTION_MSL_PAD_FRAGMENT_OUTPUT_COMPONENTS, true),
+                        "spvc_compiler_options_set_bool(MSL_PAD_FRAGMENT_OUTPUT_COMPONENTS)"
+                );
                 if (!enableFragDepth) {
                     checkSpvc(
                             Spvc.spvc_compiler_options_set_bool(options, Spvc.SPVC_COMPILER_OPTION_MSL_ENABLE_FRAG_DEPTH_BUILTIN, false),

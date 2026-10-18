@@ -141,7 +141,8 @@ public final class ComputeTranslator {
      * GLSL {@code shared vec3} arrays become {@code float3} in MSL, which has a 16-byte stride, so packs sized for GL's
      * 32 KiB of shared memory with 12-byte vectors (Photon's sky SH reduction: {@code vec3[256][9]}) exceed Metal's
      * 32 KiB threadgroup limit. This rewrites the 3-component vectors of threadgroup declarations (and of threadgroup
-     * parameters, which use the same type) to {@code packed_*3}, which MSL supports in loads, stores and arithmetic.
+     * parameters, which use the same type) to {@code packed_*3}, which MSL supports in loads, stores and arithmetic,
+     * and gives {@code spvUnsafeArray} a conversion from threadgroup packed rows to unpacked arrays (by-value arguments).
      * Hosts call it when the Metal compiler reports too much threadgroup memory.
      */
     public static String packThreadgroupVectors(final String msl) {
@@ -152,6 +153,23 @@ public final class ComputeTranslator {
             m.appendReplacement(out, java.util.regex.Matcher.quoteReplacement("threadgroup " + type + m.group(2)));
         }
         m.appendTail(out);
+        // A packed row passed to a function by value (GLSL arrays are copied) needs a conversion to the unpacked
+        // array type; a conversion operator keeps spvUnsafeArray an aggregate (SPIRV-Cross brace-initialises it).
+        int struct = out.indexOf("struct spvUnsafeArray");
+        int end = struct < 0 ? -1 : out.indexOf("\n};", struct);
+        if (end >= 0) {
+            out.insert(end, """
+
+                        template<typename U> operator spvUnsafeArray<U, Num>() const threadgroup
+                        {
+                            spvUnsafeArray<U, Num> result;
+                            for (size_t i = 0; i < Num; i++)
+                            {
+                                result.elements[i] = U(elements[i]);
+                            }
+                            return result;
+                        }""");
+        }
         return out.toString();
     }
 
