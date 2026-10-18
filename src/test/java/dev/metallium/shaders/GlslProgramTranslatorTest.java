@@ -9,6 +9,7 @@ import io.github.kokodio.metaljvm.metal.MTLLibrary;
 import io.github.kokodio.metaljvm.metal.Metal;
 import io.github.kokodio.metaljvm.objc.AutoreleasePool;
 import org.junit.jupiter.api.Test;
+import org.lwjgl.system.MemoryUtil;
 
 import java.util.EnumMap;
 import java.util.Map;
@@ -359,6 +360,21 @@ class GlslProgramTranslatorTest {
         // A different signature is a legal overload: left alone.
         String overload = "float round(float x, float step) { return x; }\nvoid main() { round(1.0, 2.0); }";
         assertEquals(overload, GlslProgramTranslator.renameBuiltinRedefinitions(overload));
+    }
+
+    @Test
+    void bindingQualifiersWorkInOldVersionsWithExtensions() throws Exception {
+        // Complementary Unbound (colored lighting): #version 330 + SSBO extension + layout(std430, binding = 0).
+        Map<Stage, String> sources = new EnumMap<>(Stage.class);
+        sources.put(Stage.FRAGMENT, """
+                #version 330 core
+                #extension GL_ARB_shader_storage_buffer_object: enable
+                struct blockData { vec4[6] packedFaceData; };
+                layout(std430, binding = 0) readonly buffer blockDataSSBO { blockData data[]; };
+                layout(location = 0) out vec4 color;
+                void main() { color = data[0].packedFaceData[1]; }
+                """);
+        GlslProgramTranslator.compileToSpirv("ssbo330", sources).values().forEach(stage -> MemoryUtil.memFree(stage.spirv()));
     }
 
     @Test

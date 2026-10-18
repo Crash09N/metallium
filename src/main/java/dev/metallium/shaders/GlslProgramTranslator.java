@@ -645,8 +645,32 @@ public final class GlslProgramTranslator {
         return result.toString();
     }
 
+    private static final Pattern VERSION_NUMBER = Pattern.compile("^\\s*#version\\s+(\\d+).*$", Pattern.MULTILINE);
+    private static final Pattern SSBO_EXTENSION = Pattern.compile("#extension\\s+GL_ARB_shader_storage_buffer_object\\b");
+    private static final Pattern BINDING_QUALIFIER = Pattern.compile("layout\\s*\\([^)]*\\bbinding\\s*=");
+
+    /**
+     * {@code layout(binding = N)} needs GLSL 4.20 or {@code GL_ARB_shading_language_420pack}; desktop drivers accept it in
+     * older versions with the SSBO/image extensions, glslang does not (Complementary Unbound's colored lighting:
+     * {@code #version 330} + {@code GL_ARB_shader_storage_buffer_object} + {@code layout(std430, binding = 0) buffer}).
+     */
+    static String enableBindingQualifiers(final String source) {
+        Matcher version = VERSION_NUMBER.matcher(source);
+        if (version.find() && Integer.parseInt(version.group(1)) < 430 && SSBO_EXTENSION.matcher(source).find()) {
+            // glslang accepts buffer blocks only from 4.30 (desktop drivers take the extension in 3.30): raise the version.
+            String line = version.group();
+            return source.substring(0, version.start()) + line.replaceFirst("\\d+", "430") + source.substring(version.end());
+        }
+        version.reset();
+        if (!version.find() || Integer.parseInt(version.group(1)) >= 420 || !BINDING_QUALIFIER.matcher(source).find()
+                || source.contains("GL_ARB_shading_language_420pack")) {
+            return source;
+        }
+        return source.substring(0, version.end()) + "\n#extension GL_ARB_shading_language_420pack : enable" + source.substring(version.end());
+    }
+
     static ByteBuffer compileToSpirv(final String programName, final Stage stage, final String glslSource) throws TranslationException {
-        String source = renameBuiltinRedefinitions(VULKAN_ONLY_KEYWORDS.matcher(glslSource).replaceAll("metallium_$1"));
+        String source = enableBindingQualifiers(renameBuiltinRedefinitions(VULKAN_ONLY_KEYWORDS.matcher(glslSource).replaceAll("metallium_$1")));
         if (!VERSION.matcher(source).find()) {
             throw new TranslationException(programName + "/" + stage + ": missing #version directive");
         }
