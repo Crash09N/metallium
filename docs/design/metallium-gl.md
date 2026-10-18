@@ -1,6 +1,6 @@
 # metallium-gl: OpenGL → Metal translation layer
 
-Status: **foundation implemented** (2026-10-18). Roadmap phase 4. Module `metallium-gl/` (Fabric mod id `metallium-gl`,
+Status: **foundation + GL 4.x (compute, SSBO, MDI-count, DSA) implemented; Voxy renders unmodified** (2026-10-18). Roadmap phase 4. Module `metallium-gl/` (Fabric mod id `metallium-gl`,
 Apache-2.0, depends on `metallium`, not on Iris).
 
 ## 1. Purpose and scope
@@ -265,7 +265,35 @@ Translator tests: GL bindings/workgroup size/explicit layouts, subgroup clustere
 
 ### 12.4 Runtime status with Voxy
 
-RUNTIME_STATUS
+**Voxy renders its LOD terrain on Metal, unmodified** (2026-10-18, M3 Max, macOS 27.0.1, Voxy 247adf2 + Sodium 0.9.2).
+Command: `gpu-lock.sh ./gradlew :runClientGameTest -PwithSodium -PwithGl -PwithVoxy=<jar> -PglMods=voxy -PglFailFast=false`
+(Voxy is excluded from automatic routing, so it must be listed explicitly; `GlRouting.EXPLICIT_ONLY`).
+Scenario: natural world, spectator at y 160, vanilla render distance 16 for 60 s (Voxy ingests the loaded chunks), then 4.
+
+- Runtime inventory: 36 Voxy classes / 603 GL call sites retargeted, **0 unimplemented functions called**; per minute
+  ≈13k dispatches and ≈5k indirect draw calls (≈7-8 GPU-generated draws per MDI-count call); Voxy's F3 data: 198 models
+  baked, ~90 nodes, render-system frame time ≈0.9-1.8 ms.
+- Screenshots: at render distance 4 Sodium draws 0 sections, yet the full 16-chunk terrain is visible — Voxy's LODs; a
+  reference run without Voxy (`-PvoxyScenario`) shows the same view at distance 16 and only sky at distance 4, and the
+  Voxy image matches the vanilla rd-16 image closely. Frame time ≈2 ms (the game test caps at 30 fps).
+- Fixes found by running Voxy (each with a unit test): >2 GiB buffers (Voxy's 4 GiB geometry SSBO); `gl_DepthRange`;
+  `#extension X : enable` of unsupported extensions is a warning and glslang's predefined extension macros are hidden;
+  GL 4.1+ framebuffer completeness; resources SPIRV-Cross leaves unassigned are never bound (driver crash on index -1);
+  `glFinish` / waiting `glClientWaitSync` complete fences of the frame being recorded (Voxy spun forever on shutdown);
+  `glClipControl` + the context starts in Minecraft's zero-to-one depth convention (Voxy compiles for it);
+  **Metal forbids textures in ICB pipelines** ("Fragment shader cannot be used with indirect command buffers"), so
+  textured programs (Voxy's terrain) use the compaction fallback: a kernel writes Metal indirect arguments with
+  instanceCount 0 beyond the GPU count and the render encoder issues one indirect draw per slot (CPU cost per slot,
+  `maxdrawcount` clamped to the command buffer). Texture-free programs keep the ICB path.
+- Game-test plumbing: dev-only macOS natives for Voxy's storage (RocksDB / zstd: the 263 jar bundles none for macOS).
+
+Not done / known limits:
+- Iris + Voxy (Voxy's Iris pipeline, shader-pack programs) is untested; `glBlitFramebuffer` only 1:1.
+- Timer queries report CPU times; sparse buffers / int64 / NV paths are reported unsupported (Voxy takes its generic paths).
+- The MDI-count fallback costs one encoded draw per `maxdrawcount` slot; argument-buffer ICBs (textures via argument
+  buffers) would remove that. FPS with large LOD distances not benchmarked yet.
+- Shadow / translucent / SSAO passes run (no errors) but were not checked pixel by pixel.
+- Diagnostics: `-PglTrace=N -PglTraceAfter=S` logs device operations, `-PglDump=n,...` texture statistics after them.
 
 ## 13. Performance notes
 
