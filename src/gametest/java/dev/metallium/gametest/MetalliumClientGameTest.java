@@ -116,7 +116,7 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
         });
         try (TestSingleplayerContext world = context.worldBuilder()
                 .setUseConsistentSettings(false)
-                .adjustSettings(state -> state.setSeed(BENCH_SEED))
+                .adjustSettings(state -> state.setSeed(voxy && System.getProperty("metallium.bench.seed") == null ? "metallium-forest" : BENCH_SEED))
                 .create()) {
             world.getConnection().waitForChunksRender();
             tryCommand(world, "gamerule spawn_monsters false");
@@ -135,7 +135,8 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
             // Camera: above the terrain at the origin so the view shows land to the horizon, not mostly sky.
             String cameraSetting = System.getProperty("metallium.bench.camera", "");
             int surface = context.computeOnClient(client -> client.level.getHeight(net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING, 0, 0));
-            String camera = !cameraSetting.isEmpty() ? cameraSetting : voxy ? "0 " + (surface + 60) + " 0 110 20"
+            // voxy: high above the terrain looking over the whole ingested area (most of it beyond the vanilla distance)
+            String camera = !cameraSetting.isEmpty() ? cameraSetting : voxy ? "0 " + Math.max(200, surface + 120) + " 0 210 30"
                     : "0 " + (surface + 25) + " 0 " + (flight ? "-90 10" : "110 15");
             line("bench: surface y at origin=" + surface + ", camera=" + camera);
             tryCommand(world, "tp @a " + camera);
