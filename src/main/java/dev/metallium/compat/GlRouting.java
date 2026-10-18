@@ -93,7 +93,7 @@ public final class GlRouting {
                 if (d.routed()) {
                     ModReport report = ModScan.report(d.modId());
                     routed.add(new CrashGuard.RoutedMod(d.modId(), report != null ? report.name() : d.modId(),
-                            report != null ? report.packages() : List.of(), jarOf(d.modId())));
+                            report != null ? report.packages() : List.of(), jarOf(d.modId()), report != null && report.usesBackendInternals()));
                 }
                 if (d.status() != Status.NATIVE) {
                     Metallium.LOGGER.info("[metallium] {}: {} ({})", d.modId(), d.status(), d.reason());

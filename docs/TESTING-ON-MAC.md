@@ -31,6 +31,15 @@ Game-test results land in `build/run/clientGameTest/`:
 
 The report's first line must say `backend: Metal | Apple M3 Max ...`.
 
+Your own modpack (copy in git-ignored `run-instance/`, your instance is never modified):
+
+```bash
+tools/make-run-instance.sh /path/to/your/instance   # mods, shader/resource packs, config, options.txt
+./gradlew runClientGameTest -Pinstance               # fresh world, every shader pack; add -PinstancePacks=a.zip,b.zip or =-
+```
+
+Results in `run-instance/` (report, `screenshots/`, `logs/`). See `docs/compat/real-instance-2026-10-18.md`.
+
 ## 4. Install into your normal launcher instead
 
 ```bash

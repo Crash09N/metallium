@@ -34,7 +34,14 @@ public final class CrashRecoveryScreen extends Screen {
         super(Component.literal("Metallium: the last session crashed"));
         this.next = next;
         this.recovery = recovery;
-        if (!recovery.suspects().isEmpty()) {
+        if (recovery.startup()) {
+            message.add("The game closed during start-up on Metal without a crash report,");
+            message.add("typically when a mod calls OpenGL where Metal has no OpenGL context.");
+            if (!recovery.suspects().isEmpty()) {
+                message.add("Likely: " + String.join(", ", recovery.suspects().stream().map(CrashGuard.RoutedMod::name).toList())
+                        + " (uses Minecraft's OpenGL backend).");
+            }
+        } else if (!recovery.suspects().isEmpty()) {
             for (CrashGuard.RoutedMod mod : recovery.suspects()) {
                 message.add(mod.name() + " (" + mod.id() + ") may not work with Metallium:");
             }
