@@ -56,6 +56,11 @@ import java.util.regex.Pattern;
  *   <li>{@code ((GlTexture) t).glId()} / {@code ((GlTextureView) v).glId()} — a CHECKCAST immediately followed by the
  *       {@code glId()} call — → one bridge {@code (Object)I} that returns the metallium-gl name of Metallium's texture
  *       ({@link MetalGLInterop#glId}). Stack in and out are the same (object → int), so frames are unaffected.</li>
+ *   <li>any other {@code CHECKCAST} to {@code GlTexture}, {@code GlTextureView}, {@code GlBuffer} or {@code GlSampler}
+ *       gets {@code MetalGLInterop.shadow(obj, "type")} inserted before it: on Metal the engine object is replaced by a
+ *       stand-in of that type carrying metallium-gl names (e.g. a mod's {@code ((GlBuffer) buffer)} handle accessor,
+ *       a {@code GlSampler} stored in a field). The stack holds the same object type before the cast, so frames are
+ *       unaffected.</li>
  * </ul>
  */
 public final class GlCallRetargeter {
@@ -64,6 +69,9 @@ public final class GlCallRetargeter {
     private static final String MC_GL_PACKAGE = "com/mojang/renderpearl/backend/opengl/";
     static final String STATE_MANAGER = MC_GL_PACKAGE + "GlStateManager";
     private static final Set<String> GL_TEXTURE_CLASSES = Set.of(MC_GL_PACKAGE + "GlTexture", MC_GL_PACKAGE + "GlTextureView");
+    /** Casts to these get a stand-in on Metal ({@link MetalGLInterop#shadow}). */
+    private static final Set<String> SHADOW_CLASSES = Set.of(MC_GL_PACKAGE + "GlTexture", MC_GL_PACKAGE + "GlTextureView",
+            MC_GL_PACKAGE + "GlBuffer", MC_GL_PACKAGE + "GlSampler");
     private static final String INTEROP = Type.getInternalName(MetalGLInterop.class);
     private static final String MIXIN_MERGED = "Lorg/spongepowered/asm/mixin/transformer/meta/MixinMerged;";
     private static final Pattern FUNCTION_CLASS = Pattern.compile("GL\\d\\dC?|(ARB|EXT|KHR|NV|AMD|INTEL|APPLE|ATI|OVR)\\w+");
@@ -171,6 +179,7 @@ public final class GlCallRetargeter {
         int sites = 0;
         int unimplemented = 0;
         int references = 0;
+        int shadows = 0;
         for (MethodNode method : node.methods) {
             String modId = modOf.apply(method);
             if (modId == null) {
@@ -210,6 +219,13 @@ public final class GlCallRetargeter {
                     glId.itf = isInterface;
                     insn = after;
                     sites++;
+                } else if (insn instanceof TypeInsnNode cast && cast.getOpcode() == Opcodes.CHECKCAST && SHADOW_CLASSES.contains(cast.desc)) {
+                    // Any other cast to a GL backend type: on Metal the engine object becomes a stand-in of that type.
+                    method.instructions.insertBefore(cast, new LdcInsnNode(cast.desc));
+                    method.instructions.insertBefore(cast, new MethodInsnNode(Opcodes.INVOKESTATIC, INTEROP, "shadow",
+                            "(Ljava/lang/Object;Ljava/lang/String;)Ljava/lang/Object;", false));
+                    shadows++;
+                    sites++;
                 } else if (insn instanceof InvokeDynamicInsnNode indy) {
                     for (Object arg : indy.bsmArgs) {
                         if (arg instanceof Handle handle && isGlCall(handle.getOwner(), handle.getName())) {
@@ -219,7 +235,7 @@ public final class GlCallRetargeter {
                 }
             }
         }
-        if (bridges.isEmpty()) {
+        if (bridges.isEmpty() && shadows == 0) {
             return new Result(null, 0, 0, references);
         }
         node.methods.addAll(bridges.values());

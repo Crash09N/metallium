@@ -254,6 +254,14 @@ public interface GlDevice {
         return null;
     }
 
+    /**
+     * Wraps a buffer owned by the engine (Metallium's {@code GpuBuffer}) so GL can bind it (SSBO, copies, pack target);
+     * null if {@code engineBuffer} is not one this device understands. GPU access only.
+     */
+    default @Nullable BufferStore externalBuffer(final Object engineBuffer) {
+        return null;
+    }
+
     /** A view of {@code texture} reinterpreting it as {@code format} (glTextureView); null if impossible. */
     default @Nullable TextureStore textureView(final TextureStore texture, final TexFormat format, final int minLevel, final int levels) {
         return null;

@@ -69,6 +69,8 @@ final class GlObjects {
         int mapAccess;
         /** Written by the GPU (SSBO, copy / clear destination): CPU updates must be GPU-ordered, not renamed. */
         boolean gpuWritten;
+        /** Storage owned by the engine (Minecraft's {@code GpuBuffer}): never released or reallocated by GL. */
+        boolean external;
 
         Buffer(final int name) {
             this.name = name;

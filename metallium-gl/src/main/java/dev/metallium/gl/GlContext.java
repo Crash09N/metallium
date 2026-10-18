@@ -73,6 +73,7 @@ public final class GlContext {
     final GlDsa dsa = new GlDsa(this);
     final GlQueries queries = new GlQueries(this);
     final GlExternalTextures externalTextures = new GlExternalTextures(this);
+    final GlExternalBuffers externalBuffers = new GlExternalBuffers(this);
     int activeTexture;
     final @Nullable Texture[] bound2D = new Texture[MAX_TEXTURE_UNITS];
     @Nullable Framebuffer drawFramebuffer;
@@ -342,6 +343,10 @@ public final class GlContext {
     }
 
     private void releaseStore(final Buffer buffer) {
+        if (buffer.external) {
+            buffer.store = null;
+            return;
+        }
         if (buffer.store != null) {
             device.release(buffer.store);
             buffer.store = null;
