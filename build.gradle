@@ -113,6 +113,8 @@ loom.runs.clientGameTest {
 	if (project.hasProperty('benchSeconds')) vmArg "-Dmetallium.bench.seconds=${project.property('benchSeconds')}"
 	if (project.hasProperty('benchScene')) vmArg "-Dmetallium.bench.scene=${project.property('benchScene')}"
 	if (project.hasProperty('perfCounters')) vmArg '-Dmetallium.perfCounters=true'
+	// -PperfTrace (with -PperfCounters): log every encoder of one submit per counter window and why it was opened.
+	if (project.hasProperty('perfTrace')) vmArg '-Dmetallium.perfTrace=true'
 	if (project.hasProperty('benchPower')) vmArg '-Dmetallium.bench.power=true'
 	// A crashed earlier test run must not put the next one into crash-recovery mode (OpenGL + dialog).
 	vmArg "-Dmetallium.crashRecovery=${project.hasProperty('crashRecovery') ? 'on' : 'off'}"

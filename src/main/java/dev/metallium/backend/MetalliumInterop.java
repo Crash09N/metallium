@@ -72,6 +72,7 @@ public final class MetalliumInterop {
     public static MTLCommandBuffer beginExternalEncoding(final ExternalEncoderClient client) {
         MetalCommandEncoder encoder = require().createCommandEncoder();
         encoder.endEncoder();
+        if (PerfCounters.tracing) PerfCounters.trace("external encoding from " + PerfCounters.caller());
         externalClient = client;
         return encoder.commandBuffer();
     }

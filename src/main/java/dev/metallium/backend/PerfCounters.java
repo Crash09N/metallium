@@ -11,6 +11,10 @@ import dev.metallium.Metallium;
  */
 final class PerfCounters {
     static final boolean ENABLED = Boolean.getBoolean("metallium.perfCounters");
+    /** With {@code -Dmetallium.perfTrace=true}: logs every encoder of one submit per window (why it was opened). */
+    private static final boolean TRACE = ENABLED && Boolean.getBoolean("metallium.perfTrace");
+    /** True while the submit being encoded is traced. */
+    static boolean tracing;
     private static final int WINDOW = 600;
 
     static long renderEncoders;
@@ -39,7 +43,25 @@ final class PerfCounters {
     private PerfCounters() {
     }
 
+    static void trace(final String event) {
+        if (tracing) {
+            Metallium.LOGGER.info("Metallium trace: " + event);
+        }
+    }
+
+    /** The first caller outside the backend package (for traces). */
+    static String caller() {
+        return StackWalker.getInstance().walk(frames -> frames
+                .filter(f -> !f.getClassName().startsWith("dev.metallium.backend.") && !f.getClassName().startsWith("com.mojang.renderpearl."))
+                .findFirst().map(f -> f.getClassName().substring(f.getClassName().lastIndexOf('.') + 1) + "." + f.getMethodName() + ":" + f.getLineNumber())
+                .orElse("?"));
+    }
+
     static void submitted() {
+        tracing = TRACE && submits == WINDOW / 2 - 1;
+        if (tracing) {
+            Metallium.LOGGER.info("Metallium trace: ---- begin submit ----");
+        }
         if (++submits < WINDOW) {
             return;
         }

@@ -101,7 +101,10 @@ final class MetalCommandEncoder implements CommandEncoderBackend {
         }
         encoder.waitForFence(fence);
         currentEncoder = encoder;
-        if (PerfCounters.ENABLED) PerfCounters.blitEncoders++;
+        if (PerfCounters.ENABLED) {
+            PerfCounters.blitEncoders++;
+            if (PerfCounters.tracing) PerfCounters.trace("blit encoder from " + PerfCounters.caller());
+        }
         return encoder;
     }
 
@@ -281,7 +284,11 @@ final class MetalCommandEncoder implements CommandEncoderBackend {
                 }
             }
             encoder = MetalUtilities.nonNil(commandBuffer().renderCommandEncoder(renderPass), "renderCommandEncoderWithDescriptor:");
-            if (PerfCounters.ENABLED) PerfCounters.renderEncoders++;
+            if (PerfCounters.ENABLED) {
+                PerfCounters.renderEncoders++;
+                if (PerfCounters.tracing) PerfCounters.trace("render encoder colors=" + colorTextures.length + " depth=" + (depthTexture != null)
+                        + " clear=" + (clearColors != null) + "/" + (clearDepth != null) + " level=" + level + " from " + PerfCounters.caller());
+            }
             encoder.retain();
             renderPass.release();
         }
@@ -346,6 +353,12 @@ final class MetalCommandEncoder implements CommandEncoderBackend {
                 depthClear
         );
         currentRenderPass = renderPass;
+        if (PerfCounters.tracing) {
+            StringBuilder sb = new StringBuilder("pass '").append(descriptor.label().get()).append("' ->");
+            for (GpuTextureView view : colorTextures) sb.append(' ').append(view == null ? "-" : view.texture().getLabel());
+            if (depthTexture != null) sb.append(" depth ").append(depthTexture.texture().getLabel());
+            PerfCounters.trace(sb.toString());
+        }
         renderPass.pushDebugGroup(descriptor.label());
         return renderPass;
     }
@@ -747,6 +760,12 @@ final class MetalCommandEncoder implements CommandEncoderBackend {
             return;
         }
 
+        if (depthClear == null && isPlain2D(texture)) {
+            flushColorClears(texture, colorClear);
+            return;
+        }
+
+        if (PerfCounters.tracing) PerfCounters.trace("clear flush " + texture.getLabel() + " mips=" + texture.getMipLevels() + " from " + PerfCounters.caller());
         for (int level = 0; level < texture.getMipLevels(); level++) {
             endEncoder();
             if (PerfCounters.ENABLED) PerfCounters.clearEncoders++;
@@ -762,6 +781,72 @@ final class MetalCommandEncoder implements CommandEncoderBackend {
             currentEncoder = encoder;
         }
         texture.recordMaterializedClear(colorClear, depthClear);
+    }
+
+    private static boolean isPlain2D(final MetalGpuTexture texture) {
+        return texture.textureType() == MTLTextureType.Type2D && texture.getDepthOrLayers() == 1;
+    }
+
+    /**
+     * Materialises the pending colour clear of {@code texture} together with every other pending colour clear of the
+     * same size (up to 8 attachments in one load-action-clear encoder; doing them earlier than needed is fine, nothing
+     * used them since they were recorded). Mip levels above 0 are then filled by copying the cleared level 0 in one blit
+     * encoder instead of one render encoder per level (Iris's mipmapped colortex targets: 10 encoders per clear).
+     */
+    private void flushColorClears(final MetalGpuTexture texture, final Vector4fc colorClear) {
+        MetalGpuTexture[] group = new MetalGpuTexture[8];
+        Vector4fc[] clears = new Vector4fc[8];
+        group[0] = texture;
+        clears[0] = colorClear;
+        int count = 1;
+        boolean mips = texture.getMipLevels() > 1;
+        if (!pendingColorClears.isEmpty()) {
+            int width = texture.getWidth(0);
+            int height = texture.getHeight(0);
+            Iterator<Map.Entry<MetalGpuTexture, Vector4fc>> it = pendingColorClears.entrySet().iterator();
+            while (it.hasNext() && count < group.length) {
+                Map.Entry<MetalGpuTexture, Vector4fc> entry = it.next();
+                MetalGpuTexture other = entry.getKey();
+                if (!isPlain2D(other) || other.getWidth(0) != width || other.getHeight(0) != height
+                        || pendingDepthClears.containsKey(other)) {
+                    continue;
+                }
+                Vector4fc otherClear = entry.getValue(); // IdentityHashMap entries are invalid after remove()
+                it.remove();
+                if (other.clearIsRedundant(otherClear, null)) {
+                    continue;
+                }
+                group[count] = other;
+                clears[count] = otherClear;
+                mips |= other.getMipLevels() > 1;
+                count++;
+            }
+        }
+        MTLTexture[] attachments = new MTLTexture[count];
+        for (int i = 0; i < count; i++) {
+            attachments[i] = group[i].metalTexture();
+        }
+        if (PerfCounters.tracing) PerfCounters.trace("clear flush x" + count + " " + texture.getLabel() + " mips=" + texture.getMipLevels() + " from " + PerfCounters.caller());
+        endEncoder();
+        if (PerfCounters.ENABLED) PerfCounters.clearEncoders++;
+        MTLRenderCommandEncoder encoder = renderCommandEncoder(attachments, Arrays.copyOf(clears, count), null, null, 1.0, 1.0, 0);
+        encoder.waitForFence(fence, MTLRenderStages.Vertex | MTLRenderStages.Fragment);
+        currentEncoder = encoder;
+        if (mips) {
+            MTLBlitCommandEncoder blit = blitCommandEncoder();
+            for (int i = 0; i < count; i++) {
+                MetalGpuTexture target = group[i];
+                MTLTexture metal = attachments[i];
+                for (int level = 1; level < target.getMipLevels(); level++) {
+                    blit.copyFromTexture(metal, 0, 0, new MTLOrigin(0, 0, 0),
+                            new MTLSize(target.getWidth(level), target.getHeight(level), 1),
+                            metal, 0, level, new MTLOrigin(0, 0, 0));
+                }
+            }
+        }
+        for (int i = 0; i < count; i++) {
+            group[i].recordMaterializedClear(clears[i], null);
+        }
     }
 
     private static boolean isFullTextureRegion(
