@@ -151,6 +151,17 @@ class MetalGlDeviceTest {
     }
 
     @Test
+    void unboundSamplerReadsOpaqueBlack() {
+        MetalGL.glClearColor(1f, 1f, 1f, 1f);
+        MetalGL.glClear(GL_COLOR_BUFFER_BIT);
+        int p = program(VS, FS_TEXTURE);
+        MetalGL.glUseProgram(p);
+        MetalGL.glBindVertexArray(quad(-1, -1, 1, 1));
+        MetalGL.glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_SHORT, 0L); // first use of the placeholder uploads it mid-frame
+        assertPixel(32, 32, 0, 0, 0, "GL samples an unbound texture as (0,0,0,1)");
+    }
+
+    @Test
     void backFaceCullingUsesGlWinding() {
         MetalGL.glClearColor(0f, 0f, 0f, 1f);
         MetalGL.glClear(GL_COLOR_BUFFER_BIT);

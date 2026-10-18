@@ -509,6 +509,15 @@ public final class MetalGlDevice implements GlDevice {
         if (raster.cullFace() == GL_FRONT_AND_BACK && isTriangles(op.glPrimitive())) {
             return;
         }
+        // Anything that may encode a blit (the lazily uploaded placeholder texture) must happen before the render
+        // encoder is acquired: a blit ends the render encoder.
+        for (StageBindings stage : new StageBindings[]{op.vertex(), op.fragment()}) {
+            for (TextureBinding binding : stage.textures()) {
+                if (binding.texture() == null) {
+                    blackTexture();
+                }
+            }
+        }
         MTLRenderCommandEncoder encoder = renderEncoder(op.targets(), null);
         MetalProgram program = (MetalProgram) op.program();
 
