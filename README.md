@@ -8,6 +8,7 @@ Rendering API and Iris shader packs.
 
 Build: `./gradlew build` (JDK 25). Metal smoke test on a Mac: `./gradlew metalSmokeTest`.
 
+- Roadmap: [`docs/ROADMAP.md`](docs/ROADMAP.md) · Status: [`docs/STATUS.md`](docs/STATUS.md)
 - Research report: [`docs/research/METALLIUM-RESEARCH-REPORT.md`](docs/research/METALLIUM-RESEARCH-REPORT.md)
 - Source-level evidence notes: [`docs/research/notes/`](docs/research/notes/)
 

@@ -13,6 +13,8 @@ Verified on GitHub's macOS arm64 runners (virtual M1, "Apple Paravirtual device"
 | Iris adapter stage 1 (`metallium-iris`) | Game starts on Metal with Sodium + Iris + adapter (no crash); shader packs not yet executed |
 | CI | Linux build + unit tests; macOS: Metal smoke test, translator tests compiled with Metal, game tests (vanilla / Sodium / Iris) with screenshot-based terrain check; results pushed to `ci-artifacts-*` branches |
 
+Full plan: `docs/ROADMAP.md`.
+
 Next steps:
 1. Owner test on M3 Max (`docs/TESTING-ON-MAC.md`): decides whether the Sodium bug is backend or virtual-GPU specific.
 2. Fix Sodium terrain on Metal.
