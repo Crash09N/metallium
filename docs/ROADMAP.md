@@ -74,7 +74,8 @@ Status legend: ✅ done · 🔄 in progress · ⏳ planned · 🔬 needs researc
   deferred/composite incl. compute-only, final; indirect dispatch) as Metal compute encoders inside Metallium's frame,
   colorimg/shadowcolorimg/custom 2D/3D images with atomics, persistent SSBOs with `.length()`, images/SSBOs/3D custom
   samplers in gbuffers/shadow/fullscreen programs, shadowcomp fragment passes, mipmapped buffers. Verified with a
-  synthetic compute pack. Open items: custom textures (`texture.*`, Photon's 3D noise), `size.buffer.*`, voxelization
+  synthetic compute pack; custom textures, `size.buffer.*`, >16 textures, `MC_OS_MAC` hidden (Photon, Bliss, Unbound
+  colored lighting render). Open items: Bliss night sky/rain, voxelization
   in geometry shaders (stage 6), shadowcolor mipmaps
 - ⏳ Stage 6: geometry/tessellation shaders via compute emulation, learning from Mesa's Apple-GPU emulation (MIT)
 - Unsupported features are detected at pack load and reported; never a crash or black screen
