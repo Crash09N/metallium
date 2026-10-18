@@ -20,16 +20,70 @@ import java.util.List;
  */
 public final class MetalliumClientGameTest implements FabricClientGameTest {
     private static final String BENCH_SEED = "metallium";
-    /** x y z yaw pitch, overridable with -Dmetallium.bench.camera="...". */
-    private static final String BENCH_CAMERA = System.getProperty("metallium.bench.camera", "0 140 0 30 25");
     private static final int BENCH_SECONDS = Integer.getInteger("metallium.bench.seconds", 30);
 
+    private static final String BENCH_SCENE = System.getProperty("metallium.bench.scene", "light");
+
+    // Per-frame timing: a HUD element is extracted exactly once per rendered frame, so the gap between two calls is the
+    // frame time (frame start to next frame start; includes any wait for the GPU/present). This counts RENDERED
+    // frames, not frames the display actually showed.
+    private static final Object FRAME_LOCK = new Object();
+    private static final List<Double> FRAME_MS = new ArrayList<>();
+    private static volatile boolean recording;
+    private static long lastFrameNs;
+
+    static {
+        net.fabricmc.fabric.api.client.rendering.v1.hud.HudElementRegistry.addLast(
+                net.minecraft.resources.Identifier.fromNamespaceAndPath("metallium-gametest", "frame_timer"),
+                (graphics, delta) -> {
+                    long now = System.nanoTime();
+                    if (recording && lastFrameNs != 0) {
+                        synchronized (FRAME_LOCK) {
+                            FRAME_MS.add((now - lastFrameNs) / 1e6);
+                        }
+                    }
+                    lastFrameNs = now;
+                });
+    }
+
+    private static void startRecording() {
+        synchronized (FRAME_LOCK) {
+            FRAME_MS.clear();
+        }
+        recording = true;
+    }
+
+    private static List<Double> stopRecording() {
+        recording = false;
+        synchronized (FRAME_LOCK) {
+            List<Double> copy = new ArrayList<>(FRAME_MS);
+            copy.sort(null);
+            return copy;
+        }
+    }
+
     /**
-     * Reproducible benchmark: fixed seed, fixed spawn view, VSync off, no FPS cap, render distance 16, chunk fade off.
-     * Waits until section building settles, then samples FPS once per second and frame times once per tick.
+     * Reproducible benchmark (scene = -Dmetallium.bench.scene: light | rd32 | shaders | flight): fixed seed, spectator
+     * camera, VSync off, no FPS cap, chunk fade off. Waits until section building settles, then records every rendered
+     * frame for BENCH_SECONDS.
      */
     private void benchmark(ClientGameTestContext context, String backend) {
-        line("mode: benchmark, seed=" + BENCH_SEED + ", seconds=" + BENCH_SECONDS);
+        line("mode: benchmark, scene=" + BENCH_SCENE + ", seed=" + BENCH_SEED + ", seconds=" + BENCH_SECONDS);
+        if (!BENCH_SCENE.matches("light|rd32|shaders|flight")) {
+            throw new IllegalArgumentException("unknown bench scene " + BENCH_SCENE);
+        }
+        boolean shaders = "shaders".equals(BENCH_SCENE);
+        boolean flight = "flight".equals(BENCH_SCENE);
+        int renderDistance = "rd32".equals(BENCH_SCENE) ? 32 : 12;
+        int settleTicks = Integer.getInteger("metallium.bench.settleTicks", flight ? 100 : 300);
+        int settleSeconds = Integer.getInteger("metallium.bench.settleSeconds", "rd32".equals(BENCH_SCENE) ? 150 : flight ? 20 : 60);
+        String pack = System.getProperty("metallium.gametest.shaderpack", "");
+        if (shaders && (pack.isEmpty() || !Files.isRegularFile(Path.of(pack))
+                || !net.fabricmc.loader.api.FabricLoader.getInstance().isModLoaded("iris"))) {
+            line("bench: SKIPPED shaders scene (needs -PwithIris and an existing -Pshaderpack)");
+            line("result: SKIP");
+            return;
+        }
         context.runOnClient(client -> {
             client.options.enableVsync().set(false);
             client.options.framerateLimit().set(260); // 260 = unlimited
@@ -42,34 +96,77 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
                 .adjustSettings(state -> state.setSeed(BENCH_SEED))
                 .create()) {
             world.getConnection().waitForChunksRender();
-            // Identical camera for every run: spectator at a fixed position and angle.
             tryCommand(world, "gamerule spawn_monsters false");
             tryCommand(world, "gamemode spectator @a");
-            tryCommand(world, "tp @a " + BENCH_CAMERA);
             tryCommand(world, "time set 6000");
             tryCommand(world, "gamerule advance_time false");
             tryCommand(world, "weather clear");
-            // Raise the render distance only after the initial load (waitForChunksRender at RD 16 times out).
-            context.runOnClient(client -> client.options.renderDistance().set(16));
-            context.waitTicks(900); // ~45 s: let chunk loading and section building finish at RD 16
-            checkTerrainVisible(context.takeScreenshot("metallium-bench-view"), "bench view");
+            // Raise the render distance only after the initial load (waitForChunksRender at a high RD times out).
+            int rd = renderDistance;
+            context.runOnClient(client -> client.options.renderDistance().set(rd));
+            // Camera: above the terrain at the origin so the view shows land to the horizon, not mostly sky.
+            String cameraSetting = System.getProperty("metallium.bench.camera", "");
+            int surface = context.computeOnClient(client -> client.level.getHeight(net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING, 0, 0));
+            String camera = !cameraSetting.isEmpty() ? cameraSetting : "0 " + (surface + 20) + " 0 " + (flight ? "-90 10" : "30 8");
+            line("bench: surface y at origin=" + surface + ", camera=" + camera);
+            tryCommand(world, "tp @a " + camera);
+
+            if (shaders) {
+                try {
+                    Path source = Path.of(pack);
+                    Path target = context.computeOnClient(client -> irisShaderpacksDirectory()).resolve(source.getFileName().toString());
+                    Files.copy(source, target, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                    line("bench: shader pack " + source.getFileName() + ": pipeline="
+                            + context.computeOnClient(client -> irisSelectPack(source.getFileName().toString(), true)));
+                } catch (IOException e) {
+                    throw new IllegalStateException("could not install shader pack", e);
+                }
+            }
+            // Ticks run faster than 20/s in the game test, so settle on wall-clock time as well as ticks.
+            long settleUntil = System.nanoTime() + settleSeconds * 1_000_000_000L;
+            context.waitTicks(settleTicks);
+            while (System.nanoTime() < settleUntil) {
+                context.waitTicks(20);
+            }
+            if (!flight) {
+                checkTerrainVisible(context.takeScreenshot("metallium-bench-view-" + BENCH_SCENE), "bench view");
+            }
             sodiumStats(context, "bench");
 
             List<Integer> fpsSamples = new ArrayList<>();
-            List<Double> frameMs = new ArrayList<>();
+            String[] camParts = camera.split(" ");
+            double startY = Double.parseDouble(camParts[1]);
+            double x = 0;
+            double blocksPerTick = Double.parseDouble(System.getProperty("metallium.bench.flightSpeed", "60")) / 20.0;
+            long startNs = System.nanoTime();
+            startRecording();
             for (int second = 0; second < BENCH_SECONDS; second++) {
                 for (int tick = 0; tick < 20; tick++) {
+                    if (flight) {
+                        x += blocksPerTick; // straight line east through chunks that are not loaded yet
+                        tryCommand(world, String.format(java.util.Locale.ROOT, "tp @a %.2f %.2f 0 -90 10", x, startY));
+                    }
                     context.waitTick();
-                    frameMs.add(context.computeOnClient(Minecraft::getFrameTimeNs) / 1e6);
                 }
                 fpsSamples.add(context.computeOnClient(Minecraft::getFps));
             }
+            List<Double> frameMs = stopRecording();
+            double seconds = (System.nanoTime() - startNs) / 1e9;
+            if (frameMs.isEmpty()) {
+                throw new AssertionError("no frames recorded");
+            }
             fpsSamples.sort(null);
-            frameMs.sort(null);
-            double avgFps = fpsSamples.stream().mapToInt(Integer::intValue).average().orElse(0);
-            line(String.format("bench: avg fps=%.1f, min fps=%d, median fps=%d", avgFps, fpsSamples.get(0), fpsSamples.get(fpsSamples.size() / 2)));
-            line(String.format("bench: frame ms p50=%.2f p95=%.2f p99=%.2f max=%.2f (sampled per tick)",
-                    pct(frameMs, 0.50), pct(frameMs, 0.95), pct(frameMs, 0.99), frameMs.get(frameMs.size() - 1)));
+            double sum = frameMs.stream().mapToDouble(Double::doubleValue).sum();
+            double avgFps = frameMs.size() / (sum / 1000.0);
+            int worst = Math.max(1, frameMs.size() / 100);
+            double worstMean = frameMs.subList(frameMs.size() - worst, frameMs.size()).stream().mapToDouble(Double::doubleValue).average().orElse(0);
+            double low1 = 1000.0 / worstMean;
+            long heapMb = (Runtime.getRuntime().totalMemory() - Runtime.getRuntime().freeMemory()) >> 20;
+            line(String.format("bench: Minecraft fps counter: avg=%.1f min=%d median=%d",
+                    fpsSamples.stream().mapToInt(Integer::intValue).average().orElse(0), fpsSamples.get(0), fpsSamples.get(fpsSamples.size() / 2)));
+            line(String.format("bench: rendered frames counted=%d in %.1f s (per rendered frame via HUD hook; presented/displayed frames are not counted)", frameMs.size(), seconds));
+            line(String.format("bench-result: scene=%s avg_fps=%.1f low1_fps=%.1f p50_ms=%.2f p95_ms=%.2f p99_ms=%.2f max_ms=%.2f frames=%d heap_mb=%d",
+                    BENCH_SCENE, avgFps, low1, pct(frameMs, 0.50), pct(frameMs, 0.95), pct(frameMs, 0.99), frameMs.get(frameMs.size() - 1), frameMs.size(), heapMb));
             line("result: PASS");
         }
     }

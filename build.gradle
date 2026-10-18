@@ -107,6 +107,7 @@ loom.runs.clientGameTest {
 	// directory at runtime only; never commit third-party packs.
 	if (project.hasProperty('shaderpack')) vmArg "-Dmetallium.gametest.shaderpack=${project.property('shaderpack')}"
 	if (project.hasProperty('benchSeconds')) vmArg "-Dmetallium.bench.seconds=${project.property('benchSeconds')}"
+	if (project.hasProperty('benchScene')) vmArg "-Dmetallium.bench.scene=${project.property('benchScene')}"
 	if (project.hasProperty('perfCounters')) vmArg '-Dmetallium.perfCounters=true'
 }
 
