@@ -42,6 +42,10 @@ Status legend: ✅ done · 🔄 in progress · ⏳ planned · 🔬 needs researc
 - Draws are recorded into Metallium's current render pass; GLSL goes through `GlslProgramTranslator`
 - Logs every unimplemented GL function per mod → coverage grows from real mods, not guesses
 - First user: the Iris adapter (~110 GL functions); then Distant Horizons, Voxy, HUD/minimap mods
+- **Explicit goal: Voxy running on macOS** (it runs on no Mac today — Apple's OpenGL stops at 4.1, Voxy needs 4.6).
+  Requires metallium-gl to cover compute shaders, SSBOs + atomics, indirect-count draws and persistent mapping.
+  Voxy runs unmodified through the layer (its licence forbids porting/copying). Parallel option: ask MCRcortex about a
+  Metal path on Metallium's extension API (together with the Nvidium-Reborn name/logo question).
 - Limits: readbacks and frequent framebuffer switches are slower; immediate mode / geometry shaders later or never
 
 ## Phase 5 — Iris shader packs (top feature priority) 🔄
