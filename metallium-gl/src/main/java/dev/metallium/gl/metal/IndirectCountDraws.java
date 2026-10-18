@@ -71,6 +71,17 @@ final class IndirectCountDraws {
                                    device Icb& icb [[buffer(4)]], uint i [[thread_position_in_grid]]) {
                 encode(commands, count, p, indices, icb, i);
             }
+
+            // Fallback for programs Metal does not allow in ICBs (fragment / vertex textures): plain Metal indirect
+            // arguments, commands at or beyond the GPU count get instanceCount 0.
+            kernel void compact(device const uchar* commands [[buffer(0)]], device const uint* count [[buffer(1)]],
+                                constant Params& p [[buffer(2)]], device GlDrawElementsIndirectCommand* out [[buffer(3)]],
+                                uint i [[thread_position_in_grid]]) {
+                if (i >= p.maxDraws) return;
+                GlDrawElementsIndirectCommand c = *(device const GlDrawElementsIndirectCommand*) (commands + i * p.stride);
+                if (i >= min(count[0], p.maxDraws)) c.instanceCount = 0u;
+                out[i] = c;
+            }
             """;
 
     /** An encoded ICB and the number of commands to execute. */
@@ -84,6 +95,7 @@ final class IndirectCountDraws {
     private final MetalHost host;
     private final MTLComputePipelineState pipeline16;
     private final MTLComputePipelineState pipeline32;
+    private final MTLComputePipelineState compactPipeline;
     private final MTLArgumentEncoder argumentEncoder;
     private final ConcurrentLinkedDeque<Pooled> pool = new ConcurrentLinkedDeque<>();
     private long allocated;
@@ -98,6 +110,9 @@ final class IndirectCountDraws {
             options.release();
             MTLFunction f16 = library.newFunctionWithName("encode_u16");
             MTLFunction f32 = library.newFunctionWithName("encode_u32");
+            MTLFunction compact = library.newFunctionWithName("compact");
+            compactPipeline = device.newComputePipelineStateWithFunction(compact);
+            compact.release();
             pipeline16 = device.newComputePipelineStateWithFunction(f16);
             pipeline32 = device.newComputePipelineStateWithFunction(f32);
             argumentEncoder = f16.newArgumentEncoder(4);
@@ -123,6 +138,11 @@ final class IndirectCountDraws {
         descriptor.setCommandTypes(MTLIndirectCommandType.DrawIndexed);
         descriptor.setInheritPipelineState(true);
         descriptor.setInheritBuffers(true);
+        descriptor.setInheritDepthStencilState(true);
+        descriptor.setInheritCullMode(true);
+        descriptor.setInheritFrontFacingWinding(true);
+        descriptor.setInheritDepthBias(true);
+        descriptor.setInheritTriangleFillMode(true);
         descriptor.setMaxVertexBufferBindCount(0);
         descriptor.setMaxFragmentBufferBindCount(0);
         MTLIndirectCommandBuffer icb = device.newIndirectCommandBuffer(descriptor, capacity, 0);
@@ -163,6 +183,28 @@ final class IndirectCountDraws {
         encoder.dispatchThreadgroups(new MTLSize(groups, 1, 1), new MTLSize(64, 1, 1));
         host.releaseAfterGpu(() -> pool.add(icb));
         return new Encoded(icb.icb, maxDraws);
+    }
+
+    /**
+     * Fallback: writes {@code maxDraws} Metal indirect arguments (instanceCount 0 beyond the GPU count) into a scratch
+     * buffer on {@code encoder}; the caller encodes {@code maxDraws} indirect draws from it (CPU cost per draw slot).
+     */
+    MTLBuffer compact(final MTLComputeCommandEncoder encoder, final MetalGlDevice.MetalBuffer commands, final long offset, final int stride,
+                      final MetalGlDevice.MetalBuffer count, final long countOffset, final int maxDraws) {
+        MTLBuffer out = device.newBuffer(Math.max(20L, maxDraws * 20L), MTLResourceOptions.StorageModePrivate);
+        encoder.setComputePipelineState(compactPipeline);
+        encoder.setBuffer(commands.buffer, offset, 0);
+        encoder.setBuffer(count.buffer, countOffset, 1);
+        try (Arena arena = Arena.ofConfined()) {
+            MemorySegment params = arena.allocate(16);
+            params.setAtIndex(ValueLayout.JAVA_INT, 0, maxDraws);
+            params.setAtIndex(ValueLayout.JAVA_INT, 1, stride);
+            encoder.setBytes(params, 16, 2);
+        }
+        encoder.setBuffer(out, 0, 3);
+        encoder.dispatchThreadgroups(new MTLSize((maxDraws + 63) / 64, 1, 1), new MTLSize(64, 1, 1));
+        host.releaseAfterGpu(out::release);
+        return out;
     }
 
     /** MTLPrimitiveType raw values: Point 0, Line 1, LineStrip 2, Triangle 3, TriangleStrip 4. */

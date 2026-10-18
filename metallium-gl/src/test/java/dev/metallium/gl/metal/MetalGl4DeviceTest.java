@@ -317,6 +317,36 @@ class MetalGl4DeviceTest {
     }
 
     @Test
+    void multiDrawIndirectCountWithTexturedFragmentShader() {
+        // Metal does not allow textures in ICB pipelines: this goes through the compaction fallback.
+        setUpQuads();
+        int texture = MetalGL4.glCreateTextures(GL_TEXTURE_2D);
+        MetalGL4.glTextureStorage2D(texture, 1, GL_RGBA8, 1, 1);
+        MetalGL4.glTextureSubImage2D(texture, 0, 0, 0, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, new int[]{0xFF808080});
+        MetalGL4.glBindTextureUnit(3, texture);
+        int commands = MetalGL.glCreateBuffers();
+        MetalGL4.glNamedBufferStorage(commands, 40, GL_DYNAMIC_STORAGE_BIT);
+        MetalGL4.glNamedBufferSubData(commands, 0, new int[]{6, 1, 0, 0, 1, 6, 1, 0, 0, 2});
+        int count = MetalGL.glCreateBuffers();
+        MetalGL4.glNamedBufferStorage(count, 4, GL_DYNAMIC_STORAGE_BIT);
+        MetalGL4.glNamedBufferSubData(count, 0, new int[]{1});
+        MetalGL.glUseProgram(program(VS_INSTANCED, """
+                #version 460 core
+                flat in uint quad;
+                layout(binding = 1, std430) readonly buffer Colors { vec4 colors[]; };
+                layout(binding = 3) uniform sampler2D tint;
+                out vec4 fragColor;
+                void main() { fragColor = colors[quad] * texture(tint, vec2(0.5)); }
+                """));
+        MetalGL.glBindBuffer(GL_DRAW_INDIRECT_BUFFER, commands);
+        MetalGL.glBindBuffer(GL_PARAMETER_BUFFER, count);
+        MetalGL4.glMultiDrawElementsIndirectCount(GL_TRIANGLES, GL_UNSIGNED_SHORT, 0, 0, 2, 0);
+        assertEquals(GL_NO_ERROR, MetalGL.glGetError());
+        assertPixel(SIZE - 4, 4, 0, 128, 0, "quad 1 drawn, tinted by the texture");
+        assertPixel(4, SIZE - 4, 0, 0, 0, "quad 2 beyond the GPU count");
+    }
+
+    @Test
     void drawElementsIndirectAndBaseInstanceDraws() {
         setUpQuads();
         int commands = MetalGL.glCreateBuffers();

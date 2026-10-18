@@ -632,6 +632,60 @@ public final class MetalGlDevice implements GlDevice {
             encoder.drawIndexedPrimitives(primitive, op.count(), op.index32() ? MTLIndexType.UInt32 : MTLIndexType.UInt16,
                     index.buffer, op.indexOffset(), op.instanceCount(), op.baseVertex(), op.baseInstance());
         }
+        if (GlTrace.dumpNow()) dumpStats(op);
+    }
+
+    /** Diagnostics ({@code -Dmetallium.gl.dump}): content statistics of the draw's first colour target and inputs. */
+    private void dumpStats(final DrawOp op) {
+        StringBuilder sb = new StringBuilder("  stats:");
+        for (int i = 0; i < op.targets().colors().length; i++) {
+            if (op.targets().colors()[i] != null) sb.append(" color").append(i).append('=').append(stats((MetalTexture) op.targets().colors()[i]));
+        }
+        if (op.targets().depth() != null) sb.append(" depth=").append(stats((MetalTexture) op.targets().depth()));
+        TextureBinding[] textures = op.fragment().textures();
+        for (int i = 0; i < textures.length; i++) {
+            if (textures[i].texture() != null) sb.append(" fsTex").append(i).append('=').append(stats((MetalTexture) textures[i].texture()));
+        }
+        MetalGLLog.LOGGER.info("[metallium-gl trace] {}", sb);
+    }
+
+    private String stats(final MetalTexture texture) {
+        if (texture.format == TexFormat.DEPTH32F_STENCIL8) {
+            return texture.format + "(no readback)";
+        }
+        int bpp = texture.format.bytesPerPixel;
+        ByteBuffer data = MemoryUtil.memAlloc(texture.width * texture.height * bpp).order(ByteOrder.nativeOrder());
+        try {
+            if (!readTexture(texture, 0, data)) return "unreadable";
+            int pixels = texture.width * texture.height;
+            if (texture.format == TexFormat.DEPTH32F || texture.format == TexFormat.R32F) {
+                float min = Float.MAX_VALUE, max = -Float.MAX_VALUE;
+                int zero = 0, one = 0;
+                for (int i = 0; i < pixels; i++) {
+                    float v = data.getFloat(i * 4);
+                    min = Math.min(min, v);
+                    max = Math.max(max, v);
+                    if (v == 0f) zero++;
+                    if (v == 1f) one++;
+                }
+                return texture.format + "[min=" + min + " max=" + max + " zeros=" + zero + " ones=" + one + "/" + pixels + "]";
+            }
+            if (bpp == 4) {
+                long sumR = 0, sumG = 0, sumB = 0;
+                int nonZero = 0;
+                for (int i = 0; i < pixels; i++) {
+                    int v = data.getInt(i * 4);
+                    if (v != 0) nonZero++;
+                    sumR += v & 0xFF;
+                    sumG += (v >>> 8) & 0xFF;
+                    sumB += (v >>> 16) & 0xFF;
+                }
+                return texture.format + "[nonzero=" + nonZero + "/" + pixels + " avg=" + sumR / pixels + "," + sumG / pixels + "," + sumB / pixels + "]";
+            }
+            return texture.format + "(not summarised)";
+        } finally {
+            MemoryUtil.memFree(data);
+        }
     }
 
     @Override
@@ -647,6 +701,30 @@ public final class MetalGlDevice implements GlDevice {
         }
         commands.lastUse = frameUse;
         index.lastUse = frameUse;
+        boolean usesTextures = op.fragment().textures().length > 0 || op.vertex().textures().length > 0
+                || op.fragment().images().length > 0 || op.vertex().images().length > 0;
+        if (draws.countBuffer() != null && usesTextures) {
+            // Metal rejects ICB pipelines whose functions bind textures directly: GPU-side compaction of the commands,
+            // then one Metal indirect draw per command slot (instanceCount 0 beyond the GPU count).
+            MetalBuffer count = (MetalBuffer) draws.countBuffer();
+            count.lastUse = frameUse;
+            if (indirectCount == null) {
+                indirectCount = new IndirectCountDraws(device, host);
+            }
+            MTLBuffer compacted = indirectCount.compact(computeEncoder(), commands, draws.offset(), draws.stride(), count, draws.countOffset(),
+                    draws.drawCount());
+            MTLRenderCommandEncoder encoder = prepareDraw(op, false);
+            if (encoder == null) {
+                return;
+            }
+            MTLPrimitiveType primitive = primitive(op.glPrimitive());
+            MTLIndexType indexType = op.index32() ? MTLIndexType.UInt32 : MTLIndexType.UInt16;
+            for (int i = 0; i < draws.drawCount(); i++) {
+                encoder.drawIndexedPrimitives(primitive, indexType, index.buffer, 0, compacted, i * 20L);
+            }
+            if (GlTrace.dumpNow()) dumpStats(op);
+            return;
+        }
         if (draws.countBuffer() != null) {
             // GL's draw count lives in GPU memory: a compute pass turns the commands into an indirect command buffer
             // (draws >= count are reset), which the render encoder executes; no CPU readback, no per-draw CPU cost.
@@ -663,6 +741,7 @@ public final class MetalGlDevice implements GlDevice {
             }
             encoder.useResource(index.buffer, MTLResourceUsage.Read, MTLRenderStages.Vertex);
             encoder.executeCommandsInBuffer(icb.buffer(), new io.github.kokodio.metaljvm.foundation.NSRange(0, icb.commands()));
+            if (GlTrace.dumpNow()) dumpStats(op);
             return;
         }
         MTLRenderCommandEncoder encoder = prepareDraw(op, false);

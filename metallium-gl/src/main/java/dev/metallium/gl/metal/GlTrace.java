@@ -23,6 +23,19 @@ final class GlTrace {
         return LIMIT > 0 && logged < LIMIT && System.nanoTime() > START;
     }
 
+    private static final java.util.Set<Integer> DUMP = parse(System.getProperty("metallium.gl.dump", ""));
+
+    private static java.util.Set<Integer> parse(final String list) {
+        java.util.Set<Integer> set = new java.util.HashSet<>();
+        for (String s : list.split(",")) if (!s.isBlank()) set.add(Integer.parseInt(s.trim()));
+        return set;
+    }
+
+    /** True right after traced operation number N for N in {@code -Dmetallium.gl.dump=N,M,...}. */
+    static boolean dumpNow() {
+        return logged > 0 && DUMP.remove(logged);
+    }
+
     static void log(final String line) {
         logged++;
         MetalGLLog.LOGGER.info("[metallium-gl trace {}] {}", logged, line);
