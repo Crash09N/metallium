@@ -74,6 +74,20 @@ final class MetalGpuTexture extends BaseGpuTexture {
         }
     }
 
+    /**
+     * Metallium extension: wraps a texture created directly in Metal (e.g. a 3D storage image of the Iris adapter) so
+     * renderpearl render passes can sample it. Takes over the caller's reference; closing releases it.
+     */
+    MetalGpuTexture(final MetalDevice device, final MTLTexture texture, final String label, final GpuFormat format) {
+        super(GpuTexture.USAGE_TEXTURE_BINDING | MetalliumInterop.TEXTURE_USAGE_STORAGE, label, format,
+                (int) texture.width(), (int) texture.height(), (int) Math.max(1, texture.depth()), (int) Math.max(1, texture.mipmapLevelCount()));
+        this.device = device;
+        this.mtlPixelFormat = texture.pixelFormat();
+        this.textureType = texture.textureType();
+        this.sliceCount = 1;
+        this.metalTexture = texture;
+    }
+
     int pixelSize() {
         return this.getFormat().blockSize();
     }

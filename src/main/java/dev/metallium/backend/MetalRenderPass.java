@@ -68,6 +68,9 @@ final class MetalRenderPass implements RenderPassBackend {
     private MTLIndexType indexType = MTLIndexType.UInt16;
     private int pushedDebugGroups = 0;
     private boolean scissorDirty = true;
+    /** Metallium extension ({@link MetalliumInterop#setDrawBindings}): resources outside the renderpearl binding table. */
+    private java.util.function.@Nullable Consumer<MTLRenderCommandEncoder> extraBindings;
+    private boolean extraBindingsDirty;
     private boolean vertexBuffersDirty = true;
     private boolean pipelineDirty = true;
     private boolean pushConstantsDirty;
@@ -496,10 +499,20 @@ final class MetalRenderPass implements RenderPassBackend {
         return indices.get(ValueLayout.JAVA_INT_UNALIGNED, index * 4L);
     }
 
+    void setExtraBindings(final java.util.function.@Nullable Consumer<MTLRenderCommandEncoder> binder) {
+        this.extraBindings = binder;
+        this.extraBindingsDirty = binder != null;
+    }
+
     private void bindDrawState(final MTLRenderCommandEncoder enc) {
         if (PerfCounters.ENABLED) PerfCounters.draws++;
         if (compiledPipeline == null) {
             throw new IllegalStateException("Pipeline is missing");
+        }
+        // A new encoder (pipeline marked dirty) has lost the extra bindings too.
+        if (extraBindings != null && (pipelineDirty || extraBindingsDirty)) {
+            extraBindings.accept(enc);
+            extraBindingsDirty = false;
         }
 
         if (pipelineDirty) {

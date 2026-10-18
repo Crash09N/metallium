@@ -100,6 +100,25 @@ public final class MetalliumInterop {
         return MetalConversions.pixelFormat(format);
     }
 
+    /**
+     * Wraps a texture created directly in Metal as a renderpearl {@link GpuTexture} (sampling in render passes, any
+     * texture type incl. 3D). The wrapper owns the reference: closing it releases the Metal texture.
+     */
+    public static GpuTexture wrapTexture(final MTLTexture texture, final GpuFormat format, final String label) {
+        return new MetalGpuTexture(require(), texture, label, format);
+    }
+
+    /**
+     * Resources a render pass's current pipeline uses outside the renderpearl binding table (storage images and
+     * buffers at Metal indices the caller chose above the backend's own): {@code binder} is applied before the next
+     * draw and again whenever Metallium re-creates the pass's encoder; {@code null} removes it. {@code pass} is the
+     * backend pass behind a renderpearl {@code RenderPass}.
+     */
+    public static void setDrawBindings(final com.mojang.renderpearl.backend.api.RenderPassBackend pass,
+                                       final java.util.function.@Nullable Consumer<io.github.kokodio.metaljvm.metal.MTLRenderCommandEncoder> binder) {
+        ((MetalRenderPass) pass).setExtraBindings(binder);
+    }
+
     /** Runs {@code action} once the GPU has finished every command buffer submitted so far (incl. the current one). */
     public static void releaseAfterGpu(final Runnable action) {
         require().createCommandEncoder().queueForDestroy(action);
