@@ -261,6 +261,15 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
             clearChat(context);
             context.takeScreenshot("metallium-iris-external-pack-shadows");
             tryCommand(world, "execute as @p at @s run fill ^-4 ^ ^6 ^5 ^5 ^10 minecraft:air");
+            // Night with coloured light sources (stage 5: packs' voxel/floodfill coloured lighting runs in compute).
+            tryCommand(world, "time set 18000");
+            tryCommand(world, "execute as @p at @s run setblock ^-2 ^-1 ^5 minecraft:redstone_lamp[lit=true]");
+            tryCommand(world, "execute as @p at @s run setblock ^2 ^-1 ^5 minecraft:soul_lantern");
+            tryCommand(world, "execute as @p at @s run setblock ^ ^-1 ^7 minecraft:glowstone");
+            context.waitTicks(80);
+            clearChat(context);
+            context.takeScreenshot("metallium-iris-external-pack-night-lights");
+            tryCommand(world, "execute as @p at @s run fill ^-2 ^-1 ^5 ^2 ^-1 ^7 minecraft:air");
             tryCommand(world, "time set 6000");
             context.waitTicks(40);
         }
@@ -380,6 +389,15 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
             Path target = context.computeOnClient(client -> irisShaderpacksDirectory()).resolve(source.getFileName().toString());
             if (!Files.exists(target)) {
                 Files.copy(source, target);
+            }
+            // Pack options (Iris reads <pack>.txt next to the pack), e.g. to turn on a pack's compute/voxel features.
+            String options = System.getProperty("metallium.gametest.shaderpackOptions", "");
+            Path optionsFile = target.resolveSibling(source.getFileName() + ".txt");
+            if (!options.isEmpty()) {
+                Files.writeString(optionsFile, String.join("\n", options.split(",")) + "\n");
+                line("external pack options: " + options);
+            } else {
+                Files.deleteIfExists(optionsFile);
             }
             return source.getFileName().toString();
         } catch (IOException e) {

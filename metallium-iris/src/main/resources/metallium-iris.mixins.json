@@ -23,6 +23,7 @@
     "MetalGpuTextureMixin",
     "RenderSystemPipelineMixin",
     "SamplerLimitsMixin",
+    "StandardMacrosMixin",
     "VanillaRenderingPipelineMixin"
   ],
   "injectors": {

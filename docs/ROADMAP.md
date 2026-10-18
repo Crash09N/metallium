@@ -57,7 +57,7 @@ Status legend: ✅ done · 🔄 in progress · ⏳ planned · 🔬 needs researc
 - ✅ Shader translator: Iris-style GLSL → SPIR-V → Metal with uniform/binding reflection
 - ✅ Stage 1: game starts on Metal with Iris + adapter
 - ✅ Stage 2: begin/prepare/deferred/composite/final passes run on Metal over the vanilla/Sodium scene
-  (`MetalPostPipeline`, design: `docs/design/iris-stage2-post-pipeline.md`). Open items: mipmapped buffers,
+  (`MetalPostPipeline`, design: `docs/design/iris-stage2-post-pipeline.md`). Open items:
   viewport scale, composite blend overrides, custom textures, `size.buffer.*`, explicit uniform blocks
 - 🔄 Stage 3: gbuffers programs render the world into the pack's colortex buffers (design:
   `docs/design/iris-stage3-gbuffers.md`): Sodium terrain (solid/cutout/translucent), sky, particles, entities, hand,
@@ -67,9 +67,15 @@ Status legend: ✅ done · 🔄 in progress · ⏳ planned · 🔬 needs researc
 - 🔄 Stage 4: shadow pass on Metal (design: `docs/design/iris-stage4-shadows.md`): Iris's shadow pass (adapted
   `ShadowRenderer`) retargeted to shadowtex0/1 + shadowcolorN, pack `shadow*` programs (cull off, forward-Z depth),
   shadow samplers incl. `sampler2DShadow` via a Metal depth-compare sampler, prepare passes after the shadow pass.
-  Verified with a synthetic shadow pack and Complementary (matches Iris/OpenGL). Open items: shadowcomp passes,
+  Verified with a synthetic shadow pack and Complementary (matches Iris/OpenGL). Open items:
   mipmapped shadow maps, DH shadows, `ShadowRenderCallbacks`
-- ⏳ Stage 5: compute, image load/store, SSBO (packs that macOS OpenGL 4.1 cannot run today)
+- 🔄 Stage 5: compute, image load/store, SSBO (packs that macOS OpenGL 4.1 cannot run today; design:
+  `docs/design/iris-stage5-compute.md`): compute passes in every Iris stage (setup, shadow, shadowcomp, begin/prepare/
+  deferred/composite incl. compute-only, final; indirect dispatch) as Metal compute encoders inside Metallium's frame,
+  colorimg/shadowcolorimg/custom 2D/3D images with atomics, persistent SSBOs with `.length()`, images/SSBOs/3D custom
+  samplers in gbuffers/shadow/fullscreen programs, shadowcomp fragment passes, mipmapped buffers. Verified with a
+  synthetic compute pack. Open items: custom textures (`texture.*`, Photon's 3D noise), `size.buffer.*`, voxelization
+  in geometry shaders (stage 6), shadowcolor mipmaps
 - ⏳ Stage 6: geometry/tessellation shaders via compute emulation, learning from Mesa's Apple-GPU emulation (MIT)
 - Unsupported features are detected at pack load and reported; never a crash or black screen
 - **Pack sweep** (regression test after every Iris stage): a local corpus of popular packs (BSL, Complementary

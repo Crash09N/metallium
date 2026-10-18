@@ -106,6 +106,10 @@ loom.runs.clientGameTest {
 	// -Pshaderpack=/abs/path/pack.zip (with -PwithIris): also load that pack in the game test. Copied into the run
 	// directory at runtime only; never commit third-party packs.
 	if (project.hasProperty('shaderpack')) vmArg "-Dmetallium.gametest.shaderpack=${project.property('shaderpack')}"
+	// -PshaderpackOptions=COLORED_LIGHTING=128,FOO=1: pack options for that pack (written to Iris's <pack>.txt).
+	// -PirisHideMacOs: packs do not see MC_OS_MAC on Metal (they gate compute/voxel features on it; see iris-stage5-compute.md)
+	if (project.hasProperty('irisHideMacOs')) vmArg '-Dmetallium.iris.hideMacOs=true'
+	if (project.hasProperty('shaderpackOptions')) vmArg "-Dmetallium.gametest.shaderpackOptions=${project.property('shaderpackOptions')}"
 	if (project.hasProperty('benchSeconds')) vmArg "-Dmetallium.bench.seconds=${project.property('benchSeconds')}"
 	if (project.hasProperty('benchScene')) vmArg "-Dmetallium.bench.scene=${project.property('benchScene')}"
 	if (project.hasProperty('perfCounters')) vmArg '-Dmetallium.perfCounters=true'
