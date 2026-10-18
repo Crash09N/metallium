@@ -92,6 +92,10 @@ class OpenGlRequirementsTest {
             assertNotNull(in);
             List<OpenGlRequirements.KnownMod> mods = OpenGlRequirements.parse(new InputStreamReader(in, StandardCharsets.UTF_8));
             assertTrue(mods.stream().anyMatch(m -> m.id().equals("physicsmod")), mods.toString());
+            // 3.2.5 runs on Metal through Metallium's Physics Mod compatibility; other versions are asked about.
+            assertTrue(OpenGlRequirements.requirements(List.of(PHYSICS), mods, OpenGlRequirements::matches).isEmpty());
+            ModReport other = new ModReport("physicsmod", "Physics Mod", "3.2.6", List.of(), 1, List.of(), List.of(), List.of("a.B"));
+            assertEquals(1, OpenGlRequirements.requirements(List.of(other), mods, OpenGlRequirements::matches).size());
         }
         assertTrue(OpenGlRequirements.parse(new StringReader("{\"mods\": [{\"name\": \"no id\"}, null]}")).isEmpty());
     }

@@ -10,7 +10,8 @@
     {
       "id": "physicsmod",
       "name": "Physics Mod",
-      "reason": "builds Minecraft's OpenGL backend objects (GlSampler, GlTexture, GlDevice) on every non-Vulkan device"
+      "reason": "builds Minecraft's OpenGL backend objects (GlSampler, GlTexture, GlDevice) on every non-Vulkan device",
+      "metalliumCompat": "3.2.5"
     }
   ]
 }

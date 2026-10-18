@@ -126,6 +126,16 @@ These belong to the Iris adapter (stage 5 or later); details are in `full2/gradl
     for Vulkan. A Metallium-side option would be a scan rule: a mod that constructs or subclasses
     `com/mojang/renderpearl/backend/opengl/*` → "needs OpenGL", proposed before the crash rather than after it.
     That rule is a policy decision for the owner.
+  - **Update (same day, owner-approved):** both are done.
+    - Pre-start detection: `OpenGlRequirements` (data list `assets/metallium/compat/needs-opengl.json` plus the scan
+      rule "constructs or subclasses `com/mojang/renderpearl/backend/opengl/*`", which flags only Physics Mod in this
+      pack). An unanswered mod starts the session on OpenGL and `NeedsOpenGlScreen` asks before the title screen:
+      run on OpenGL (remembered in `openGlChoices`) / this session only / disable the mod / try Metal anyway.
+    - Metal support for Physics Mod 3.2.5 (`dev.metallium.compat.physicsmod`, applied only to that verified version):
+      its 3D sampler and 3D textures become Metal objects; GPU liquids and volumetric smoke report "unsupported" (as on
+      macOS OpenGL 4.1, which has no compute); the FFT ocean already falls back by itself. Block debris, ragdolls and
+      explosion debris render on Metal like on OpenGL (`./gradlew :runClientGameTest -PwithPhysics=/abs/physics-mod.jar`,
+      also with `-PwithSodium -PwithGl`). Other versions get the question instead of a crash.
 - **Axiom 6.1.3**: routed through metallium-gl. `Annotations` uses 5 GL functions metallium-gl does not implement
   yet (the retargeter logs 5 distinct functions without implementation). It also uses Minecraft's GL backend in 7 classes, so the editor
   overlays may fail on Metal. Not exercised in the test (it needs the Axiom editor). Status: partial.

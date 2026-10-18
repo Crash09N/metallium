@@ -97,6 +97,10 @@ public final class CompatStatus {
                 rows.add(Row.of("    uses Minecraft's OpenGL backend classes in " + report.backendClasses()
                         + " classes (metallium-gl cannot translate these)", Tone.WARN));
             }
+            if (report.usesBackendInternals() && OpenGlRequirements.handledByMetallium(report)) {
+                rows.add(Row.of("    Metallium's compatibility code covers this version: its OpenGL-only parts run on Metal or are"
+                        + " switched off", Tone.OK));
+            }
             OpenGlRequirements.Requirement needsGl = OpenGlRequirements.requirement(report.id());
             if (needsGl != null) {
                 MetalliumConfig.OpenGlChoice choice = MetalliumConfig.INSTANCE.openGlChoices.get(report.id());

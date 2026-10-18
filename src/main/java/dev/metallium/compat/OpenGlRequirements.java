@@ -104,6 +104,16 @@ public final class OpenGlRequirements {
         return null;
     }
 
+    /** The mod is listed as needing OpenGL, but Metallium's compatibility code covers this version (status screen). */
+    public static boolean handledByMetallium(final ModReport report) {
+        for (KnownMod known : known()) {
+            if (known.id().equals(report.id()) && known.metalliumCompat() != null) {
+                return matches(report.version(), known.metalliumCompat());
+            }
+        }
+        return false;
+    }
+
     /** Whether the choice screen still has to be shown this session (once, before the title screen). */
     public static synchronized boolean shouldAsk() {
         return !asked && outcome().ask() && dev.metallium.BackendSelection.metalSupported()
@@ -190,7 +200,7 @@ public final class OpenGlRequirements {
         boolean matches(String version, String predicate);
     }
 
-    static boolean matches(final String version, final String predicate) {
+    public static boolean matches(final String version, final String predicate) {
         try {
             return VersionPredicate.parse(predicate).test(Version.parse(version));
         } catch (VersionParsingException | RuntimeException e) {
@@ -199,7 +209,7 @@ public final class OpenGlRequirements {
     }
 
     /** The bundled list plus {@code config/metallium/needs-opengl.json} (entries there replace bundled ones by id). */
-    static List<KnownMod> known() {
+    public static List<KnownMod> known() {
         List<KnownMod> mods = new ArrayList<>();
         try (InputStream in = OpenGlRequirements.class.getResourceAsStream(RESOURCE)) {
             if (in != null) mods.addAll(parse(new InputStreamReader(in, StandardCharsets.UTF_8)));
