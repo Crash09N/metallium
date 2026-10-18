@@ -518,7 +518,19 @@ public final class GlslProgramTranslator {
         return source.substring(lineStart, Math.min(source.length(), declarationStart + 1)).contains("layout");
     }
 
-    static ByteBuffer compileToSpirv(final String programName, final Stage stage, final String source) throws TranslationException {
+    /**
+     * Words that GL_KHR_vulkan_glsl (the dialect shaderc compiles for SPIR-V) reserves as types but desktop GLSL leaves
+     * free; packs use them as identifiers, e.g. Photon/Bliss {@code float f(sampler2D sampler, ...)}. A uniform named
+     * like this would be renamed too (none seen in packs).
+     */
+    private static final Pattern VULKAN_RESERVED = Pattern.compile("(?<![\\w.#])(sampler|samplerShadow)(?!\\w)");
+
+    static String renameVulkanReserved(final String source) {
+        return source.contains("sampler") ? VULKAN_RESERVED.matcher(source).replaceAll("metallium_$1") : source;
+    }
+
+    static ByteBuffer compileToSpirv(final String programName, final Stage stage, final String rawSource) throws TranslationException {
+        String source = renameVulkanReserved(rawSource);
         if (!VERSION.matcher(source).find()) {
             throw new TranslationException(programName + "/" + stage + ": missing #version directive");
         }
