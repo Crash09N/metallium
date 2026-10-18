@@ -109,6 +109,9 @@ loom.runs.clientGameTest {
 	if (project.hasProperty('benchSeconds')) vmArg "-Dmetallium.bench.seconds=${project.property('benchSeconds')}"
 	if (project.hasProperty('benchScene')) vmArg "-Dmetallium.bench.scene=${project.property('benchScene')}"
 	if (project.hasProperty('perfCounters')) vmArg '-Dmetallium.perfCounters=true'
+	// -PglMods=voxy (with -PwithGl): retarget these mods' GL calls to metallium-gl; -PglFailFast=false logs instead of throwing.
+	if (project.hasProperty('glMods')) vmArg "-Dmetallium.gl.mods=${project.property('glMods')}"
+	if (project.hasProperty('glFailFast')) vmArg "-Dmetallium.gl.failFast=${project.property('glFailFast')}"
 }
 
 // ./gradlew runClientGameTest -PwithSodium  → runs the game tests with Sodium loaded.

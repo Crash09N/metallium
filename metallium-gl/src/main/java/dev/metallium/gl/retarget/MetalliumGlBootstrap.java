@@ -25,6 +25,8 @@ import java.util.concurrent.atomic.AtomicInteger;
  * before any mod entrypoint, so mod classes cannot be loaded un-retargeted.
  */
 public final class MetalliumGlBootstrap {
+    /** System property listing the mod ids whose GL calls are retargeted (comma separated). */
+    public static final String ROUTED_MODS_PROPERTY = "metallium.gl.routedMods";
     private static boolean installed;
     private static boolean hooked;
     private static OptInMods optIn;
@@ -46,6 +48,8 @@ public final class MetalliumGlBootstrap {
         MetalGLLog.setFailFast(failFast != null ? Boolean.parseBoolean(failFast) : FabricLoader.getInstance().isDevelopmentEnvironment());
         GlContext.setDeviceFactory(() -> new MetalGlDevice(new GameMetalHost()));
         optIn = OptInMods.discover();
+        // Read by core compat code (e.g. the Voxy safe-disable mixin) that must step aside for routed mods.
+        System.setProperty(ROUTED_MODS_PROPERTY, String.join(",", optIn.mods().keySet()));
         MetalliumRuntime.registerStatusLine(MetalliumGlBootstrap::statusLine);
         if (optIn.mods().isEmpty()) {
             MetalGLLog.LOGGER.info("[metallium-gl] no mods opted in; class loading is not hooked");
