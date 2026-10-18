@@ -111,6 +111,14 @@ Status legend: ✅ done · 🔄 in progress · ⏳ planned · 🔬 needs researc
 - ⏳ Later, optional: hardware ray-traced effects (M3+), and a Metal-native GPU-driven terrain path (owner may start a
   separate Nvidium-style project)
 
+## Phase 6c — Compatibility center 🔄
+- Startup scan of all mods for direct OpenGL use → status per mod: native on Metal / via metallium-gl / partial / disabled
+- Order: native Metal first → automatic routing through metallium-gl → if it fails or crashes: dialog "Disable mod X /
+  Switch Metallium to OpenGL / Ignore" (no crash loops; crash detection on next start)
+- Status screen (Sodium on Metal?, Iris adapter, DH, per-mod table, power state) + "Metallium" settings tab
+- `docs/MOD-AUTHORS.md`: make mods Metal-ready without Metal code (use renderpearl instead of raw OpenGL)
+- Power mode "Performance" ignores macOS Low Power Mode (full performance on battery if the user wants it)
+
 ## Phase 7 — Benchmarks and comparison ⏳
 **Engine shootout (fixed test stage, owner requirement: Metal must prove it is the fastest engine on Apple Silicon)**
 - Engines: Metal (Metallium) vs OpenGL (Apple GL 4.1, itself layered on Metal) vs Vulkan (MoltenVK → Metal)
