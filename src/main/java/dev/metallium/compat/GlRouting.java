@@ -99,6 +99,21 @@ public final class GlRouting {
                     plan.put(id, new Decision(id, Status.ROUTED, "routed explicitly (experimental)", List.of(), List.of(), true, false));
                 }
             }
+            // Mods whose Metallium compatibility code runs their OpenGL paths translated (needs-opengl.json
+            // "metalliumGl": "all", e.g. Physics Mod's GPU compute): every class is retargeted, also the ones that only
+            // cast engine objects to Minecraft's GL backend types.
+            if (metal && glInstalled && config.glAutoRouting) {
+                for (OpenGlRequirements.KnownMod known : OpenGlRequirements.known()) {
+                    if (!"all".equals(known.metalliumGl()) || known.metalliumCompat() == null) continue;
+                    String version = loader.getModContainer(known.id()).map(m -> m.getMetadata().getVersion().getFriendlyString()).orElse(null);
+                    if (version == null || !OpenGlRequirements.matches(version, known.metalliumCompat())
+                            || config.modOverrides.getOrDefault(known.id(), ModOverride.AUTO) == ModOverride.NATIVE) {
+                        continue;
+                    }
+                    plan.put(known.id(), new Decision(known.id(), Status.ROUTED, "all classes, for Metallium's "
+                            + (known.name() != null ? known.name() : known.id()) + " compatibility", List.of(), List.of(), true, true));
+                }
+            }
             List<CrashGuard.RoutedMod> routed = new ArrayList<>();
             for (Decision d : plan.values()) {
                 if (d.routed()) {

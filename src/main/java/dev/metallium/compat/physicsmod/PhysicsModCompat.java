@@ -12,6 +12,7 @@ import com.mojang.renderpearl.api.textures.GpuTexture;
 import dev.metallium.Metallium;
 import dev.metallium.api.MetalliumRuntime;
 import dev.metallium.backend.MetalliumInterop;
+import dev.metallium.compat.GlRouting;
 import io.github.kokodio.metaljvm.metal.MTLHazardTrackingMode;
 import io.github.kokodio.metaljvm.metal.MTLOrigin;
 import io.github.kokodio.metaljvm.metal.MTLRegion;
@@ -39,9 +40,11 @@ import java.util.OptionalDouble;
  * backend-specific pieces while Metal is active:
  * <ul>
  *   <li>the 3D sampler and 3D textures are created as Metal objects through {@link MetalliumInterop};</li>
- *   <li>the GPU-compute features (liquid simulation, volumetric smoke) report "unsupported", the same answer the mod
- *       gives on macOS OpenGL 4.1, which has no compute shaders. The FFT ocean already reports "not OpenGL or Vulkan"
- *       by itself and uses its fallback.</li>
+ *   <li>the GPU-compute features (GPU liquids, volumetric smoke, FFT ocean) take the mod's own OpenGL 4.3 compute
+ *       path, run through metallium-gl ({@link #gpuCompute()}: Metallium routes every Physics Mod class, and
+ *       metallium-gl hands the GL code GL names for the Metal textures, buffers and samplers it casts to Minecraft's
+ *       OpenGL backend types). The FFT ocean is pointed at that path explicitly (it rejects unknown backends).
+ *       Without metallium-gl they report "unsupported", the answer the mod gives on macOS OpenGL 4.1.</li>
  * </ul>
  */
 public final class PhysicsModCompat {
@@ -57,10 +60,47 @@ public final class PhysicsModCompat {
         if (!MetalliumRuntime.isMetalActive()) return false;
         if (!statusRegistered) {
             statusRegistered = true;
-            MetalliumRuntime.registerStatusLine(() -> "Physics Mod: on Metal (GPU liquids/volumetric smoke/FFT ocean off)");
-            Metallium.LOGGER.info("[metallium] Physics Mod on Metal: 3D textures/sampler via Metal, GPU-compute features reported unsupported");
+            boolean compute = gpuCompute();
+            MetalliumRuntime.registerStatusLine(() -> compute ? "Physics Mod: on Metal (GPU compute via metallium-gl)"
+                    : "Physics Mod: on Metal (GPU liquids/volumetric smoke/FFT ocean off: metallium-gl not routing it)");
+            Metallium.LOGGER.info("[metallium] Physics Mod on Metal: 3D textures/sampler via Metal; GPU-compute features {}",
+                    compute ? "through metallium-gl" : "reported unsupported (metallium-gl does not route Physics Mod)");
         }
         return true;
+    }
+
+    /** Metal, and metallium-gl retargets all of Physics Mod: its OpenGL compute paths can run translated. */
+    public static boolean gpuCompute() {
+        if (!MetalliumRuntime.isMetalActive()) return false;
+        GlRouting.Decision decision = GlRouting.plan().get(MOD_ID);
+        return decision != null && decision.routed() && decision.allClasses() && GlRouting.hooked();
+    }
+
+    private static final String OCEAN_GL_BACKEND = "net.diebuddies.render.fft.GlOceanComputeBackend";
+
+    /** {@code new GlOceanComputeBackend()} (the mod's OpenGL FFT backend; its GL calls are retargeted to metallium-gl). */
+    public static Object newOceanGlBackend() {
+        try {
+            java.lang.reflect.Constructor<?> constructor = Class.forName(OCEAN_GL_BACKEND, true, PhysicsModCompat.class.getClassLoader())
+                    .getDeclaredConstructor();
+            constructor.setAccessible(true);
+            return constructor.newInstance();
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException("Metallium: could not create Physics Mod's OpenGL ocean backend on Metal", e);
+        }
+    }
+
+    /** {@code GlOceanComputeBackend.unavailableReason()}: null when the (translated) GL device has what the FFT needs. */
+    public static String oceanGlUnavailableReason() {
+        try {
+            java.lang.reflect.Method method = Class.forName(OCEAN_GL_BACKEND, true, PhysicsModCompat.class.getClassLoader())
+                    .getDeclaredMethod("unavailableReason");
+            method.setAccessible(true);
+            return (String) method.invoke(null);
+        } catch (ReflectiveOperationException e) {
+            Metallium.LOGGER.warn("[metallium] Physics Mod FFT ocean availability check failed on Metal: {}", e.toString());
+            return "Metallium could not query the OpenGL ocean backend on Metal";
+        }
     }
 
     /** A sampler for 3D textures: Metal samplers have no texture-type dimension, so the regular one serves (R repeats as U). */

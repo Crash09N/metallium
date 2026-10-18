@@ -45,7 +45,15 @@ public final class OpenGlRequirements {
     private static final Gson GSON = new Gson();
 
     /** One entry of the data list. {@code metalliumCompat}: Fabric version predicate handled on Metal by Metallium. */
-    public record KnownMod(String id, @Nullable String name, @Nullable String reason, @Nullable String metalliumCompat) {
+    /**
+     * @param metalliumGl {@code "all"}: when the compatibility code applies, route every class of the mod through
+     *                    metallium-gl (its OpenGL paths run translated on Metal; see {@link GlRouting})
+     */
+    public record KnownMod(String id, @Nullable String name, @Nullable String reason, @Nullable String metalliumCompat,
+                           @Nullable String metalliumGl) {
+        public KnownMod(final String id, final @Nullable String name, final @Nullable String reason, final @Nullable String metalliumCompat) {
+            this(id, name, reason, metalliumCompat, null);
+        }
     }
 
     /** A loaded mod that needs OpenGL; {@code listed}: from the data list (else from the scan heuristic). */

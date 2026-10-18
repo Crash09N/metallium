@@ -88,6 +88,101 @@ final class PhysicsScenario {
             context.waitTicks(40);
             context.takeScreenshot("physics-" + tag + "-explosion-later");
             line.accept("physics: world scenario done on " + backend);
+            gpuFeatures(context, world, tag);
+        }
+        oceanScene(context, tag);
+    }
+
+    /** Physics Mod's static config field (closed source: reached by name, test code only). */
+    private void setConfig(final String field, final Object value) {
+        try {
+            Class.forName("net.diebuddies.config.ConfigClient").getField(field).set(null, value);
+        } catch (ReflectiveOperationException e) {
+            line.accept("physics: could not set ConfigClient." + field + ": " + e);
+        }
+    }
+
+    private Object callStatic(final String type, final String method) {
+        try {
+            java.lang.reflect.Method m = Class.forName(type).getDeclaredMethod(method);
+            m.setAccessible(true);
+            return m.invoke(null);
+        } catch (ReflectiveOperationException e) {
+            return "error: " + (e.getCause() != null ? e.getCause() : e);
+        }
+    }
+
+    /** GPU liquids (a liquid source, as with Physics Mod's stick tool) and volumetric campfire smoke. */
+    private void gpuFeatures(final ClientGameTestContext context, final TestSingleplayerContext world, final String tag) {
+        setConfig("liquidPhysics", true);
+        setConfig("smokePhysics", true);
+        setConfig("smokeVolumetricPhysics", true);
+        line.accept("physics: liquid compute availability=" + context.computeOnClient(c ->
+                String.valueOf(callStatic("net.diebuddies.physics.liquid.compute.LiquidComputeSupport", "availability"))));
+        line.accept("physics: volumetric smoke supported=" + context.computeOnClient(c ->
+                String.valueOf(callStatic("net.diebuddies.render.SmokeVolumeRenderer", "supportsVolumetricSmoke"))));
+        command(world, "kill @e[type=!player]");
+        command(world, "fill -6 -60 3 6 -50 12 minecraft:air");
+        command(world, "tp @p 0.5 -60 0.5 0 10");
+        context.waitTicks(40);
+        // Liquid source a few blocks up, in front of the player (what Physics Mod's stick tool does on right-click).
+        String toggled = context.computeOnClient(client -> {
+            try {
+                Object mod = Class.forName("net.diebuddies.physics.PhysicsMod")
+                        .getMethod("getInstance", net.minecraft.client.multiplayer.ClientLevel.class).invoke(null, client.level);
+                Object physicsWorld = mod.getClass().getMethod("getPhysicsWorld").invoke(mod);
+                physicsWorld.getClass().getMethod("toggleLiquidSource", net.minecraft.core.BlockPos.class)
+                        .invoke(physicsWorld, new net.minecraft.core.BlockPos(0, -57, 6));
+                return "ok";
+            } catch (ReflectiveOperationException e) {
+                return "failed: " + (e.getCause() != null ? e.getCause() : e);
+            }
+        });
+        line.accept("physics: liquid source " + toggled);
+        context.waitTicks(40);
+        context.takeScreenshot("physics-" + tag + "-liquid");
+        context.waitTicks(100);
+        context.takeScreenshot("physics-" + tag + "-liquid-later");
+        command(world, "setblock -2 -60 8 minecraft:campfire");
+        command(world, "setblock 2 -60 8 minecraft:campfire");
+        context.waitTicks(160);
+        context.takeScreenshot("physics-" + tag + "-smoke");
+        command(world, "setblock 0 -60 7 minecraft:fire");
+        context.waitTicks(60);
+        context.takeScreenshot("physics-" + tag + "-smoke-fire");
+    }
+
+    /** FFT ocean: a natural world, above the nearest ocean. */
+    private void oceanScene(final ClientGameTestContext context, final String tag) {
+        setConfig("oceanPhysics", true);
+        setConfig("oceanRenderer", 1);
+        line.accept("physics: FFT ocean availability (null = available)=" + context.computeOnClient(c ->
+                String.valueOf(callStatic("net.diebuddies.render.fft.FftOceanRenderer", "fftAvailabilityReason"))));
+        try (TestSingleplayerContext world = context.worldBuilder().setUseConsistentSettings(false)
+                .adjustSettings(state -> state.setSeed(System.getProperty("metallium.gametest.oceanSeed", "metallium-forest"))).create()) {
+            world.getConnection().waitForChunksRender();
+            closeForeignScreens(context);
+            net.minecraft.core.BlockPos ocean = world.getServer().computeOnServer(server -> {
+                var found = server.overworld().findClosestBiome3d(b -> b.is(net.minecraft.tags.BiomeTags.IS_OCEAN),
+                        net.minecraft.core.BlockPos.ZERO, 6400, 32, 64);
+                return found == null ? null : found.getFirst();
+            });
+            line.accept("physics: nearest ocean " + ocean);
+            if (ocean == null) return;
+            for (String command : new String[] {"time set 6000", "gamerule advance_time false", "weather clear", "gamemode spectator @a",
+                    "tp @p " + ocean.getX() + " 72 " + ocean.getZ() + " 0 25"}) {
+                command(world, command);
+            }
+            context.waitTicks(20);
+            world.getConnection().waitForChunksRender();
+            context.waitTicks(200);
+            context.takeScreenshot("physics-" + tag + "-ocean");
+            context.waitTicks(40);
+            context.takeScreenshot("physics-" + tag + "-ocean-later");
+            command(world, "weather thunder");
+            context.waitTicks(200);
+            context.takeScreenshot("physics-" + tag + "-ocean-storm");
+            line.accept("physics: ocean scene done");
         }
     }
 
