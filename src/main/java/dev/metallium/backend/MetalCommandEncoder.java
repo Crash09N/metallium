@@ -349,13 +349,13 @@ final class MetalCommandEncoder implements CommandEncoderBackend {
         }
     }
 
-    void presentTextureToDrawable(final CAMetalLayer layer, final GpuTextureView textureView) {
+    boolean presentTextureToDrawable(final CAMetalLayer layer, final GpuTextureView textureView, final long presentedHandler) {
         MetalGpuTexture source = (MetalGpuTexture) textureView.texture();
         flushPendingClear(source);
         submitRenderPass();
         endEncoder();
         MTLCommandBuffer commandBuffer = commandBuffer();
-        MetalUtilities.encodePresentTextureToDrawable(commandBuffer, layer, source.metalTexture(), fence);
+        return MetalUtilities.encodePresentTextureToDrawable(commandBuffer, layer, source.metalTexture(), fence, presentedHandler);
     }
 
     @Override

@@ -201,16 +201,17 @@ final class MetalUtilities {
         encoder.drawPrimitives(MTLPrimitiveType.Triangle, 0, 3, 1, 0);
     }
 
-    static void encodePresentTextureToDrawable(
+    static boolean encodePresentTextureToDrawable(
             final MTLCommandBuffer commandBuffer,
             final CAMetalLayer layer,
             final MTLTexture sourceTexture,
-            final MTLFence globalFence
+            final MTLFence globalFence,
+            final long presentedHandler
     ) {
         try (AutoreleasePool _ = AutoreleasePool.push()) {
             CAMetalDrawable drawable = layer.nextDrawable();
             if (drawable == null) {
-                return;
+                return false;
             }
             MTLTexture drawableTexture = drawable.texture();
 
@@ -243,7 +244,11 @@ final class MetalUtilities {
             }
 
             encoder.endEncoding();
+            if (presentedHandler != 0L) {
+                drawable.addPresentedHandler(presentedHandler);
+            }
             commandBuffer.presentDrawable(drawable);
+            return true;
         }
     }
 

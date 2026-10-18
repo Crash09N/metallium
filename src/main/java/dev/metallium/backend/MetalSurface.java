@@ -19,19 +19,32 @@ import io.github.kokodio.metaljvm.quartzcore.CAMetalLayer;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
 import org.jspecify.annotations.NonNull;
+import io.github.kokodio.metaljvm.objc.ObjCBlock;
 import org.lwjgl.sdl.SDLError;
 import org.lwjgl.sdl.SDLMetal;
 
 import java.util.Collection;
 import java.util.EnumSet;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 @Environment(EnvType.CLIENT)
 final class MetalSurface implements GpuSurfaceBackend {
-    private static final Set<GpuSurface.PresentMode> SUPPORTED_PRESENT_MODES = EnumSet.of(GpuSurface.PresentMode.FIFO, GpuSurface.PresentMode.MAILBOX);
+    private static final Set<GpuSurface.PresentMode> SUPPORTED_PRESENT_MODES = EnumSet.of(GpuSurface.PresentMode.IMMEDIATE, GpuSurface.PresentMode.FIFO, GpuSurface.PresentMode.MAILBOX);
+    private static final long PRESENT_PENDING_TIMEOUT_NS = 100_000_000L;
     private final long metalView;
     private final CAMetalLayer metalLayer;
     private MetalCommandEncoder pendingPresentEncoder;
+    /**
+     * Without vsync, a CAMetalLayer in a window still only releases drawables at the display refresh, so a blocking
+     * {@code nextDrawable} caps the frame rate at the refresh rate. With vsync off we therefore present a frame only
+     * when no earlier present is still waiting for the display (the presented handler clears the flag) and skip the
+     * drawable blit otherwise, like a mailbox swapchain dropping frames. The frame itself is still rendered.
+     */
+    private final AtomicBoolean presentPending = new AtomicBoolean();
+    private final long presentedHandler = ObjCBlock.withRunnable(() -> presentPending.set(false));
+    private boolean displaySync = true;
+    private long lastPresentNs;
 
     MetalSurface(final long windowHandle, final MTLDevice metalDevice) {
         this.metalView = SDLMetal.SDL_Metal_CreateView(windowHandle);
@@ -63,7 +76,9 @@ final class MetalSurface implements GpuSurfaceBackend {
         this.metalLayer.setDrawableSize(new CGSize(config.width(), config.height()));
         this.metalLayer.setAllowsNextDrawableTimeout(false);
         this.metalLayer.setPresentsWithTransaction(false);
-        this.metalLayer.setDisplaySyncEnabled(config.presentMode() != GpuSurface.PresentMode.MAILBOX);
+        this.displaySync = config.presentMode() == GpuSurface.PresentMode.FIFO || config.presentMode() == GpuSurface.PresentMode.FIFO_RELAXED;
+        this.metalLayer.setDisplaySyncEnabled(this.displaySync);
+        this.presentPending.set(false);
     }
 
     @Override
@@ -81,8 +96,21 @@ final class MetalSurface implements GpuSurfaceBackend {
             throw new IllegalArgumentException("Metal surface requires MetalCommandEncoder");
         }
 
-        metalEncoder.presentTextureToDrawable(metalLayer, textureView);
         this.pendingPresentEncoder = metalEncoder;
+        if (this.displaySync) {
+            metalEncoder.presentTextureToDrawable(metalLayer, textureView, 0L);
+            return;
+        }
+        long now = System.nanoTime();
+        // Safety valve: if a presented callback never arrives (e.g. occluded window), present anyway after 100 ms.
+        if (this.presentPending.get() && now - this.lastPresentNs < PRESENT_PENDING_TIMEOUT_NS) {
+            return;
+        }
+        this.presentPending.set(true);
+        this.lastPresentNs = now;
+        if (!metalEncoder.presentTextureToDrawable(metalLayer, textureView, this.presentedHandler)) {
+            this.presentPending.set(false);
+        }
     }
 
     @Override
