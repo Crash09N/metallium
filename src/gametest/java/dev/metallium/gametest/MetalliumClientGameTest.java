@@ -28,6 +28,7 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
             return info.backendName() + " | " + info.name() + " | " + info.driverInfo();
         });
         line("backend: " + backend);
+        line("sodium loaded: " + net.fabricmc.loader.api.FabricLoader.getInstance().isModLoaded("sodium"));
         context.takeScreenshot("metallium-title");
 
         String expected = System.getProperty("metallium.gametest.expectBackend", "");

@@ -100,3 +100,10 @@ loom.runs.clientGameTest {
 	vmArg '--enable-native-access=ALL-UNNAMED'
 	vmArg "-Dmetallium.gametest.expectBackend=${System.getenv('METALLIUM_EXPECT_BACKEND') ?: ''}"
 }
+
+// ./gradlew runClientGameTest -PwithSodium  → runs the game tests with Sodium loaded.
+if (project.hasProperty('withSodium')) {
+	dependencies {
+		gametestRuntimeOnly "maven.modrinth:sodium:${project.sodium_version}"
+	}
+}
