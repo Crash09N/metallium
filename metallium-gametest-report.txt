@@ -1,0 +1,40 @@
+backend: Metal | Apple Paravirtual device | macOS 15.7.9
+timing: startup-to-title ms=31378
+shader work until title: glsl=0 (0 ms, 0 cached) spirv->msl=215 (223 ms, 175 cached) mslLibraries=215 (13392 ms, 0 functions from archive) pso=197 (1251 ms) renderThreadPso=2 (8 ms) archive hit/miss=67/130 prewarmedVariants=0
+sodium loaded: false
+iris loaded: false, adapter: false
+distanthorizons loaded: false
+voxy loaded: false
+reglass loaded: false
+cullleaves loaded: false
+moreculling loaded: false
+graphicsApi vanilla caption DEFAULT: Metal (via Metallium)
+graphicsApi vanilla caption OPENGL: Prefer OpenGL
+graphicsApi vanilla caption VULKAN: Prefer Vulkan (Experimental)
+timing: first world join (create + chunks rendered) ms=8839
+shader work during join: glsl=0 (0 ms, 0 cached) spirv->msl=2 (3 ms, 10 cached) mslLibraries=2 (62 ms, 0 functions from archive) pso=7 (10 ms) renderThreadPso=1 (2 ms) archive hit/miss=5/2 prewarmedVariants=0
+flat world: terrain coverage=1.00
+flat world: fps=59 lastFrameMs=12.30
+compat: scan 1 scanned, 0 cached, 41 ms; gametest mod rawGl=true classes=[dev.metallium.gametest.gl.RawGlQuads] functions=16
+compat-status: == Engine ==
+compat-status: Metallium 0.1.0-alpha.1: Metal active · Metal · MSL 4.0
+compat-status: Graphics Engine setting: METAL
+compat-status: Power: Automatic → Performance (no FPS cap)
+compat-status:     macOS Low Power Mode off · AC Power · thermal nominal
+compat-status: 
+compat-status: == Key mods ==
+compat-status: Sodium: not installed
+compat-status: Iris: not installed
+compat-status: metallium-gl: not installed · automatic routing on
+compat-status: 
+compat-status: == Mods (1 scanned, 0 cached, 41 ms) ==
+compat-status: Metallium client game tests (metallium-gametest): calls OpenGL directly: will not render on Metal
+compat-status:     calls OpenGL directly; install metallium-gl
+compat-status:     1 classes call OpenGL: GL33C.glAttachShader, GL33C.glBindAttribLocation, GL33C.glBindVertexArray, GL33C.glCompileShader, GL33C.glCreateProgram, GL33C.glCreateShader, GL33C.glDeleteShader, GL33C.glGenVertexArrays, GL33C.glGetError, GL33C.glGetProgramInfoLog, GL33C.glGetProgrami, GL33C.glGetShaderInfoLog, GL33C.glGetShaderi, GL33C.glGetUniformLocation, GL33C.glLinkProgram, GL33C.glShaderSource
+compat: Power: Automatic → Performance (no FPS cap) · macOS Low Power Mode off · AC Power · thermal nominal
+compat: power fps Low Power=13 (cap 30), Performance=60
+flat world (no chunk fade): terrain coverage=1.00
+shader work during first 26 s of play: glsl=0 (0 ms, 0 cached) spirv->msl=0 (0 ms, 0 cached) mslLibraries=0 (0 ms, 0 functions from archive) pso=0 (0 ms) renderThreadPso=0 (0 ms) archive hit/miss=0/0 prewarmedVariants=0
+natural world: terrain coverage=1.00
+natural world: fps=12 lastFrameMs=3.25
+result: PASS
