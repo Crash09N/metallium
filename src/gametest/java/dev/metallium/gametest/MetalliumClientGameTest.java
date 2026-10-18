@@ -258,6 +258,7 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
             tryCommand(world, "execute as @p at @s run fill ^-4 ^ ^6 ^5 ^5 ^10 minecraft:air");
             tryCommand(world, "time set 6000");
             context.waitTicks(40);
+            playerModelScene(context, world);
         }
 
         line("iris shaders off: pipeline=" + context.computeOnClient(client -> irisSelectPack(TEST_PACK, false)));
@@ -269,6 +270,70 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
         if (same < 0.80) {
             failures.add(String.format("shaders off after a pack differs from vanilla (match %.2f)", same));
         }
+    }
+
+    /**
+     * External pack, local player model (entity_translucent pipeline -> gbuffers_entities / gbuffers_hand): third person
+     * (F5) from behind, then first person with the empty hand. The player's skin must be visible: the body/hand area must
+     * not be mostly near-white (white texture / overlay) nor show the sky through it. Same scene with -Pengine=OPENGL.
+     */
+    private void playerModelScene(ClientGameTestContext context, TestSingleplayerContext world) {
+        tryCommand(world, "gamemode creative @a");
+        tryCommand(world, "clear @a");
+        tryCommand(world, "execute as @p at @s run tp @s ~ ~ ~ ~ 10");
+        tryCommand(world, "execute as @p at @s run summon minecraft:mannequin ^1.5 ^ ^2 {profile:{texture:\"minecraft:entity/player/slim/alex\",model:\"slim\"}}");
+        tryCommand(world, "execute as @p at @s run summon minecraft:mannequin ^-1.5 ^ ^2 {profile:{texture:\"minecraft:entity/player/wide/steve\"}}");
+        context.runOnClient(client -> client.options.setCameraType(net.minecraft.client.CameraType.THIRD_PERSON_BACK));
+        context.waitTicks(40);
+        clearChat(context);
+        Path third = context.takeScreenshot("metallium-iris-external-pack-player-f5");
+        context.runOnClient(client -> client.options.setCameraType(net.minecraft.client.CameraType.FIRST_PERSON));
+        context.waitTicks(20);
+        clearChat(context);
+        Path first = context.takeScreenshot("metallium-iris-external-pack-player-hand");
+        tryCommand(world, "kill @e[type=minecraft:mannequin]");
+        tryCommand(world, "execute as @p at @s run tp @s ~ ~ ~ ~ 0");
+        tryCommand(world, "gamemode spectator @a");
+        try {
+            java.awt.image.BufferedImage body = javax.imageio.ImageIO.read(third.toFile());
+            java.awt.image.BufferedImage hand = javax.imageio.ImageIO.read(first.toFile());
+            // Third person from behind: the body is the central column of the screen; first person: the right arm
+            // reaches into the lower right corner.
+            double[] bodyStats = paleAndSkyFraction(body, 0.47, 0.75, 0.47, 0.53);
+            double[] handStats = paleAndSkyFraction(hand, 0.72, 0.95, 0.70, 0.90);
+            line(String.format("external pack player model: f5 body near-white=%.2f sky-blue=%.2f; first-person hand near-white=%.2f sky-blue=%.2f",
+                    bodyStats[0], bodyStats[1], handStats[0], handStats[1]));
+            if (bodyStats[0] > 0.35 || handStats[0] > 0.35 || bodyStats[1] > 0.20) {
+                failures.add(String.format("player model looks white/untextured or see-through with the external pack (f5 %.2f near-white, %.2f sky; hand %.2f near-white)",
+                        bodyStats[0], bodyStats[1], handStats[0]));
+            }
+        } catch (IOException e) {
+            failures.add("could not analyse player model screenshots: " + e);
+        }
+    }
+
+    /** Fractions of {near-white (all channels > 200, low saturation), sky-like blue} pixels in a screen rectangle. */
+    private static double[] paleAndSkyFraction(java.awt.image.BufferedImage image, double fromY, double toY, double fromX, double toX) {
+        int w = image.getWidth();
+        int h = image.getHeight();
+        int total = 0;
+        int pale = 0;
+        int sky = 0;
+        for (int y = (int) (h * fromY); y < (int) (h * toY); y += 2) {
+            for (int x = (int) (w * fromX); x < (int) (w * toX); x += 2) {
+                int rgb = image.getRGB(x, y);
+                int r = (rgb >> 16) & 0xFF, g = (rgb >> 8) & 0xFF, b = rgb & 0xFF;
+                total++;
+                int max = Math.max(r, Math.max(g, b));
+                int min = Math.min(r, Math.min(g, b));
+                if (min > 200 && max - min < 30) {
+                    pale++;
+                } else if (b > r + 40 && b > 150) {
+                    sky++;
+                }
+            }
+        }
+        return new double[] {(double) pale / Math.max(1, total), (double) sky / Math.max(1, total)};
     }
 
     /**
