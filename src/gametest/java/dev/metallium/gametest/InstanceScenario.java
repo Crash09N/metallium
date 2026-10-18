@@ -47,6 +47,8 @@ final class InstanceScenario {
 
     private void runScenes(final ClientGameTestContext context, final FabricLoader loader) {
         foreignScreens(context, "title screen", true);
+        context.waitTicks(60); // the first title screenshot can catch the widgets' fade-in (labels still invisible)
+        context.takeScreenshot("instance-title");
         line.accept("mode: instance, mods loaded=" + loader.getAllMods().size() + ", seed=" + SEED);
         context.runOnClient(client -> {
             line.accept("resource packs: " + client.getResourcePackRepository().getSelectedIds());
@@ -230,6 +232,9 @@ final class InstanceScenario {
 
     private List<String> packs(final ClientGameTestContext context) {
         String list = System.getProperty("metallium.gametest.instancePacks", "");
+        if (list.equals("-")) {
+            return List.of(); // -PinstancePacks=- : no shader packs (e.g. an OpenGL/Metal FPS comparison)
+        }
         if (!list.isBlank()) {
             return List.of(list.split(","));
         }
