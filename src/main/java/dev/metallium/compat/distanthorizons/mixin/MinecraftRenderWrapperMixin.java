@@ -21,6 +21,11 @@ public class MinecraftRenderWrapperMixin {
             )
     )
     private boolean metallium$treatMetalLikeVulkan(final String backendName, final String expected) {
-        return backendName.equalsIgnoreCase(expected) || "Metal".equalsIgnoreCase(backendName);
+        // DH compares the backend name against "OpenGL" and then "Vulkan" (since DH 2ff0af18). Metal must only match
+        // "Vulkan", which selects DH's backend-neutral renderpearl renderer; matching "OpenGL" would select the GL path.
+        if ("Metal".equalsIgnoreCase(backendName)) {
+            return "Vulkan".equalsIgnoreCase(expected);
+        }
+        return backendName.equalsIgnoreCase(expected);
     }
 }

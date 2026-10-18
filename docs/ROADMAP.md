@@ -56,7 +56,14 @@ Status legend: ✅ done · 🔄 in progress · ⏳ planned · 🔬 needs researc
 - Design: `docs/design/iris-adapter-blueprint.md`
 
 ## Phase 6 — Mod ecosystem ⏳ / 🔬
-- 🔬 Distant Horizons and Voxy (audit running): native path where possible, otherwise via `metallium-gl`
+- 🔄 **Distant Horizons** (audit: `docs/research/notes/voxy-distant-horizons.md`): on 26.3 its default renderer uses
+  Minecraft's graphics layer, no raw OpenGL → runs natively on Metal. Backend-detection mixin fixed for newer DH builds.
+  Target: "DH supported without shader packs" (needs a runtime test). DH + Iris shader packs is blocked by DH itself
+  (it forces its OpenGL renderer when Iris is present) → later, together with the Iris adapter (DH ships LGPL/GPL: no code copying).
+- ⏳ **Voxy**: raw OpenGL 4.6, compute-heavy (compute shaders, SSBOs, atomics, indirect-count draws); refuses non-OpenGL
+  backends. macOS's OpenGL 4.1 cannot run it either. Licence "all rights reserved" → no porting/copying. Only realistic
+  route: run Voxy **unmodified** through `metallium-gl` once that layer supports compute/SSBO/indirect (long-term,
+  months). Short-term: make the game start cleanly with Voxy installed (disable it with a message instead of crashing).
 - ⏳ HUD/minimap/overlay mods: most work as-is (vanilla API); CI test that loads popular mods and takes screenshots
 - ⏳ Rule of thumb verified in CI: mods that work on vanilla's Vulkan backend should work on Metallium
 - ⏳ Automatic fallback: detect a mod Metallium cannot handle → OpenGL at next start, with message
