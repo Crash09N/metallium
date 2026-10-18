@@ -21,6 +21,22 @@ dependencies {
 	compileOnly "maven.modrinth:sodium:${project.sodium_version}"
 
 	include(implementation("io.github.kokodio:metal-jvm:${project.metal_jvm_version}"))
+
+	testImplementation platform('org.junit:junit-bom:5.13.4')
+	testImplementation 'org.junit.jupiter:junit-jupiter'
+	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+	// shaderc / SPIRV-Cross natives for unit tests (the game provides them at runtime).
+	['natives-linux', 'natives-macos-arm64', 'natives-macos'].each { classifier ->
+		testRuntimeOnly "org.lwjgl:lwjgl:3.4.3:${classifier}"
+		testRuntimeOnly "org.lwjgl:lwjgl-shaderc:3.4.3:${classifier}"
+		testRuntimeOnly "org.lwjgl:lwjgl-spvc:3.4.3:${classifier}"
+	}
+}
+
+test {
+	useJUnitPlatform()
+	jvmArgs '--enable-native-access=ALL-UNNAMED'
+	testLogging { events 'failed'; exceptionFormat 'full' }
 }
 
 processResources {

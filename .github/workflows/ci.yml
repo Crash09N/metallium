@@ -38,8 +38,8 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
       - name: GPU info
         run: system_profiler SPDisplaysDataType || true
-      - name: Metal smoke test
-        run: ./gradlew metalSmokeTest --no-daemon
+      - name: Metal smoke test + translator tests (compiled with Metal)
+        run: ./gradlew metalSmokeTest test --no-daemon
 
   client-gametest:
     name: Minecraft on Metal (macOS arm64)
