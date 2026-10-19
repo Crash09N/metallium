@@ -1360,6 +1360,7 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
             clearChat(context);
             checkTerrainVisible(context.takeScreenshot("metallium-voxy-lods-rd4"), "voxy LODs (vanilla rd 4)");
             measure(context, "voxy rd4");
+            voxyResize(context);
             physicsInWorld(context, world, "voxy");
             tryCommand(world, "tp @a 0 220 0 210 30");
             context.waitTicks(200);
@@ -1499,6 +1500,31 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
      * macOS arm64: Voxy's RocksDB / LWJGL zstd natives must come from the metallium-voxy-natives addon (no Maven natives on
      * the game-test classpath any more) and RocksDB must have loaded its JNI library once Voxy opened its world storage.
      */
+    /**
+     * Window resizes while Voxy renders (owner's crash 2026-10-19 on toggling fullscreen: Voxy re-creates its
+     * framebuffer textures and checks completeness while an unbound framebuffer still references deleted ones). Any
+     * GL error there throws in Voxy and ends the test. -Dmetallium.gametest.voxyFullscreen=true also toggles fullscreen.
+     */
+    private void voxyResize(ClientGameTestContext context) {
+        int[][] sizes = {{1280, 720}, {1000, 562}, {854, 480}};
+        for (int[] size : sizes) {
+            context.runOnClient(client -> client.getWindow().setWindowed(size[0], size[1]));
+            context.waitTicks(40);
+            line("voxy resize: framebuffer " + context.computeOnClient(c -> c.getWindow().getWidth() + "x" + c.getWindow().getHeight())
+                    + " after setWindowed(" + size[0] + "x" + size[1] + ")");
+        }
+        if (Boolean.getBoolean("metallium.gametest.voxyFullscreen")) {
+            for (boolean fullscreen : new boolean[]{true, false}) {
+                context.runOnClient(client -> client.getWindow().setFullscreen(fullscreen));
+                context.waitTicks(60);
+                line("voxy resize: fullscreen=" + fullscreen + ", framebuffer " + context.computeOnClient(c -> ""
+                        + c.getWindow().getWidth() + "x" + c.getWindow().getHeight()));
+            }
+        }
+        checkTerrainVisible(context.takeScreenshot("metallium-voxy-after-resize"), "voxy LODs after window resizes");
+        line("voxy resize: " + glSummary());
+    }
+
     private void voxyNativesCheck(String status) {
         if (!dev.metallium.compat.voxy.VoxyNatives.isMacArm64()) {
             line("voxy natives: not macOS arm64, skipped");

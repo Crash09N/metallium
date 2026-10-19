@@ -88,8 +88,14 @@ final class IndirectCountDraws {
     record Encoded(MTLIndirectCommandBuffer buffer, long commands) {
     }
 
-    private record Icb(MTLIndirectCommandBuffer icb, MTLBuffer arguments) {
+    private record Icb(MTLIndirectCommandBuffer icb, MTLBuffer arguments, long bytes) {
     }
+
+    /** Diagnostics (all devices): ICBs alive, their Metal allocated size, ICB allocations so far. */
+    static final java.util.concurrent.atomic.AtomicLong ICBS_ALIVE = new java.util.concurrent.atomic.AtomicLong();
+    static final java.util.concurrent.atomic.AtomicLong ICB_BYTES_ALIVE = new java.util.concurrent.atomic.AtomicLong();
+    static final java.util.concurrent.atomic.AtomicLong ICB_ALLOCATIONS = new java.util.concurrent.atomic.AtomicLong();
+    private static volatile @org.jspecify.annotations.Nullable MTLDevice statsDevice;
 
     private final MTLDevice device;
     private final MetalHost host;
@@ -105,6 +111,7 @@ final class IndirectCountDraws {
     IndirectCountDraws(final MTLDevice device, final MetalHost host) {
         this.device = device;
         this.host = host;
+        statsDevice = device;
         this.icbs = new SizeClassPool<>(1024, this::newIcb, IndirectCountDraws::freeIcb);
         this.compactBuffers = new SizeClassPool<>(1024,
                 capacity -> device.newBuffer(capacity * 20L, MTLResourceOptions.StorageModePrivate), MTLBuffer::release);
@@ -150,20 +157,27 @@ final class IndirectCountDraws {
         MTLBuffer arguments = device.newBuffer(Math.max(16, argumentEncoder.encodedLength()), MTLResourceOptions.StorageModeShared);
         argumentEncoder.setArgumentBuffer(arguments, 0);
         argumentEncoder.setIndirectCommandBuffer(icb, 0);
-        // icbs' counters are updated after this returns: report the state including this allocation.
-        dev.metallium.gl.MetalGLLog.LOGGER.info("[metallium-gl] indirect command buffer for {} draws ({} MiB; {} ICBs alive, {} allocated so far)",
-                capacity, icb.allocatedSize() >> 20, icbs.live() + 1, icbs.allocations() + 1);
-        return new Icb(icb, arguments);
+        long bytes = icb.allocatedSize();
+        long alive = ICBS_ALIVE.incrementAndGet();
+        long aliveBytes = ICB_BYTES_ALIVE.addAndGet(bytes);
+        long total = ICB_ALLOCATIONS.incrementAndGet();
+        dev.metallium.gl.MetalGLLog.LOGGER.info("[metallium-gl] indirect command buffer for {} draws ({} MiB; {} ICBs alive, {} MiB; {} allocated so far)",
+                capacity, bytes >> 20, alive, aliveBytes >> 20, total);
+        return new Icb(icb, arguments, bytes);
     }
 
     private static void freeIcb(final Icb icb) {
+        ICBS_ALIVE.decrementAndGet();
+        ICB_BYTES_ALIVE.addAndGet(-icb.bytes());
         icb.arguments().release();
         icb.icb().release();
     }
 
-    /** Pool statistics for diagnostics and tests: ICBs alive, ICB allocations so far, compaction buffers alive. */
-    long[] poolStats() {
-        return new long[]{icbs.live(), icbs.allocations(), icbs.liveCapacity(), compactBuffers.live(), compactBuffers.allocations()};
+    /** One-line pool state for diagnostics. */
+    static String stats() {
+        MTLDevice d = statsDevice;
+        return "ICBs alive=" + ICBS_ALIVE.get() + " (" + (ICB_BYTES_ALIVE.get() >> 20) + " MiB), ICB allocations=" + ICB_ALLOCATIONS.get()
+                + (d == null ? "" : ", Metal allocated=" + (d.currentAllocatedSize() >> 20) + " MiB");
     }
 
     /**
