@@ -342,7 +342,7 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
     private static final String TEX_PACK = "metallium-texpack";
     private static final String[] TEX_PACK_FILES = {"shaders.properties", "composite.vsh", "composite.fsh", "composite1.vsh", "composite1.fsh", "stripes.png", "volume.dat", "noise.png"};
     private static final String HISTORY_PACK = "metallium-historypack";
-    private static final String[] HISTORY_PACK_FILES = {"gbuffers_terrain.vsh", "gbuffers_terrain.fsh", "composite.vsh", "composite.fsh", "composite1.vsh", "composite1.fsh", "composite2.vsh", "composite2.fsh"};
+    private static final String[] HISTORY_PACK_FILES = {"shaders.properties", "yellow.png", "gbuffers_terrain.vsh", "gbuffers_terrain.fsh", "composite.vsh", "composite.fsh", "composite1.vsh", "composite1.fsh", "composite2.vsh", "composite2.fsh"};
 
     /**
      * Iris shader packs (needs -PwithIris): with a fixed view, compares a shaders-off screenshot with one taken with the

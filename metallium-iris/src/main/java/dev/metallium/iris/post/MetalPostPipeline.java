@@ -243,6 +243,7 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
                 .orElse(null);
         programSet.get(ProgramId.Final).ifPresent(source -> source.getDirectives().getMipmappedBuffers().forEach(targets::requireMipmaps));
         finalComputes.addAll(compileComputes(programSet.getFinalCompute(), TextureStage.COMPOSITE_AND_FINAL));
+        writtenBefore = Set.of();
         setupComputes.addAll(compileComputes(programSet.getSetup(), TextureStage.SETUP));
         if (useShadows) {
             shadowComputes.addAll(compileComputes(programSet.getShadowCompute(), TextureStage.GBUFFERS_AND_SHADOW));
@@ -271,6 +272,26 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
 
     // ---------------------------------------------------------------------------------------------- construction
 
+    /**
+     * While passes are compiled: colortex buffers an earlier pass of the stage being built wrote (Iris's
+     * {@code flippedAtLeastOnce}, per CompositeRenderer; the final pass gets the composite stage's set). Iris's
+     * {@code CustomTextureSamplerInterceptor} ignores a {@code texture.<stage>.colortexN} override for those buffers:
+     * superDuperVanilla overrides colortex0 with its cloud map in the composite stage but its bloom passes read the
+     * colortex0 that composite4 wrote; Bliss does the same with colortex6 (blue noise, then its bloom chain).
+     */
+    private Set<Integer> writtenBefore = Set.of();
+
+    /** The custom texture for sampler {@code name}, unless it overrides a colortex buffer in {@code written}. */
+    private CustomTextures.@org.jspecify.annotations.Nullable Texture customTexture(final TextureStage stage, final String name, final Set<Integer> written) {
+        if (!written.isEmpty()) {
+            int colortex = colortexIndex(name);
+            if (colortex >= 0 && written.contains(colortex)) {
+                return null;
+            }
+        }
+        return customTextures.lookup(stage, name);
+    }
+
     private void build(final BufferFlipper flipper, final ProgramArrayId id, final TextureStage stage, final String preFlipsName, final List<Pass> out,
                        final boolean shadow) {
         directives.getExplicitFlips(preFlipsName).forEach((buffer, flip) -> {
@@ -278,12 +299,15 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
                 flipper.flip(buffer);
             }
         });
+        java.util.Set<Integer> written = new java.util.HashSet<>();
+        writtenBefore = Set.of();
         ProgramSource[] sources = programSet.getComposite(id);
         ComputeSource[][] computes = programSet.getCompute(id);
         int count = Math.max(sources.length, computes == null ? 0 : computes.length);
         for (int i = 0; i < count; i++) {
             ProgramSource source = i < sources.length ? sources[i] : null;
             ImmutableSet<Integer> flipped = flipper.snapshot();
+            writtenBefore = Set.copyOf(written);
             List<ComputePass> passComputes = compileComputes(computes != null && i < computes.length ? computes[i] : null, stage);
             if (source == null || !source.isValid()) {
                 // Iris's ComputeOnlyPass: the computes run, nothing is drawn or flipped.
@@ -315,14 +339,17 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
             for (int buffer : drawBuffers) {
                 if (explicitFlips.get(buffer) != Boolean.FALSE) {
                     flipper.flip(buffer);
+                    written.add(buffer);
                 }
             }
             explicitFlips.forEach((buffer, flip) -> {
                 if (flip) {
                     flipper.flip(buffer);
+                    written.add(buffer);
                 }
             });
         }
+        writtenBefore = Set.copyOf(written);
     }
 
     private Pass compilePass(final ProgramSource source, final TextureStage stage, final ImmutableSet<Integer> readsAlt, final int[] drawBuffers, final List<GpuFormat> formats) {
@@ -342,9 +369,11 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
         try {
             transformed = TransformPatcher.patchComposite(name,
                     source.getVertexSource().orElseThrow(), null, source.getFragmentSource().orElseThrow(), stage, getTextureMap(), getTextureOverrides(stage));
+            Set<Integer> written = writtenBefore;
             PostProgram program = PostProgram.compile(name, transformed.get(PatchShaderType.VERTEX), transformed.get(PatchShaderType.FRAGMENT), formats,
-                    storageValidator(), sampler -> fixedSampler(stage, sampler), blends);
+                    storageValidator(), sampler -> fixedSampler(stage, sampler, written), blends);
             program.stage = stage;
+            program.writtenBefore = written;
             CommonUniforms.addDynamicUniforms(program.uniforms, FogMode.OFF);
             customUniforms.assignTo(program.uniforms);
             customUniforms.mapholderToPass(program.uniforms, program);
@@ -424,11 +453,11 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
      * {@code stage}; false if {@code name} is none. Checked before the built-in samplers, as Iris's sampler interceptor does.
      */
     boolean bindCustomTexture(final RenderPass pass, final TextureStage stage, final String name) {
-        return bindCustomTexture(pass, stage, name, name);
+        return bindCustomTexture(pass, stage, name, name, Set.of());
     }
 
-    private boolean bindCustomTexture(final RenderPass pass, final TextureStage stage, final String uniform, final String name) {
-        CustomTextures.Texture texture = customTextures.lookup(stage, name);
+    private boolean bindCustomTexture(final RenderPass pass, final TextureStage stage, final String uniform, final String name, final Set<Integer> written) {
+        CustomTextures.Texture texture = customTexture(stage, name, written);
         if (texture == null) {
             return false;
         }
@@ -440,8 +469,8 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
      * The sampler {@link #bindSampler} always uses for {@code name} in {@code stage}, or null if it can vary (mipmapped
      * or integer buffers, shadow maps): such textures can share a Metal sampler state when a pass has more than 16.
      */
-    private @org.jspecify.annotations.Nullable GpuSampler fixedSampler(final TextureStage stage, final String name) {
-        CustomTextures.Texture custom = customTextures.lookup(stage, name);
+    private @org.jspecify.annotations.Nullable GpuSampler fixedSampler(final TextureStage stage, final String name, final Set<Integer> written) {
+        CustomTextures.Texture custom = customTexture(stage, name, written);
         if (custom != null) {
             return customTextures.sampler(custom);
         }
@@ -542,6 +571,7 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
                 String glsl = TransformPatcher.patchCompute(name, source.getSource().get(), stage, getTextureMap(), getTextureOverrides(stage));
                 ComputePass pass = ComputePass.compile(source, glsl, compute(), this::validateComputeResource);
                 pass.stage = stage;
+                pass.writtenBefore = writtenBefore;
                 CommonUniforms.addDynamicUniforms(pass.uniforms, FogMode.OFF);
                 customUniforms.assignTo(pass.uniforms);
                 customUniforms.mapholderToPass(pass.uniforms, pass);
@@ -597,6 +627,8 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
         private final ImmutableSet<Integer> shadowFlipped;
         /** Texture stage of the pass being dispatched (custom textures). */
         TextureStage stage = TextureStage.COMPOSITE_AND_FINAL;
+        /** colortex buffers whose custom-texture override is off for the pass being dispatched. */
+        Set<Integer> written = Set.of();
 
         ComputeBindings(final ImmutableSet<Integer> readsAlt, final ImmutableSet<Integer> shadowFlipped) {
             this.readsAlt = readsAlt;
@@ -620,7 +652,7 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
         @Override
         public io.github.kokodio.metaljvm.metal.MTLTexture texture(final dev.metallium.shaders.ComputeTranslator.Resource resource) {
             String name = resource.name();
-            CustomTextures.Texture custom = customTextures.lookup(stage, name);
+            CustomTextures.Texture custom = customTexture(stage, name, written);
             if (custom != null) {
                 return dev.metallium.backend.MetalliumInterop.metalTexture(custom.gpuTexture(), false);
             }
@@ -676,7 +708,7 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
             if (resource.depth()) {
                 return host.compareLinear;
             }
-            CustomTextures.Texture custom = customTextures.lookup(stage, name);
+            CustomTextures.Texture custom = customTexture(stage, name, written);
             if (custom != null) {
                 return custom.blur ? (custom.clamp ? host.linearClamp : host.linearRepeat) : (custom.clamp ? host.nearestClamp : host.nearestRepeat);
             }
@@ -707,6 +739,7 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
             pass.uniforms.update();
             customUniforms.push(pass);
             bindings.stage = pass.stage;
+            bindings.written = pass.writtenBefore;
             pass.dispatch(compute(), bindings, width, height);
         }
     }
@@ -1178,11 +1211,11 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
             renderPass.setVertexBuffer(0, quad.slice());
             blocks.forEach(renderPass::setUniform);
             for (String sampler : program.samplers) {
-                if (bindCustomTexture(renderPass, program.stage, sampler)) {
+                if (bindCustomTexture(renderPass, program.stage, sampler, sampler, program.writtenBefore)) {
                     continue;
                 }
                 if (!bindShadowSampler(renderPass, sampler, program.compareSamplers.contains(sampler), program.samplers.contains("watershadow"), false)) {
-                    bindSampler(renderPass, program.stage, sampler, sampler, pass.shadow ? ImmutableSet.of() : pass.readsAlt, main);
+                    bindSampler(renderPass, program.stage, sampler, sampler, pass.shadow ? ImmutableSet.of() : pass.readsAlt, main, program.writtenBefore);
                 }
             }
             renderPass.draw(6, 1, 0, 0);
@@ -1211,8 +1244,8 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
         return slices;
     }
 
-    private void bindSampler(final RenderPass renderPass, final TextureStage stage, final String uniform, final String name, final ImmutableSet<Integer> readsAlt, final RenderTarget main) {
-        if (bindCustomTexture(renderPass, stage, uniform, name) || bindCustomImageSampler(renderPass, uniform, name)) {
+    private void bindSampler(final RenderPass renderPass, final TextureStage stage, final String uniform, final String name, final ImmutableSet<Integer> readsAlt, final RenderTarget main, final Set<Integer> written) {
+        if (bindCustomTexture(renderPass, stage, uniform, name, written) || bindCustomImageSampler(renderPass, uniform, name)) {
             return;
         }
         int colortex = colortexIndex(name);
