@@ -112,7 +112,7 @@ loom.runs.clientGameTest {
 	if (project.hasProperty('shaderpackOptions')) vmArg "-Dmetallium.gametest.shaderpackOptions=${project.property('shaderpackOptions')}"
 	if (project.hasProperty('benchSeconds')) vmArg "-Dmetallium.bench.seconds=${project.property('benchSeconds')}"
 	if (project.hasProperty('benchScene')) vmArg "-Dmetallium.bench.scene=${project.property('benchScene')}"
-	// -PbenchScene=voxy: vanilla rd during the measurement (-PvoxyRd, default 8) and Voxy's LOD distance (-PvoxyDistance)
+	// -PbenchScene=voxy: vanilla rd during the measurement (-PvoxyRd, default 4) and Voxy's LOD distance (-PvoxyDistance)
 	if (project.hasProperty('voxyRd')) vmArg "-Dmetallium.bench.voxyRd=${project.property('voxyRd')}"
 	// -PglIcbTextures=false: textured indirect-count draws use metallium-gl's per-slot fallback instead of ICBs (A/B)
 	if (project.hasProperty('glIcbTextures')) vmArg "-Dmetallium.gl.icbTextures=${project.property('glIcbTextures')}"

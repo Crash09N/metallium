@@ -90,7 +90,7 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
         boolean shaders = "shaders".equals(BENCH_SCENE);
         boolean flight = "flight".equals(BENCH_SCENE);
         // voxy (-PwithVoxy=<jar> -PwithGl -PglMods=voxy): Voxy ingests the chunks loaded at vanilla rd 32, then the vanilla
-        // distance drops to metallium.bench.voxyRd (default 8), so most of the view is Voxy's LODs.
+        // distance drops to metallium.bench.voxyRd (default 4), so most of the view is Voxy's LODs.
         boolean voxy = "voxy".equals(BENCH_SCENE);
         if (voxy && !net.fabricmc.loader.api.FabricLoader.getInstance().isModLoaded("voxy")) {
             line("bench: SKIPPED voxy scene (needs -PwithVoxy=<jar>)");
@@ -163,7 +163,7 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
                     line("bench: voxy sectionRenderDistance=" + voxyDistance + " -> "
                             + context.computeOnClient(c -> voxySetDistance(Float.parseFloat(voxyDistance))));
                 }
-                int voxyRd = Integer.getInteger("metallium.bench.voxyRd", 8);
+                int voxyRd = Integer.getInteger("metallium.bench.voxyRd", 4);
                 context.runOnClient(client -> client.options.renderDistance().set(voxyRd));
                 context.waitTicks(400);
                 line("bench: voxy (vanilla rd " + voxyRd + ") " + glSummary());
