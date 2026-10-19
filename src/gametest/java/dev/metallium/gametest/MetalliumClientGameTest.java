@@ -463,7 +463,14 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
             context.waitTicks(100);
             context.takeScreenshot("metallium-iris-external-pack");
             blockParticles(context, world, "metallium-iris-external-pack-particles");
+            blockBreaking(context, world, "metallium-iris-external-pack-breaking");
             line("external pack: still running after 100 ticks");
+            // F3 / status-screen line (owner report: "Iris via Metallium adapter: shaders off" while a pack rendered).
+            String status = context.computeOnClient(client -> String.join(" | ", dev.metallium.api.MetalliumRuntime.statusLines()));
+            line("external pack: status lines: " + status);
+            if (dev.metallium.api.MetalliumRuntime.isMetalActive() && !status.contains(" on Metal (")) {
+                failures.add("F3/status line does not report the running shader pack: " + status);
+            }
             // More gbuffers programs: block entities (chest, sign), weather (rain). Removed again before the
             // shaders-off comparison below.
             tryCommand(world, "execute as @p at @s positioned ^ ^-1 ^4 run setblock ~ ~ ~ minecraft:chest");
@@ -479,12 +486,12 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
             // stands low in the east, so the shadows fall long across the flat ground. Same scene with -Pengine=OPENGL.
             tryCommand(world, "time set 1500");
             tryCommand(world, "execute as @p at @s run fill ^-2 ^ ^8 ^-2 ^3 ^8 minecraft:oak_log");
-            tryCommand(world, "execute as @p at @s run fill ^-4 ^3 ^6 ^0 ^5 ^10 minecraft:oak_leaves[persistent=true]");
+            tryCommand(world, "execute as @p at @s rotated ~ 0 run fill ^-4 ^3 ^6 ^0 ^5 ^10 minecraft:oak_leaves[persistent=true]");
             tryCommand(world, "execute as @p at @s run fill ^3 ^ ^10 ^5 ^2 ^10 minecraft:stone_bricks");
             context.waitTicks(80);
             clearChat(context);
             context.takeScreenshot("metallium-iris-external-pack-shadows");
-            tryCommand(world, "execute as @p at @s run fill ^-4 ^ ^6 ^5 ^5 ^10 minecraft:air");
+            tryCommand(world, "execute as @p at @s rotated ~ 0 run fill ^-4 ^ ^6 ^5 ^5 ^10 minecraft:air");
             // Night with coloured light sources (stage 5: packs' voxel/floodfill coloured lighting runs in compute).
             tryCommand(world, "time set 18000");
             tryCommand(world, "execute as @p at @s run setblock ^-2 ^-1 ^5 minecraft:redstone_lamp[lit=true]");
@@ -524,6 +531,9 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
         tryCommand(world, "clear @a");
         tryCommand(world, "time set 1500"); // sun low in the east
         tryCommand(world, "execute as @p at @s run tp @s ~ ~ ~ 90 10"); // facing west: away from the sun
+        // Ripe wheat behind the player (owner: "I can look through my head and see the wheat behind").
+        tryCommand(world, "execute as @p at @s rotated ~ 0 run fill ^-4 ^-1 ^3 ^4 ^-1 ^9 minecraft:farmland");
+        tryCommand(world, "execute as @p at @s rotated ~ 0 run fill ^-4 ^ ^3 ^4 ^ ^9 minecraft:wheat[age=7]");
         tryCommand(world, "execute as @p at @s run summon minecraft:mannequin ^1.5 ^ ^2 {profile:{texture:\"minecraft:entity/player/slim/alex\",model:\"slim\"}}");
         tryCommand(world, "execute as @p at @s run summon minecraft:mannequin ^-1.5 ^ ^2 {profile:{texture:\"minecraft:entity/player/wide/steve\"}}");
         context.runOnClient(client -> client.options.setCameraType(net.minecraft.client.CameraType.THIRD_PERSON_BACK));
@@ -541,6 +551,8 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
         clearChat(context);
         Path first = context.takeScreenshot("metallium-iris-external-pack-player-hand");
         tryCommand(world, "kill @e[type=minecraft:mannequin]");
+        tryCommand(world, "execute as @p at @s rotated ~ 0 run fill ^-4 ^-1 ^3 ^4 ^ ^9 minecraft:air");
+        tryCommand(world, "execute as @p at @s rotated ~ 0 run fill ^-4 ^-1 ^3 ^4 ^-1 ^9 minecraft:grass_block");
         tryCommand(world, "execute as @p at @s run tp @s ~ ~ ~ ~ 0");
         tryCommand(world, "time set 6000");
         tryCommand(world, "gamemode spectator @a");
@@ -553,9 +565,11 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
             double[] bodyStats = paleAndSkyFraction(body, 0.50, 0.75, 0.48, 0.52);
             double[] handStats = paleAndSkyFraction(hand, 0.72, 0.95, 0.70, 0.90);
             double seeThrough = regionMatch(body, behind, 0.50, 0.75, 0.48, 0.52, 12);
+            double headSeeThrough = regionMatch(body, behind, 0.46, 0.52, 0.48, 0.52, 12);
+            line(String.format("external pack player model: f5 head matches-background=%.2f", headSeeThrough));
             line(String.format("external pack player model: f5 body near-white=%.2f sky-blue=%.2f matches-background=%.2f; first-person hand near-white=%.2f sky-blue=%.2f",
                     bodyStats[0], bodyStats[1], seeThrough, handStats[0], handStats[1]));
-            if (bodyStats[0] > 0.35 || handStats[0] > 0.35 || seeThrough > 0.25) {
+            if (bodyStats[0] > 0.35 || handStats[0] > 0.35 || seeThrough > 0.25 || headSeeThrough > 0.25) {
                 failures.add(String.format("player model looks white/untextured or see-through with the external pack (f5 %.2f near-white, %.2f like the background; hand %.2f near-white)",
                         bodyStats[0], seeThrough, handStats[0]));
             }
@@ -1011,12 +1025,46 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
         }
     }
 
+    /**
+     * Block-breaking overlay (crumbling pipeline -> gbuffers_damagedblock) on stone blocks in front of the camera, for
+     * a screenshot (owner report: the breaking overlay rendered black with some packs). The progress comes from a
+     * fake breaker id, so the local player receives it like another player's mining.
+     */
+    private void blockBreaking(ClientGameTestContext context, TestSingleplayerContext world, String screenshot) {
+        net.minecraft.core.BlockPos[] placed = world.getServer().computeOnServer(server -> {
+            var player = server.getPlayerList().getPlayers().getFirst();
+            var level = (net.minecraft.server.level.ServerLevel) player.level();
+            net.minecraft.world.phys.Vec3 look = player.getLookAngle().multiply(1, 0, 1).normalize();
+            net.minecraft.core.BlockPos base = net.minecraft.core.BlockPos.containing(player.position().add(look.scale(3.0)));
+            net.minecraft.core.BlockPos[] blocks = {base, base.above(), base.offset(net.minecraft.core.BlockPos.containing(look.yRot((float) Math.PI / 2))) };
+            for (int i = 0; i < blocks.length; i++) {
+                level.setBlockAndUpdate(blocks[i], net.minecraft.world.level.block.Blocks.STONE.defaultBlockState());
+                level.destroyBlockProgress(424242 + i, blocks[i], 3 + 3 * i);
+            }
+            return blocks;
+        });
+        context.waitTicks(10);
+        clearChat(context);
+        context.takeScreenshot(screenshot);
+        world.getServer().runOnServer(server -> {
+            var level = server.getPlayerList().getPlayers().getFirst().level();
+            for (int i = 0; i < placed.length; i++) {
+                ((net.minecraft.server.level.ServerLevel) level).destroyBlockProgress(424242 + i, placed[i], -1);
+                level.setBlock(placed[i], net.minecraft.world.level.block.Blocks.AIR.defaultBlockState(), 3);
+            }
+        });
+        context.waitTicks(5);
+    }
+
     /** Block-texture particles (what sprinting kicks up) in front of the camera, for a screenshot. */
     private void blockParticles(ClientGameTestContext context, TestSingleplayerContext world, String screenshot) {
         tryCommand(world, "execute as @p at @s run particle minecraft:block{block_state:\"minecraft:grass_block\"} ^ ^ ^2.5 0.4 0.3 0.4 0 300 force");
         tryCommand(world, "execute as @p at @s run particle minecraft:block{block_state:\"minecraft:dirt\"} ^-1 ^ ^2.5 0.3 0.3 0.3 0 200 force");
         context.waitTicks(2);
         clearChat(context);
+        if (System.getProperty("metallium.iris.dumpBuffers") != null) {
+            System.setProperty("metallium.iris.dumpNow", "true"); // -PirisDump: buffers of this particle frame
+        }
         context.takeScreenshot(screenshot);
         context.waitTicks(40); // let them die before the next screenshot
     }

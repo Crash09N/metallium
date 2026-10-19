@@ -607,6 +607,12 @@ final class GbufferState implements AutoCloseable {
             case "noisetex" -> pass.setUniform(name, owner.noiseView(), owner.linearRepeatSampler());
             case "normals" -> pass.setUniform(name, defaultNormalsView, owner.nearestSampler());
             case "specular" -> pass.setUniform(name, defaultSpecularView, owner.nearestSampler());
+            // The replaced pipeline has no overlay/lightmap sampler (e.g. Physics Mod debris): bind the real textures
+            // like Iris does for every entity program. Iris's entity patch texelFetches the overlay at iris_UV1 (default
+            // 0,10); on the 1x1 white placeholder that fetch is out of range, reads 0 and becomes entityColor
+            // (0,0,0,1): packs mixing entityColor in (Photon, Rethinking Voxels) drew Physics Mod debris black.
+            case "iris_overlay" -> pass.setUniform(name, Minecraft.getInstance().gameRenderer.overlayTexture().getTextureView(), owner.nearestSampler());
+            case "lightmap" -> pass.setUniform(name, Minecraft.getInstance().gameRenderer.levelLightmap(), owner.linearSampler());
             default -> {
                 if (!name.startsWith("shadow") && !name.equals("watershadow") && !Set.of("gtexture", "tex", "texture", "lightmap", "iris_overlay", "u_MainSampler").contains(name)) {
                     report("sampler " + name, "no source on Metal yet; a white texture is bound");

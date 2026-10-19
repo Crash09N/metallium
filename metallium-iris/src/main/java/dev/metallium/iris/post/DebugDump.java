@@ -15,7 +15,8 @@ import java.nio.file.Path;
 
 /**
  * Diagnostics: {@code -Dmetallium.iris.dumpBuffers=<dir>} writes every existing colortex buffer (main and alt texture,
- * every mip level) as PNG once {@code -Dmetallium.iris.dumpFrame} (default 300) frames of the pipeline have rendered,
+ * every mip level) as PNG once {@code -Dmetallium.iris.dumpFrame} (default 300) frames of the pipeline have rendered (or on the frame after
+ * {@code metallium.iris.dumpNow} is set at runtime),
  * plus a line per image with NaN/Inf counts and the largest value. Values are clamped to 0..1 (no tone mapping).
  */
 final class DebugDump {
@@ -24,7 +25,15 @@ final class DebugDump {
     private int frames;
 
     boolean due() {
-        return !DIR.isEmpty() && ++frames == FRAME;
+        if (DIR.isEmpty()) {
+            return false;
+        }
+        // -Dmetallium.iris.dumpNow (set at runtime, e.g. by the game test right before a screenshot) dumps this frame.
+        if (System.getProperty("metallium.iris.dumpNow") != null) {
+            System.clearProperty("metallium.iris.dumpNow");
+            return true;
+        }
+        return ++frames == FRAME;
     }
 
     void dump(final PostTargets targets) {

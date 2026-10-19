@@ -302,6 +302,17 @@ if (project.hasProperty('withVoxy')) {
 	}
 }
 
+// -PextraMods=/abs/a.jar,/abs/b.jar: extra mod jars from the owner's instance (e.g. Skin Layers 3D, Physics Mod without
+// its own scenario) to reproduce modpack bugs in the normal scenarios. Only loaded from the given paths at test time,
+// never committed or redistributed.
+if (project.hasProperty('extraMods')) {
+	def extraJars = project.property('extraMods').toString().split(',').findAll { !it.isEmpty() }
+	extraJars.each { if (!file(it).isFile()) throw new GradleException("-PextraMods: no such jar: ${it}") }
+	dependencies {
+		gametestRuntimeOnly files(extraJars)
+	}
+}
+
 // ./gradlew runClientGameTest -PwithPhysics=/abs/path/physics-mod-3.2.5-mc-26.3-fabric.jar  → Physics Mod scenario
 // (PhysicsScenario: "needs OpenGL" screen or Metal, block debris, ragdolls, explosion). Physics Mod is closed source and
 // all rights reserved: the jar is only loaded from the given path at test time, never committed or redistributed.
