@@ -30,7 +30,6 @@ final class PerfCounters {
     static long multiDraws;
     static long subDraws;
     static long multiDrawNs;
-    static long contiguousSubDraws;
     private static long submits;
     private static long lastSubmitNs;
     private static long frameNs;
@@ -63,9 +62,9 @@ final class PerfCounters {
                 stagedWrites / n, stagedWriteBytes / n / 1024.0, directWrites / n, orphanWrites / n, orphanCopyBytes / n / 1024.0,
                 submitWaitNs / n / 1e6, gpuNs / n / 1e6));
         Metallium.LOGGER.info(String.format(
-                "Metallium terrain perf (per submit): multiDraws=%.1f subDraws=%.0f contiguous=%.0f multiDrawEncode=%.3f ms frame=%.3f ms %s",
-                multiDraws / n, subDraws / n, contiguousSubDraws / n, multiDrawNs / n / 1e6, frameNs / n / 1e6, dev.metallium.backend.terrain.TerrainPerf.formatAndReset(n)));
-        multiDraws = subDraws = contiguousSubDraws = multiDrawNs = frameNs = 0;
+                "Metallium terrain perf (per submit): multiDraws=%.1f subDraws=%.0f multiDrawEncode=%.3f ms frame=%.3f ms %s",
+                multiDraws / n, subDraws / n, multiDrawNs / n / 1e6, frameNs / n / 1e6, dev.metallium.backend.terrain.TerrainPerf.formatAndReset(n)));
+        multiDraws = subDraws = multiDrawNs = frameNs = 0;
         java.util.Arrays.fill(blitKinds, 0);
         renderEncoders = blitEncoders = clearEncoders = draws = 0;
         stagedWrites = stagedWriteBytes = directWrites = orphanWrites = orphanCopyBytes = submitWaitNs = gpuNs = 0;

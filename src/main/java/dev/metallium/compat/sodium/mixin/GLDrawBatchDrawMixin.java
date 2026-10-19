@@ -11,7 +11,7 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 /**
- * Measurement only ({@code -Dmetallium.terrain.skipDraws=true}): Sodium's terrain multi-draws are not submitted at all.
+ * Measurement only ({@code -Dmetallium.terrain.skipDraws=all/main/shadow}): Sodium's terrain multi-draws are not submitted at all.
  * The CPU/GPU time difference to a normal run is the upper bound of what any terrain culling could save.
  */
 @Pseudo
@@ -19,7 +19,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 public class GLDrawBatchDrawMixin {
     @Inject(method = "draw", at = @At("HEAD"), cancellable = true, require = 0)
     private void metallium$skipDraws(final CallbackInfo ci) {
-        if (TerrainOptions.SKIP_DRAWS) {
+        if (TerrainOptions.skipDraw()) {
             ci.cancel();
         }
     }
