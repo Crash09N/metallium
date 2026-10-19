@@ -1473,7 +1473,12 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
     private static String glSummary() {
         StringBuilder out = new StringBuilder();
         for (String status : dev.metallium.api.MetalliumRuntime.statusLines()) {
-            if (status.startsWith("metallium-gl") || status.startsWith("Voxy")) out.append(status).append("; ");
+            if (status.startsWith("Voxy")) out.append(status).append("; ");
+        }
+        try {
+            out.append(Class.forName("dev.metallium.gl.retarget.MetalliumGlBootstrap").getMethod("diagnostics").invoke(null)).append("; ");
+        } catch (ReflectiveOperationException e) {
+            out.append("metallium-gl: absent; ");
         }
         try {
             Object calls = Class.forName("dev.metallium.gl.MetalGLLog").getMethod("unimplementedCalls").invoke(null);
