@@ -195,6 +195,21 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
             });
             // Camera: above the terrain at the origin so the view shows land to the horizon, not mostly sky.
             String cameraSetting = System.getProperty("metallium.bench.camera", "");
+            // -Dmetallium.bench.biome=minecraft:ocean: camera just above sea level in the nearest such biome (water-heavy
+            // views are what make reflection-heavy packs expensive; the default view is snowy plains).
+            String biome = System.getProperty("metallium.bench.biome", "");
+            if (cameraSetting.isEmpty() && !biome.isEmpty()) {
+                net.minecraft.core.BlockPos found = world.getServer().computeOnServer(server -> {
+                    var result = server.overworld().findClosestBiome3d(
+                            holder -> holder.unwrapKey().map(key -> key.identifier().toString().equals(biome)).orElse(false),
+                            net.minecraft.core.BlockPos.ZERO.atY(64), 6400, 32, 64);
+                    return result == null ? null : result.getFirst();
+                });
+                line("bench: nearest " + biome + " at " + found);
+                if (found != null) {
+                    cameraSetting = found.getX() + " 66 " + found.getZ() + " 0 10";
+                }
+            }
             int surface = context.computeOnClient(client -> client.level.getHeight(net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING, 0, 0));
             String camera = !cameraSetting.isEmpty() ? cameraSetting : voxy ? "0 " + (surface + 60) + " 0 110 20"
                     : "0 " + (surface + 25) + " 0 " + (flight ? "-90 10" : "110 15");
@@ -214,16 +229,25 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
             }
 
             if (shaders) {
-                try {
-                    Path source = Path.of(pack);
-                    Path target = context.computeOnClient(client -> irisShaderpacksDirectory()).resolve(source.getFileName().toString());
-                    Files.copy(source, target, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
-                    line("bench: shader pack " + source.getFileName() + ": pipeline="
-                            + context.computeOnClient(client -> irisSelectPack(source.getFileName().toString(), true)));
-                } catch (IOException e) {
-                    throw new IllegalStateException("could not install shader pack", e);
+                // Same install as the shader pack scenario, including -PshaderpackOptions (<pack>.txt).
+                String installed = externalPack(context);
+                if (installed == null) {
+                    throw new IllegalStateException("could not install shader pack " + pack);
                 }
+                line("bench: shader pack " + installed + ": pipeline=" + context.computeOnClient(client -> irisSelectPack(installed, true)));
             }
+            // -Dmetallium.bench.window=WxH: window size (shader packs scale with the pixel count; the default game test
+            // window is 854x480, a player's fullscreen e.g. 2560x1440).
+            String window = System.getProperty("metallium.bench.window", "");
+            if (window.matches("\\d+x\\d+")) {
+                String[] wh = window.split("x");
+                context.runOnClient(client -> client.getWindow().setWindowed(Integer.parseInt(wh[0]), Integer.parseInt(wh[1])));
+                // Re-centre the resized window on the bench display (a 2560x1440 window hanging off the 60 Hz main
+                // screen gave run-to-run swings of 2x).
+                line("bench: window display " + context.computeOnClient(MetalliumClientGameTest::moveToBenchDisplay));
+                context.waitTicks(20);
+            }
+            line("bench: framebuffer " + context.computeOnClient(c -> c.getWindow().getWidth() + "x" + c.getWindow().getHeight()));
             // Ticks run faster than 20/s in the game test, so settle on wall-clock time as well as ticks.
             long settleUntil = System.nanoTime() + settleSeconds * 1_000_000_000L;
             context.waitTicks(settleTicks);
@@ -335,6 +359,7 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
         context.waitTicks(40);
         clearChat(context);
         Path off = context.takeScreenshot("metallium-iris-shaders-off");
+        blockParticles(context, world, "metallium-iris-particles-off");
 
         try {
             installTestPack(context, TEST_PACK, TEST_PACK_FILES);
@@ -364,6 +389,13 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
         context.waitTicks(100); // the pack switches Sodium to Iris's extended vertex format: chunks are rebuilt
         clearChat(context);
         checkGbufferMarker(context.takeScreenshot("metallium-iris-gbufferpack"));
+        // Iris's atlasSize/gtextureSize uniforms follow the bound Sampler0 (getAlbedoTex); 0 made packs treat block
+        // particles (sprinting) as particle-atlas particles.
+        String albedo = context.computeOnClient(client -> irisAlbedoTexture());
+        line("iris gbuffers test pack: albedo texture=" + albedo);
+        if (albedo.startsWith("id 0 ") || albedo.startsWith("error")) {
+            failures.add("Metal shader pipeline does not track the albedo texture (atlasSize would be 0): " + albedo);
+        }
         // Pack loaded while the crosshair is on a block (creative, looking down): Iris's currentSelectedBlockId uniform reads
         // the block ID map on the pipeline's first frame (real-instance finding: gbuffers setup failed with an NPE).
         tryCommand(world, "gamemode creative @a");
@@ -425,6 +457,7 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
             line("shader work during external pack load: " + dev.metallium.shadercache.ShaderCacheStats.summary(dev.metallium.shadercache.ShaderCacheStats.delta(beforePack)));
             context.waitTicks(100);
             context.takeScreenshot("metallium-iris-external-pack");
+            blockParticles(context, world, "metallium-iris-external-pack-particles");
             line("external pack: still running after 100 ticks");
             // More gbuffers programs: block entities (chest, sign), weather (rain). Removed again before the
             // shaders-off comparison below.
@@ -922,6 +955,40 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
         }
     }
 
+    /**
+     * The texture behind the active pipeline's {@code getAlbedoTex()} (what Iris's {@code atlasSize} uniform reads):
+     * "TextureAtlas WxH" when it is an atlas, else what it is. Packs use atlasSize to tell block-atlas particles
+     * (sprint/break particles) from particle-atlas ones.
+     */
+    private static String irisAlbedoTexture() {
+        try {
+            Object manager = Class.forName("net.irisshaders.iris.Iris").getMethod("getPipelineManager").invoke(null);
+            Object pipeline = manager.getClass().getMethod("getPipelineNullable").invoke(manager);
+            if (pipeline == null) {
+                return "no pipeline";
+            }
+            int id = (int) pipeline.getClass().getMethod("getAlbedoTex").invoke(pipeline);
+            Object tracker = Class.forName("net.irisshaders.iris.pbr.TextureTracker").getField("INSTANCE").get(null);
+            Object texture = tracker.getClass().getMethod("getTexture", int.class).invoke(tracker, id);
+            if (texture instanceof net.minecraft.client.renderer.texture.TextureAtlas atlas) {
+                return "TextureAtlas " + atlas.location();
+            }
+            return "id " + id + " -> " + (texture == null ? "untracked" : texture.getClass().getSimpleName());
+        } catch (ReflectiveOperationException e) {
+            return "error: " + e;
+        }
+    }
+
+    /** Block-texture particles (what sprinting kicks up) in front of the camera, for a screenshot. */
+    private void blockParticles(ClientGameTestContext context, TestSingleplayerContext world, String screenshot) {
+        tryCommand(world, "execute as @p at @s run particle minecraft:block{block_state:\"minecraft:grass_block\"} ^ ^ ^2.5 0.4 0.3 0.4 0 300 force");
+        tryCommand(world, "execute as @p at @s run particle minecraft:block{block_state:\"minecraft:dirt\"} ^-1 ^ ^2.5 0.3 0.3 0.3 0 200 force");
+        context.waitTicks(2);
+        clearChat(context);
+        context.takeScreenshot(screenshot);
+        context.waitTicks(40); // let them die before the next screenshot
+    }
+
     private static String irisSelectPack(String pack, boolean enabled) {
         try {
             Class<?> iris = Class.forName("net.irisshaders.iris.Iris");
@@ -977,6 +1044,11 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
                 + ", adapter: " + net.fabricmc.loader.api.FabricLoader.getInstance().isModLoaded("metallium-iris"));
         for (String mod : new String[] {"distanthorizons", "voxy", "bobby", "reglass", "cullleaves", "moreculling"}) {
             line(mod + " loaded: " + net.fabricmc.loader.api.FabricLoader.getInstance().isModLoaded(mod));
+        }
+        String sessionExit = System.getProperty("metallium.gametest.sessionExit");
+        if (sessionExit != null) {
+            sessionExitRun(context, backend, sessionExit);
+            return;
         }
         if (dev.metallium.compat.CrashGuard.recovery() != null) {
             crashRecoveryRun(context, backend);
@@ -1406,7 +1478,12 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
     private static String glSummary() {
         StringBuilder out = new StringBuilder();
         for (String status : dev.metallium.api.MetalliumRuntime.statusLines()) {
-            if (status.startsWith("metallium-gl") || status.startsWith("Voxy")) out.append(status).append("; ");
+            if (status.startsWith("Voxy")) out.append(status).append("; ");
+        }
+        try {
+            out.append(Class.forName("dev.metallium.gl.retarget.MetalliumGlBootstrap").getMethod("diagnostics").invoke(null)).append("; ");
+        } catch (ReflectiveOperationException e) {
+            out.append("metallium-gl: absent; ");
         }
         try {
             Object calls = Class.forName("dev.metallium.gl.MetalGLLog").getMethod("unimplementedCalls").invoke(null);
@@ -1706,6 +1783,38 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
             }
         } finally {
             dev.metallium.power.PowerManager.setMode(before);
+        }
+    }
+
+    /**
+     * -PsessionExit=normal|sigterm|crash: ends the session the given way once the title screen is up; the session marker
+     * (config/metallium/session.json) must be gone afterwards for normal/sigterm and kept for crash
+     * (tools/check-session-exit.sh runs all three and checks the files).
+     */
+    private void sessionExitRun(ClientGameTestContext context, String backend, String mode) {
+        java.nio.file.Path marker = net.fabricmc.loader.api.FabricLoader.getInstance().getConfigDir().resolve("metallium/session.json");
+        line("session exit: mode=" + mode + " backend=" + backend + " marker present=" + java.nio.file.Files.exists(marker)
+                + " recovery=" + (dev.metallium.compat.CrashGuard.recovery() != null));
+        if (!backend.startsWith("Metal")) failures.add("session exit: expected Metal, got " + backend);
+        if (!java.nio.file.Files.exists(marker)) failures.add("session exit: no marker while running");
+        line(failures.isEmpty() ? "result: PASS" : "result: FAIL " + failures);
+        writeReport();
+        if (!failures.isEmpty()) throw new AssertionError(String.join("; ", failures));
+        switch (mode) {
+            case "normal" -> {
+                context.runOnClient(client -> client.stop());
+                context.waitTicks(40);
+            }
+            case "sigterm" -> {
+                ProcessHandle.current().destroy(); // SIGTERM to ourselves
+                context.waitTicks(400);
+            }
+            case "crash" -> {
+                net.minecraft.CrashReport report = net.minecraft.CrashReport.forThrowable(new RuntimeException("simulated session-exit crash"), "simulated");
+                report.saveToFile(net.fabricmc.loader.api.FabricLoader.getInstance().getGameDir().resolve("crash-reports/crash-sessionexit.txt"), net.minecraft.ReportType.CRASH);
+                System.exit(-1);
+            }
+            default -> throw new AssertionError("unknown sessionExit " + mode);
         }
     }
 

@@ -34,6 +34,13 @@ abstract class FrontendRenderPassMixin {
         }
     }
 
+    @Inject(method = "setUniform(Ljava/lang/String;Lcom/mojang/renderpearl/api/textures/GpuTextureView;Lcom/mojang/renderpearl/api/textures/GpuSampler;)V",
+            at = @At("HEAD"))
+    private void metallium$textureBound(final String name, final com.mojang.renderpearl.api.textures.GpuTextureView view,
+                                        final com.mojang.renderpearl.api.textures.GpuSampler sampler, final CallbackInfo ci) {
+        GbufferPasses.textureBound((RenderPass) this, name, view);
+    }
+
     @Inject(method = "close", at = @At("HEAD"))
     private void metallium$closed(final CallbackInfo ci) {
         GbufferPasses.closed((RenderPass) this);
