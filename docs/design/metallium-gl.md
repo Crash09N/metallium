@@ -267,7 +267,7 @@ Translator tests: GL bindings/workgroup size/explicit layouts, subgroup clustere
 
 **Voxy renders its LOD terrain on Metal, unmodified** (2026-10-18, M3 Max, macOS 27.0.1, Voxy 247adf2 + Sodium 0.9.2).
 Command: `gpu-lock.sh ./gradlew :runClientGameTest -PwithSodium -PwithGl -PwithVoxy=<jar> -PglMods=voxy -PglFailFast=false`
-(Voxy is excluded from automatic routing, so it must be listed explicitly; `GlRouting.EXPLICIT_ONLY`).
+(since 2026-10-19 Voxy is routed automatically — `GlRouting.WHOLE_MOD`, §12.5 — and `-PglMods=voxy` is no longer needed).
 Scenario: natural world, spectator at y 160, vanilla render distance 16 for 60 s (Voxy ingests the loaded chunks), then 4.
 
 - Runtime inventory: 36 Voxy classes / 603 GL call sites retargeted, **0 unimplemented functions called**; per minute
@@ -284,16 +284,49 @@ Scenario: natural world, spectator at y 160, vanilla render distance 16 for 60 s
   **Metal forbids textures in ICB pipelines** ("Fragment shader cannot be used with indirect command buffers"), so
   textured programs (Voxy's terrain) use the compaction fallback: a kernel writes Metal indirect arguments with
   instanceCount 0 beyond the GPU count and the render encoder issues one indirect draw per slot (CPU cost per slot,
-  `maxdrawcount` clamped to the command buffer). Texture-free programs keep the ICB path.
+  `maxdrawcount` clamped to the command buffer). Texture-free programs keep the ICB path. *Superseded (§12.5): textured
+  programs now run as ICBs too, with their textures in argument buffers.*
 - Game-test plumbing: dev-only macOS natives for Voxy's storage (RocksDB / zstd: the 263 jar bundles none for macOS).
 
 Not done / known limits:
 - Iris + Voxy (Voxy's Iris pipeline, shader-pack programs) is untested; `glBlitFramebuffer` only 1:1.
 - Timer queries report CPU times; sparse buffers / int64 / NV paths are reported unsupported (Voxy takes its generic paths).
-- The MDI-count fallback costs one encoded draw per `maxdrawcount` slot; argument-buffer ICBs (textures via argument
-  buffers) would remove that. FPS with large LOD distances not benchmarked yet.
+- ~~The MDI-count fallback costs one encoded draw per `maxdrawcount` slot~~ — done in §12.5.
 - Shadow / translucent / SSAO passes run (no errors) but were not checked pixel by pixel.
 - Diagnostics: `-PglTrace=N -PglTraceAfter=S` logs device operations, `-PglDump=n,...` texture statistics after them.
+
+### 12.5 Step 3: textured ICBs, automatic routing, combinations (2026-10-19)
+
+**Textured indirect-count draws as ICBs** (`ArgumentBufferTextures`, `MetalGlDevice.icbVariant`). Metal rejects ICB
+pipelines whose functions take textures/samplers as direct arguments, but an ICB inherits *buffer* bindings. Each program
+gets an ICB variant on first use: the entry point's `[[texture(n)]]` / `[[sampler(n)]]` arguments move into one
+`constant MlTextureTable& [[buffer(b)]]` (tier-2 layout: one 8-byte `MTLResourceID` per member, `b` = highest buffer
+index + 1) and are copied into locals of the same names, so the rest of SPIRV-Cross's output is unchanged. Per draw the
+CPU writes `gpuResourceID`s with `set{Vertex,Fragment}Bytes` and declares the textures with `useResource`; samplers are
+created with `supportArgumentBuffers`. Texture arrays are not rewritten (the per-slot fallback remains for them, and
+behind `-Dmetallium.gl.icbTextures=false` / `-PglIcbTextures=false` for A/B runs). Tests: `ArgumentBufferTexturesTest`
+(rewrite), `MetalGl4DeviceTest` (textured MDI-count, vertex texelFetch + two fragment textures + an unbound unit, all
+asserted to run as ICBs).
+
+Voxy A/B (`-Pbench -PbenchScene=voxy`: seed "metallium", ingest at vanilla rd 32 for 150 s, measure 30 s at rd 4, all
+via `gpu-lock.sh --exclusive`; counters from the status line before/after the window):
+
+| Run | MDI-count calls | CPU-encoded draws | CPU time in drawIndirect | fps (30 s) |
+|---|---|---|---|---|
+| per-slot fallback (round 5) | 5 382 | 1 813 734 (≈1 013 / frame) | 485 ms (0.27 ms / frame) | 59.7 * |
+| ICB + argument buffers (round 5) | 5 358 | 0 | 238 ms (0.13 ms / frame) | 59.4 * |
+| per-slot fallback (round 3, forest seed, y 200) | 407 874 total | — | — | 970.0 avg, 1 % low 347.5, p99 2.39 ms |
+| ICB (round 3) | 398 472 total | 0 | — | 997.0 avg, 1 % low 376.3, p99 2.36 ms |
+
+\* Round 5 ran on battery (58 %, discharging) with the display not presenting (`presented_fps=0`, the frame rate pinned at
+60): only the CPU columns are meaningful. Round 3 (uncapped, ≈1000 fps, power state not recorded) is a light scene where
+Voxy's per-call `maxdrawcount` is small; the gain there is ≈3 % fps. To repeat on AC power with the display on.
+Rendering is identical in both modes (same screenshot).
+
+**Automatic routing**: `GlRouting.WHOLE_MOD = {voxy}` replaces `EXPLICIT_ONLY`: on Metal with metallium-gl installed
+and automatic routing on, all of Voxy's classes are retargeted without `-Dmetallium.gl.mods`; a `NATIVE` override,
+automatic routing off or no metallium-gl keep the safe-disable mixin. The status screen's key-mods row reads
+"Voxy …: runs via metallium-gl (OpenGL 4.6 translated to Metal)" (asserted by the Voxy game test).
 
 ## 12b. Engine objects behind Minecraft's GL backend types (Physics Mod GPU compute)
 
