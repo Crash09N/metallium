@@ -80,3 +80,12 @@ Terrain coverage is 1.00 for all packs, including the black Bliss/photon frames,
 - superDuperVanilla: composite1 now translates (fragment output without `layout` got location 0 next to an explicit
   location 0). Its TAA/previous-frame history (colortex5) is now active; the Metal screenshots show coloured smears that
   still need an OpenGL comparison of the same scene.
+- **superDuperVanilla smears and Bliss night sky / rain / exposure: one cause, fixed.** Not TAA, previous-frame uniforms
+  or flips (all verified against Iris and by the new history test pack, which passes on Metal and OpenGL). Iris ignores a
+  `texture.<stage>.colortexN` override in passes after one of the same stage wrote colortexN (`flippedAtLeastOnce` in
+  `CustomTextureSamplerInterceptor`); Metal applied it everywhere. superDuperVanilla (`texture.composite.colortex0 =
+  clouds.png`) bloomed its cloud map (coloured blotches); Bliss (`texture.composite.colortex6 = blueNoise.png`) bloomed
+  blue noise (grass-like night sky) and fed it into its exposure (washed-out fog, strong rain streaks). Night and rain
+  screenshots of both packs now match the OpenGL reference. Found with `-PirisDump=<dir>` (colortex buffer dumps).
+- Bliss weather: a draw buffer without any fragment output (gl_FragData[0] never referenced) no longer gets an undefined
+  value on Metal (empty write mask, as GL keeps the content). No visible change in the test scene.

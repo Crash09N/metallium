@@ -57,6 +57,11 @@ final class PostProgram implements AutoCloseable {
     final StorageBindings storage;
     /** Iris texture stage the program belongs to (selects {@code texture.<stage>.*} custom textures). */
     net.irisshaders.iris.shaderpack.texture.TextureStage stage = net.irisshaders.iris.shaderpack.texture.TextureStage.COMPOSITE_AND_FINAL;
+    /**
+     * colortex buffers an earlier pass of the same stage wrote (Iris's {@code flippedAtLeastOnce}): their
+     * {@code texture.<stage>.colortexN} override no longer applies, the pass samples the buffer itself.
+     */
+    java.util.Set<Integer> writtenBefore = java.util.Set.of();
 
     private PostProgram(final String name, final FrontendRenderPipeline pipeline, final Set<String> samplers, final Set<String> compareSamplers,
                         final Map<String, PostUniforms.Block> blocks, final StorageBindings storage) {

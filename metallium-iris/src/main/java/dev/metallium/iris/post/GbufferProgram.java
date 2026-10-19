@@ -174,6 +174,9 @@ final class GbufferProgram implements AutoCloseable {
      * leaves such attachments unchanged in practice; in Metal the unwritten output is undefined and, blended, paints
      * garbage (green rain streaks), so their attachments get an empty write mask.
      */
+    /** An array fragment output ({@code out vec4 color[2];}) spans several locations from one declared base location. */
+    private static final java.util.regex.Pattern ARRAY_OUTPUT = java.util.regex.Pattern.compile("\\bout\\s+\\w+\\s+\\w+\\s*\\[");
+
     static Set<Integer> unwrittenOutputs(final String fragment) {
         Set<Integer> unwritten = new java.util.HashSet<>();
         java.util.regex.Matcher m = OUTPUT_DECLARATION.matcher(fragment);
@@ -214,6 +217,20 @@ final class GbufferProgram implements AutoCloseable {
             java.util.Arrays.fill(outputMap, -1);
             for (int i = 0; i < spec.drawBuffers.length && i < outputMap.length; i++) {
                 outputMap[i] = indexOf(spec.attachments, spec.drawBuffers[i]);
+            }
+            // Draw-buffer slots without any fragment output (Bliss's weather: gl_FragData[0] is never referenced, so
+            // Iris declares only iris_FragData1) are not written either; Metal would store an undefined value there.
+            Set<Integer> declared = new java.util.HashSet<>();
+            GlslProgramTranslator.remapOutputLocations(stages.get(Stage.FRAGMENT).spirv(), location -> {
+                declared.add(location);
+                return location;
+            });
+            if (!ARRAY_OUTPUT.matcher(spec.fragment).find()) {
+                for (int i = 0; i < spec.drawBuffers.length; i++) {
+                    if (!declared.contains(i)) {
+                        unwritten.add(i);
+                    }
+                }
             }
             int unused = spec.attachments.length;
             GlslProgramTranslator.remapOutputLocations(stages.get(Stage.FRAGMENT).spirv(), location -> {

@@ -341,6 +341,8 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
             "composite3.vsh", "composite3.fsh"};
     private static final String TEX_PACK = "metallium-texpack";
     private static final String[] TEX_PACK_FILES = {"shaders.properties", "composite.vsh", "composite.fsh", "composite1.vsh", "composite1.fsh", "stripes.png", "volume.dat", "noise.png"};
+    private static final String HISTORY_PACK = "metallium-historypack";
+    private static final String[] HISTORY_PACK_FILES = {"shaders.properties", "yellow.png", "gbuffers_terrain.vsh", "gbuffers_terrain.fsh", "composite.vsh", "composite.fsh", "composite1.vsh", "composite1.fsh", "composite2.vsh", "composite2.fsh"};
 
     /**
      * Iris shader packs (needs -PwithIris): with a fixed view, compares a shaders-off screenshot with one taken with the
@@ -367,6 +369,7 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
             installTestPack(context, SHADOW_PACK, SHADOW_PACK_FILES);
             installTestPack(context, COMPUTE_PACK, COMPUTE_PACK_FILES);
             installTestPack(context, TEX_PACK, TEX_PACK_FILES);
+            installTestPack(context, HISTORY_PACK, HISTORY_PACK_FILES);
         } catch (IOException e) {
             failures.add("could not install test shader pack: " + e);
             return;
@@ -446,6 +449,7 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
         shadowPackScenario(context, world);
         computePackScenario(context);
         texPackScenario(context);
+        historyPackScenario(context);
 
         String external = externalPack(context);
         if (external != null) {
@@ -705,6 +709,33 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
     }
 
     /** Fraction of pixels (in a screen-relative box, y from the top) within 40 per channel of {@code rgb}. */
+    /**
+     * History test pack: mip chains of ping-pong buffers read from their alt and their main texture, a persistent
+     * ({@code colortexNClear = false}) buffer that holds the previous frame, and the previous-frame uniforms (TAA in
+     * superDuperVanilla, Bliss's sky lookup). Four green columns at the top of the screen.
+     */
+    private void historyPackScenario(ClientGameTestContext context) {
+        line("iris history test pack: pipeline=" + context.computeOnClient(client -> irisSelectPack(HISTORY_PACK, true)));
+        context.waitTicks(40);
+        clearChat(context);
+        Path shot = context.takeScreenshot("metallium-iris-historypack");
+        try {
+            java.awt.image.BufferedImage image = javax.imageio.ImageIO.read(shot.toFile());
+            String[] names = {"alt-texture mipmaps", "main-texture mipmaps", "previous-frame buffer", "previous-frame uniforms"};
+            StringBuilder result = new StringBuilder("iris history test pack: green fraction");
+            for (int i = 0; i < 4; i++) {
+                double green = colorFraction(image, 0.02, 0.08, i * 0.25 + 0.02, i * 0.25 + 0.23, 0x00FF00);
+                result.append(String.format(" %s=%.2f", names[i], green));
+                if (green < 0.90) {
+                    failures.add(String.format("history test pack: %s check failed (green %.2f)", names[i], green));
+                }
+            }
+            line(result.toString());
+        } catch (IOException e) {
+            failures.add("could not analyse history pack screenshot: " + e);
+        }
+    }
+
     private static double colorFraction(java.awt.image.BufferedImage image, double fromY, double toY, double fromX, double toX, int rgb) {
         int w = image.getWidth();
         int h = image.getHeight();

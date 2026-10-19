@@ -115,6 +115,9 @@ loom.runs.clientGameTest {
 	// -PirisHideMacOs=false: packs see MC_OS_MAC on Metal again (hidden by default, config irisHideMacOs; they gate
 	// compute/voxel features on it; see iris-stage5-compute.md). -PirisHideMacOs alone = true.
 	if (project.hasProperty('irisHideMacOs')) vmArg "-Dmetallium.iris.hideMacOs=${project.property('irisHideMacOs') ?: 'true'}"
+	// -PirisDump=/dir [-PirisDumpFrame=N]: write every colortex buffer (main/alt, all mips) as PNG at frame N of a Metal shader pipeline.
+	if (project.hasProperty('irisDump')) vmArg "-Dmetallium.iris.dumpBuffers=${project.property('irisDump')}"
+	if (project.hasProperty('irisDumpFrame')) vmArg "-Dmetallium.iris.dumpFrame=${project.property('irisDumpFrame')}"
 	if (project.hasProperty('shaderpackOptions')) vmArg "-Dmetallium.gametest.shaderpackOptions=${project.property('shaderpackOptions')}"
 	if (project.hasProperty('benchSeconds')) vmArg "-Dmetallium.bench.seconds=${project.property('benchSeconds')}"
 	if (project.hasProperty('benchScene')) vmArg "-Dmetallium.bench.scene=${project.property('benchScene')}"
