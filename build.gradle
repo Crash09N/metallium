@@ -286,6 +286,23 @@ if (project.hasProperty('withPhysics')) {
 	}
 }
 
+// ./gradlew runClientGameTest -PwithBetterF3=/abs/path/BetterF3-20.0.0-Fabric-26.3.jar  -> BetterF3 scenario (F3 overlay
+// shows the Metallium lines through BetterF3's own HUD). BetterF3 is MIT; the jar is only loaded from the given path at
+// test time. It needs Cloth Config (Modrinth, test-only). Combine with -PwithIris for the Iris adapter status line.
+if (project.hasProperty('withBetterF3')) {
+	def betterF3Jar = project.property('withBetterF3')
+	if (!(betterF3Jar instanceof String) || betterF3Jar.isEmpty() || betterF3Jar == 'true' || !file(betterF3Jar).isFile()) {
+		throw new GradleException('-PwithBetterF3 needs the path of a BetterF3 jar, e.g. -PwithBetterF3=/abs/BetterF3-20.0.0-Fabric-26.3.jar')
+	}
+	dependencies {
+		gametestRuntimeOnly files(betterF3Jar)
+		gametestRuntimeOnly 'maven.modrinth:cloth-config:fg2uyxOW'
+	}
+	loom.runs.clientGameTest {
+		vmArg '-Dmetallium.gametest.mode=betterf3'
+	}
+}
+
 // ./gradlew runClientGameTest -PwithGl -PcrashRecovery  → simulates "the last session crashed in a metallium-gl-routed
 // mod": seeds a session marker and a crash report into the run directory, so this run must start on OpenGL and show the
 // crash-recovery screen before the title screen.
