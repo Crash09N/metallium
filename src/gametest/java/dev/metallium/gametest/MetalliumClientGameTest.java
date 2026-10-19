@@ -249,10 +249,11 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
                 line("bench: window display " + context.computeOnClient(MetalliumClientGameTest::moveToBenchDisplay));
                 context.waitTicks(20);
             }
-            if (!window.matches("\\d+x\\d+") && Boolean.getBoolean("metallium.bench.fullscreen")) {
+            if (window.matches("\\d+x\\d+") || Boolean.getBoolean("metallium.bench.fullscreen")) {
                 // Fabric's game test pins the framebuffer at 854x480 and cancels resize events, so fullscreen alone
-                // rendered 854x480 and scaled it up. Resize the framebuffer to the real fullscreen size.
-                line("bench: fullscreen framebuffer " + context.computeOnClient(c -> {
+                // rendered 854x480 and scaled it up; a windowed bench kept the Metal surface at 854x480 while macOS
+                // shrank the window. Resize the framebuffer (and surface) to the real window size, as a real game does.
+                line("bench: real framebuffer " + context.computeOnClient(c -> {
                     var hooks = (net.fabricmc.fabric.impl.client.gametest.util.WindowHooks) (Object) c.getWindow();
                     hooks.fabric_resize(hooks.fabric_getRealWidth(), hooks.fabric_getRealHeight());
                     return "real " + hooks.fabric_getRealWidth() + "x" + hooks.fabric_getRealHeight() + " (fb "

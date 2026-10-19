@@ -207,6 +207,14 @@ Metal Performance HUD shows only ~70 displayed fps; VSync on shows 144 correctly
     at 854x480 because Fabric cancels resize events (`surface=854x480` in `bench-env`) while the drawable is
     2560x1382 and the frame is 2560x1440. In a real game window the surface follows the window. Check the owner's
     windowed Iris play first; if it shows the same thing, `bench-env` gives the sizes to compare.
+  - Follow-up (same evening): the windowed bench now resizes Fabric's pinned framebuffer to the real window size
+    (2560x1382) like fullscreen. With that change, plus a layer reset to the stale 854x480 surface size (since
+    dropped), Complementary windowed with the new pacing gave **163.1 rendered / 125.0 shown** (VALID), so the
+    19 fps was a harness artifact of the frame/drawable/surface size mismatch. Setting the layer's `drawableSize`
+    from the backend when it differs from the frame made it worse (69 rendered / 52 shown): SDL's Metal view sets
+    it too, and they fight, each change dropping the drawable pool. So the backend leaves the layer alone and
+    presents a mismatched drawable scaled. A clean rerun with only the harness fix (all sizes 2560x1382) was
+    INVALID: the owner came back, window unfocused, 2.9 fps. Repeat it.
   - In-game fps counter: it stays Minecraft's own number, frames rendered per second, which is what it means on
     OpenGL and in vanilla too. With VSync off, Metal renders frames beyond the display rate but shows at most one per
     refresh. The F3 screen now has a second line, `Metal present: N shown/s of M rendered/s`.
