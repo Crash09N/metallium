@@ -249,6 +249,17 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
                 line("bench: window display " + context.computeOnClient(MetalliumClientGameTest::moveToBenchDisplay));
                 context.waitTicks(20);
             }
+            if (!window.matches("\\d+x\\d+") && Boolean.getBoolean("metallium.bench.fullscreen")) {
+                // Fabric's game test pins the framebuffer at 854x480 and cancels resize events, so fullscreen alone
+                // rendered 854x480 and scaled it up. Resize the framebuffer to the real fullscreen size.
+                line("bench: fullscreen framebuffer " + context.computeOnClient(c -> {
+                    var hooks = (net.fabricmc.fabric.impl.client.gametest.util.WindowHooks) (Object) c.getWindow();
+                    hooks.fabric_resize(hooks.fabric_getRealWidth(), hooks.fabric_getRealHeight());
+                    return "real " + hooks.fabric_getRealWidth() + "x" + hooks.fabric_getRealHeight() + " (fb "
+                            + hooks.fabric_getRealFramebufferWidth() + "x" + hooks.fabric_getRealFramebufferHeight() + ")";
+                }));
+                context.waitTicks(20);
+            }
             line("bench: framebuffer " + context.computeOnClient(c -> c.getWindow().getWidth() + "x" + c.getWindow().getHeight()));
             // Ticks run faster than 20/s in the game test, so settle on wall-clock time as well as ticks.
             long settleUntil = System.nanoTime() + settleSeconds * 1_000_000_000L;
@@ -284,6 +295,18 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
             double x = 0;
             double blocksPerTick = Double.parseDouble(System.getProperty("metallium.bench.flightSpeed", "60")) / 20.0;
             long startNs = System.nanoTime();
+            // Owner rule: measure only with the window frontmost, focused and visible; keep the Mac awake.
+            Process caffeinate = BenchEnvironment.caffeinate();
+            line("bench: activate " + context.computeOnClient(c -> BenchEnvironment.activate(c.getWindow().handle())));
+            context.waitTicks(20);
+            if (!context.computeOnClient(c -> BenchEnvironment.focused(c.getWindow().handle()))) {
+                line("bench: not focused after activation; " + BenchEnvironment.activateViaSystemEvents());
+                context.waitTicks(20);
+            }
+            line("bench: focused at start=" + context.computeOnClient(c -> BenchEnvironment.focused(c.getWindow().handle()))
+                    + ", occluded at start=" + context.computeOnClient(c -> BenchEnvironment.occluded(c.getWindow().handle())));
+            boolean[] everUnfocused = {false};
+            boolean[] everOccluded = {false};
             long[] present0 = presentCounters();
             java.util.Set<String> windowStates = new java.util.TreeSet<>(); // sampled once per second
             startRecording();
@@ -297,6 +320,11 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
                 }
                 fpsSamples.add(context.computeOnClient(Minecraft::getFps));
                 windowStates.add(context.computeOnClient(c -> dev.metallium.backend.PresentStats.windowState()));
+                context.runOnClient(c -> {
+                    long handle = c.getWindow().handle();
+                    everUnfocused[0] |= !BenchEnvironment.focused(handle);
+                    everOccluded[0] |= BenchEnvironment.occluded(handle);
+                });
             }
             List<Double> frameMs = stopRecording();
             long[] present1 = presentCounters();
@@ -321,6 +349,18 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
                     (present1[4] - present0[4]) / seconds, present1[2] - present0[2], present1[3] - present0[3],
                     (present1[5] - present0[5]) / 1e6 / Math.max(1, (present1[1] + present1[2]) - (present0[1] + present0[2])),
                     String.join("|", windowStates)));
+            double presentedPerSecond = (present1[1] - present0[1]) / seconds;
+            boolean metal = dev.metallium.api.MetalliumRuntime.isMetalActive();
+            String framebuffer = context.computeOnClient(c -> c.getWindow().getWidth() + "x" + c.getWindow().getHeight());
+            String display = context.computeOnClient(c -> String.valueOf(org.lwjgl.sdl.SDLVideo.SDL_GetDisplayName(
+                    org.lwjgl.sdl.SDLVideo.SDL_GetDisplayForWindow(c.getWindow().handle()))));
+            boolean fullscreen = context.computeOnClient(c -> (org.lwjgl.sdl.SDLVideo.SDL_GetWindowFlags(c.getWindow().handle()) & org.lwjgl.sdl.SDLVideo.SDL_WINDOW_FULLSCREEN) != 0);
+            line(BenchEnvironment.fmt("bench-env: %s display=%s resolution=%s fullscreen=%s refresh_hz=%.1f power=%s focused_always=%s occluded_ever=%s caffeinate=%s",
+                    BenchEnvironment.validity(everUnfocused[0], everOccluded[0], presentedPerSecond, metal), display, framebuffer, fullscreen,
+                    refreshHz, BenchEnvironment.powerSource(), !everUnfocused[0], everOccluded[0], caffeinate != null));
+            if (caffeinate != null) {
+                caffeinate.destroy();
+            }
             line(String.format("bench-result: scene=%s avg_fps=%.1f low1_fps=%.1f p50_ms=%.2f p95_ms=%.2f p99_ms=%.2f max_ms=%.2f frames=%d heap_mb=%d",
                     BENCH_SCENE, avgFps, low1, pct(frameMs, 0.50), pct(frameMs, 0.95), pct(frameMs, 0.99), frameMs.get(frameMs.size() - 1), frameMs.size(), heapMb));
             if (voxy) {
