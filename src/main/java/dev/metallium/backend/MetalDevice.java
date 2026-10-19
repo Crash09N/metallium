@@ -276,6 +276,7 @@ final class MetalDevice implements GpuDeviceBackend {
         // Functions of pipelines from earlier sessions come straight out of the binary archive (its file doubles as a
         // metallib): no MSL front-end compile. Entry point names are unique per translated stage, see
         // MetalCrossShaderCompiler.entryPointName.
+        dev.metallium.shaders.ShaderDump.write(name, "metal", key.msl());
         MTLFunction archived = this.pipelineCache.archivedFunction(key.entryPoint());
         if (archived != null) {
             if (this.useLabels()) {

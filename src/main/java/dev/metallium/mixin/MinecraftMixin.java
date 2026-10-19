@@ -21,7 +21,7 @@ abstract class MinecraftMixin {
         CrashGuard.markStarted();
     }
 
-    @Inject(method = "exitWorldAndClose", at = @At("HEAD"))
+    @Inject(method = "exitWorldAndClose", at = @At("RETURN"))
     private void metallium$cleanShutdown(final CallbackInfo ci) {
         CrashGuard.markCleanShutdown();
     }

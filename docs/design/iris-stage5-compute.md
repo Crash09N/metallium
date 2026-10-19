@@ -150,3 +150,29 @@ packs use it as "Apple OpenGL 4.1" and disable compute/voxel features. Config `i
 - Image formats Metal cannot read-write (only write) are not checked up front (Metal validation would reject the pipeline).
 - More than 5 SSBOs or 16 images in one render program; geometry shaders (voxelization in `.gsh`).
 - Memory barriers between draws inside one render pass (fragment writes read by later draws of the same pass).
+
+## Performance: Complementary Unbound with colored lighting (2026-10-19)
+
+Owner settings (ULTRA-like: `COLORED_LIGHTING=512`, `WORLD_SPACE_REFLECTIONS=1`, `SHADOW_QUALITY=4`,
+`shadowDistance=256`, `ANISOTROPIC_FILTER=8`), 2560x1440 window on the 144 Hz display, bench scene `shaders`
+(`-PbenchWindow=2560x1440 -PshaderpackOptions=...`), M3 Max. Per-pass GPU time from Metal System Trace
+(`xcrun xctrace record --template 'Metal System Trace' --attach <pid>`; encoder order mapped with `-PperfTrace`):
+
+| pass | GPU ms/frame |
+|------|-------------:|
+| Sky + Main (gbuffers_terrain/entities, 5 colour attachments) | ~9.6 |
+| composite (volumetric light, clouds) | ~3.0 |
+| floodfill (`shadowcomp.csh`, 512x256x512 RGBA16F ping-pong, ~2 GB/frame of traffic) | ~2.8 |
+| deferred1 | ~2.5 |
+| composite1 | ~2.5 |
+| shadow pass (2048 px, voxelization in shadow.vsh) | ~1.6 |
+| custom image clears (`voxel_img`, `wsr_img`, clear=true) | 1.3 → 0.4 (512-thread groups) |
+| translucent terrain, composite3-7, final | ~3 |
+
+Total ~30 ms GPU per frame in the plains view, ~32 ms over an ocean (`-PbenchBiome=minecraft:ocean`).
+Colored lighting off: ~14 ms. Same pack/settings with colored lighting off on Apple's OpenGL: 33.9 fps vs 67.1 fps
+on Metal; Reimagined (owner settings): 26.8 fps OpenGL vs 138.6 fps Metal. The floodfill is bandwidth-bound
+(close to the M3 Max's memory bandwidth); the rest is the pack's own fragment work at 3.7 MP, no translation
+pathology found in the dumped MSL (`-PshaderDump=<dir>`). Bench FPS of heavy packs is unreliable in the game
+test (client and integrated server run in lock-step: runs settle at 20 fps = the tick rate when a frame takes longer
+than ~30 ms); use GPU time from the trace or the `gpu=` perf counter.

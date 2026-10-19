@@ -1429,6 +1429,42 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
     }
 
     /** True while the pack's gbuffers programs render the world (Iris's {@code isPackInUseQuick} on Metal). */
+    /** GL-style name of the texture last bound as {@code Sampler0}/{@code u_BlockTex} (Iris's {@code albedoTex}). */
+    private int albedoTex;
+
+    /**
+     * Iris's {@code atlasSize}/{@code gtextureSize}/{@code gtextureId} uniforms read this: which atlas the current draw
+     * samples. Packs tell block-atlas particles (sprint/break particles) from particle-atlas ones by it; with 0 every
+     * particle was treated as a particle-atlas one (Complementary: wrong colours/emission on block particles).
+     */
+    @Override
+    public int getAlbedoTex() {
+        return albedoTex;
+    }
+
+    @Override
+    public void onSetAlbedoTex(final com.mojang.renderpearl.api.textures.GpuTextureView view) {
+        if (view != null) {
+            albedoTex = ((net.irisshaders.iris.mixinterface.GpuTextureInterface) view.texture()).iris$getGlId();
+        }
+    }
+
+    /** {@code FrontendRenderPass#setUniform(Sampler0|u_BlockTex)} on a captured pass: refresh albedo-dependent uniforms. */
+    void albedoBound(final RenderPass pass, final com.mojang.renderpearl.api.textures.GpuTextureView view,
+                     final com.mojang.renderpearl.api.pipeline.@org.jspecify.annotations.Nullable CompiledRenderPipeline bound) {
+        int previous = albedoTex;
+        onSetAlbedoTex(view);
+        if (bound != null && albedoTex != previous && gbuffers != null && !failed) {
+            try {
+                gbuffers.albedoChanged(pass, bound);
+            } catch (RuntimeException e) {
+                if (warnedSamplers.add("albedo uniforms " + e)) {
+                    MetalliumIris.LOGGER.error("[metallium-iris] updating albedo uniforms failed", e);
+                }
+            }
+        }
+    }
+
     public boolean rendersGbuffers() {
         return gbuffers != null && !failed;
     }

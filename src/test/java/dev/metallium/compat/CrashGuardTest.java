@@ -139,4 +139,53 @@ class CrashGuardTest {
         assertEquals("minimap", r.suspects().getFirst().id());
         assertTrue(r.evidence().endsWith(".log.gz"), r.evidence());
     }
+
+    @Test
+    void orderlyShutdownRemovesMarkerUnlessCrashReportWasWritten() {
+        assertFalse(CrashGuard.keepMarkerOnShutdown(false), "Cmd+Q, window close, SIGTERM, System.exit(0)");
+        assertTrue(CrashGuard.keepMarkerOnShutdown(true), "Minecraft crash path ends in System.exit(-1) after saving a report");
+    }
+
+    @Test
+    void ranFineNeedsStartupAndMinutesOfHeartbeats() {
+        CrashGuard.Marker m = marker(true, true);
+        m.startedAt = 1_000_000;
+        m.lastAlive = m.startedAt + CrashGuard.RAN_FINE_MS;
+        assertTrue(CrashGuard.ranFine(m));
+        m.lastAlive = m.startedAt + CrashGuard.RAN_FINE_MS - 1;
+        assertFalse(CrashGuard.ranFine(m));
+        m.started = false;
+        m.lastAlive = m.startedAt + 10 * CrashGuard.RAN_FINE_MS;
+        assertFalse(CrashGuard.ranFine(m), "never finished start-up");
+    }
+
+    @Test
+    void longRunningKilledSessionStaysOnMetalEvenWithMatchingLog(@TempDir final Path game) throws IOException {
+        CrashGuard.Marker m = marker(true, true);
+        m.routed = List.of(MAP);
+        m.startedAt = m.start + 20_000;
+        m.lastAlive = m.startedAt + 10 * 60_000;
+        Files.createDirectories(game.resolve("logs"));
+        try (OutputStream out = new GZIPOutputStream(Files.newOutputStream(game.resolve("logs/2026-10-18-1.log.gz")))) {
+            out.write(CRASH_REPORT.getBytes(StandardCharsets.UTF_8));
+        }
+        assertNull(CrashGuard.evaluate(m, game), "ran fine for 10 minutes, no crash report / hs_err: user kill");
+        // ... but a real crash report from that session still counts.
+        Files.createDirectories(game.resolve("crash-reports"));
+        Files.writeString(game.resolve("crash-reports/crash-x.txt"), CRASH_REPORT);
+        assertNotNull(CrashGuard.evaluate(m, game));
+    }
+
+    @Test
+    void shortKilledSessionStillChecksLogs(@TempDir final Path game) throws IOException {
+        CrashGuard.Marker m = marker(true, true);
+        m.routed = List.of(MAP);
+        m.startedAt = m.start + 20_000;
+        m.lastAlive = m.startedAt + 30_000;
+        Files.createDirectories(game.resolve("logs"));
+        try (OutputStream out = new GZIPOutputStream(Files.newOutputStream(game.resolve("logs/2026-10-18-1.log.gz")))) {
+            out.write(CRASH_REPORT.getBytes(StandardCharsets.UTF_8));
+        }
+        assertNotNull(CrashGuard.evaluate(m, game));
+    }
 }

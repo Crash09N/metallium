@@ -515,6 +515,27 @@ final class GbufferState implements AutoCloseable {
         return RenderSystem.getCompiledPipeline(copy);
     }
 
+    private void uploadUniforms(final RenderPass pass, final GbufferProgram program, final CommandEncoder encoder, final int alignment) {
+        program.uniforms.update();
+        owner.customUniforms().push(program);
+        program.blocks.forEach((name, block) ->
+                pass.setUniform(name, encoder.transientMemory().uploadStaging(block.data.duplicate().clear(), alignment, GpuBuffer.USAGE_UNIFORM)));
+    }
+
+    /**
+     * {@code Sampler0}/{@code u_BlockTex} changed after {@code setPipeline} (the pipeline's owner already pointed
+     * {@link MetalPostPipeline#getAlbedoTex()} at it): programs reading {@code atlasSize}/{@code gtextureSize} get their
+     * blocks again, so e.g. block-atlas particles are not taken for particle-atlas ones.
+     */
+    void albedoChanged(final RenderPass pass, final CompiledRenderPipeline bound) {
+        GbufferProgram program = programs.get(bound);
+        if (program == null || !program.readsAlbedo) {
+            return;
+        }
+        uploadUniforms(pass, program, RenderSystem.getDevice().createCommandEncoder(),
+                RenderSystem.getDevice().getDeviceInfo().limits().minUniformOffsetAlignment());
+    }
+
     /** {@code FrontendRenderPass#setPipeline} TAIL: loose uniforms (per draw like Iris's ExtendedShader) and pack samplers. */
     void bind(final RenderPass pass, final CompiledRenderPipeline bound) {
         GbufferProgram program = programs.get(bound);
@@ -534,12 +555,9 @@ final class GbufferState implements AutoCloseable {
                     : new Matrix4f(CapturedRenderingState.INSTANCE.getGbufferProjection());
             PostUniforms.setMatrix(program.projectionInverse, 4, projection.invert().get(floats16));
         }
-        program.uniforms.update();
-        owner.customUniforms().push(program);
         CommandEncoder encoder = RenderSystem.getDevice().createCommandEncoder();
         int alignment = RenderSystem.getDevice().getDeviceInfo().limits().minUniformOffsetAlignment();
-        program.blocks.forEach((name, block) ->
-                pass.setUniform(name, encoder.transientMemory().uploadStaging(block.data.duplicate().clear(), alignment, GpuBuffer.USAGE_UNIFORM)));
+        uploadUniforms(pass, program, encoder, alignment);
         for (String block : program.extraBlocks) {
             com.mojang.renderpearl.api.buffers.GpuBufferSlice slice = switch (block) {
                 case "Projection" -> RenderSystem.getProjectionMatrixBuffer();
