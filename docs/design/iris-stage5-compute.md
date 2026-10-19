@@ -176,3 +176,53 @@ on Metal; Reimagined (owner settings): 26.8 fps OpenGL vs 138.6 fps Metal. The f
 pathology found in the dumped MSL (`-PshaderDump=<dir>`). Bench FPS of heavy packs is unreliable in the game
 test (client and integrated server run in lock-step: runs settle at 20 fps = the tick rate when a frame takes longer
 than ~30 ms); use GPU time from the trace or the `gpu=` perf counter.
+
+### Default settings, per pass, and what the translation can still change (2026-10-19, second pass)
+
+Complementary Unbound r5.6.1 with default settings plus `COLORED_LIGHTING`, `-PirisHideMacOs`, bench scene `shaders`,
+`-PbenchWindow=2560x1440`. Per-encoder GPU time is from Metal System Trace, summarised by
+`tools/metal-trace-encoders.py` (pass names from a `-PperfTrace` run). These are preliminary: the window was
+visible but not focused and the owner was at the Mac. Re-measure with the focused bench helper.
+
+| encoder (pass) | CL off | CL 512 + `shadowDistance=256` |
+|---|---:|---:|
+| `voxel_img` clear (compute, 512x256x512 R8) | – | 0.31 |
+| shadow terrain (voxelization in `shadow.vsh`) | 0.76 (vertex 0.49) | 1.56 (vertex 1.25) |
+| floodfill `shadowcomp.csh` | – | 3.14 |
+| Sky + Main (gbuffers terrain) | 1.45 | 1.86 |
+| deferred1 | 0.77 | 0.70 |
+| translucent terrain | 0.81 | 0.90 |
+| composite | 0.31 | 0.29 |
+| composite1 (coloured light fog: up to 24 trilinear floodfill samples per pixel) | 1.21 | 2.08 |
+| composite3-7, final (with their mip blits) | 1.28 | 1.18 |
+| **frame (command buffer wall)** | **7.0** | **12.5** (77.9 fps) |
+
+Benchmark pitfall: `COLORED_LIGHTING=512` with the default `shadowDistance` (192) makes the pack draw its "Advanced
+Color Tracing must not be higher than Shadow Distance" error text in `final` (+1.2 ms, 14.0 ms per frame). Pair 512
+with `shadowDistance=256`, as the ULTRA profile does.
+
+What was checked against the generated MSL, the AIR and isolated Metal micro-benchmarks (Swift harness running the
+translated `shadowcomp` kernel on 512x256x512 textures):
+
+- Formats: the images already use the declared formats (`r8ui`, `rgba16f`). Nothing wider is allocated.
+- Access: `writeonly` images become `access::write`. The ping-pong inputs are sampled `texture3d<float>` read with
+  `.read()`, so they take the texture-cache path. No `read_write` access is generated.
+- Floodfill: 3.06 ms in isolation, the same (±1 %) for threadgroup shapes 8x8x8, 4x4x4, 32x4x4, 16x8x4, 32x8x2,
+  32x32x1 and 8x8x4, for all-zero or non-zero light data, and with `allowGPUOptimizedContents` off. It moves about
+  1.1 GB per frame (every voxel reads 8 B and writes 8 B, plus the 1 B voxel reads; the six neighbour reads hit the
+  cache), which is about 360 GB/s and close to the M3 Max's 400 GB/s. It is bound by memory bandwidth, so no
+  translation-side change can speed it up without changing the pack's algorithm.
+- Global GLSL arrays (`vec3[] specialTintColor = ...`, not `const`) become per-thread copies in SPIRV-Cross's MSL.
+  The Metal frontend's -O2 turns these into direct `constant` loads: no stack allocations are left in the AIR of the
+  hot programs (the only ones left are a nether-portal branch in gbuffers terrain and the text renderer in `final`).
+  Making the copies constant by hand gave no measurable change.
+- `voxel_img` clear: the compute clear takes 0.307 ms for every threadgroup shape tried and also with 4 texels per
+  thread (store-bound, about 218 Gtexel/s). Render-pass load-action clears of the 3D texture are slower: 1.76 ms with
+  8 depth planes per pass and 19.9 ms with one plane per pass. The clear stays as it is.
+- The rest of the extra cost is the pack's own work: voxelization per shadow vertex, `GetLightVolume` per terrain
+  fragment and the fog raymarch in composite1.
+
+Remaining structural option (not done; it would change the backend's fence chain, which other work owns): with the
+floodfill ping-pong, frame N+1's clear, shadow pass and floodfill only conflict with frame N's terrain passes (the
+last readers of `voxel_img`). They could overlap frame N's composite/final passes, which take about 5 ms, if those
+encoders waited on a resource-specific fence instead of the single frame fence.
