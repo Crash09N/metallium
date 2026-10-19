@@ -226,6 +226,21 @@ final class MetalUtilities {
             final MTLFence globalFence,
             final long presentedHandler
     ) {
+        encodePresentTextureToDrawable(commandBuffer, drawable, sourceTexture, globalFence, presentedHandler, true);
+    }
+
+    /**
+     * {@code updateFence == false}: later encoders do not wait for this one. The drawable blit cannot run before the
+     * display hands the drawable back, so chaining it into the frame fence makes every later frame wait for the display.
+     */
+    static void encodePresentTextureToDrawable(
+            final MTLCommandBuffer commandBuffer,
+            final CAMetalDrawable drawable,
+            final MTLTexture sourceTexture,
+            final MTLFence globalFence,
+            final long presentedHandler,
+            final boolean updateFence
+    ) {
         try (AutoreleasePool _ = AutoreleasePool.push()) {
             MTLTexture drawableTexture = drawable.texture();
 
@@ -253,7 +268,7 @@ final class MetalUtilities {
 
             encoder.drawPrimitives(MTLPrimitiveType.Triangle, 0, 3, 1, 0);
 
-            if (globalFence != null) {
+            if (globalFence != null && updateFence) {
                 encoder.updateFence(globalFence, MTLRenderStages.Fragment);
             }
 
