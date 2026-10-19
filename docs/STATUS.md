@@ -162,6 +162,30 @@ Metal Performance HUD shows only ~70 displayed fps; VSync on shows 144 correctly
   when nobody uses the Mac:
   `gpu-lock.sh --exclusive ./gradlew :runClientGameTest -Pbench -PwithSodium -PwithGl -PwithVoxy=<jar> -PbenchScene=voxy -PbenchWindow=2560x1440 -PbenchFpsLimit=165
   [-PpresentPacing=refresh|gpu]` (handler / refresh / gpu), plus the real-fullscreen resize repro (`-PvoxyFullscreen`).
+- 2026-10-19 evening (present-pacing agent):
+  - **Cause of the 0-presents runs found (backend bug, not the environment).** `MetalSurface` released every drawable
+    whose size differed from the configured surface ("acquired before a resize"). macOS shrinks a 2560x1440 window
+    on a 2560x1440 screen to 2560x1382, SDL's Metal view sets the layer's drawable size to that, the configured
+    surface stays 2560x1440 (Fabric's game test also pins the framebuffer at 854x480), so every drawable was dropped
+    and nothing was presented, ever. Fix: present it anyway (the present blit scales; logged once).
+  - **Owner's symptom reproduced** (`handler` pacing, Complementary Reimagined, 2560x1440 windowed on the 144 Hz G5,
+    owner at the Mac so INVALID for absolute numbers): rendered 158 fps, presented 50.9/s, mean present latency
+    (submit to presented handler) 16.4 ms. Light scene focused (854x480, `bench-env: VALID`): rendered 1735,
+    presented 46.8/s, latency 16.9 ms. A present needs the previous present's handler, which comes ~2.4 refreshes
+    after the submit, so presents/s ≈ 1 / (latency + time to the next frame end), whatever the GPU load is.
+  - New `bench-present:` fields: `pacing=` and `present_latency_ms=`. New `bench-env:` line (commit 7735229) with
+    VALID/INVALID, focus, occlusion, display, resolution, refresh, power; the bench raises and focuses the window and
+    runs `caffeinate`. `-PbenchFullscreen` now resizes the framebuffer to the real fullscreen size (it rendered
+    854x480 scaled up before).
+  - New opt-in `-PpresentPacing=rate` (knobs `-PpresentRate`, `-PpresentMaxInFlight`, `-PpresentDecoupled`): a time
+    budget of one present per refresh on average (credit of one interval), up to 3 presents in flight, present in a
+    command buffer of its own with a ring of 3 frame copies (so no frame waits for the display). Runs while the owner
+    was at the Mac (unfocused window) were unusable for every mode with more than one present in flight, VSync on
+    included (20 fps with ~50 ms frames), so the decision between `handler`, `refresh`, `rate` and `gpu` waits for
+    VALID runs.
+  - In-game fps counter: it stays Minecraft's own number, frames rendered per second, which is what it means on
+    OpenGL and in vanilla too. With VSync off, Metal renders frames beyond the display rate but shows at most one per
+    refresh. The F3 screen now has a second line, `Metal present: N shown/s of M rendered/s`.
 
 ### Encoder count (2026-10-19)
 
