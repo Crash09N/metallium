@@ -96,6 +96,15 @@ public final class MetalliumInterop {
     }
 
     /**
+     * The Metal buffer currently behind a Metallium {@link com.mojang.renderpearl.api.buffers.GpuBuffer} (for GPU-side use
+     * by external encoders, e.g. a mod's compute shader writing a buffer that renderpearl then draws from). Resolve it at
+     * each use: CPU writes to a dynamic buffer may swap its backing.
+     */
+    public static io.github.kokodio.metaljvm.metal.MTLBuffer metalBuffer(final com.mojang.renderpearl.api.buffers.GpuBuffer buffer) {
+        return ((MetalGpuBuffer) buffer).metalBuffer();
+    }
+
+    /**
      * Commits everything encoded so far in the current frame and waits until the GPU finished it (synchronous GL
      * readbacks). Expensive: only for rare, explicit waits. Encoding then continues in a new command buffer.
      */

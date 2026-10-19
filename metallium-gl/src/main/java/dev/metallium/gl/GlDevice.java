@@ -42,6 +42,20 @@ public interface GlDevice {
         int height();
 
         int levels();
+
+        /** Depth of a 3D texture, else 1. */
+        default int depth() {
+            return 1;
+        }
+
+        /** Array layers (2D array / cube faces), else 1. */
+        default int layers() {
+            return 1;
+        }
+
+        default boolean is3D() {
+            return false;
+        }
     }
 
     interface ProgramStore {
@@ -252,6 +266,22 @@ public interface GlDevice {
      */
     default @Nullable TextureStore externalTexture(final Object engineTexture) {
         return null;
+    }
+
+    /**
+     * Wraps a buffer owned by the engine (Metallium's {@code GpuBuffer}) so GL can bind it (SSBO, copies, pack target);
+     * null if {@code engineBuffer} is not one this device understands. GPU access only.
+     */
+    default @Nullable BufferStore externalBuffer(final Object engineBuffer) {
+        return null;
+    }
+
+    /**
+     * GPU copy of mip {@code level} of {@code texture} (all layers / depth slices, tightly packed, storage layout) into
+     * {@code buffer} at {@code offset}: glGetTexImage into a pixel-pack buffer. False if the device cannot.
+     */
+    default boolean copyTextureToBuffer(final TextureStore texture, final int level, final BufferStore buffer, final long offset) {
+        return false;
     }
 
     /** A view of {@code texture} reinterpreting it as {@code format} (glTextureView); null if impossible. */

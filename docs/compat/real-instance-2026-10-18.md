@@ -136,6 +136,20 @@ These belong to the Iris adapter (stage 5 or later); details are in `full2/gradl
       macOS OpenGL 4.1, which has no compute); the FFT ocean already falls back by itself. Block debris, ragdolls and
       explosion debris render on Metal like on OpenGL (`./gradlew :runClientGameTest -PwithPhysics=/abs/physics-mod.jar`,
       also with `-PwithSodium -PwithGl`). Other versions get the question instead of a crash.
+  - **Update 2 (2026-10-19): GPU compute features on Metal.** With metallium-gl installed, Metallium routes every
+    Physics Mod class through it, and the mod's own OpenGL 4.3 compute paths run translated (no "unsupported" any
+    more): GPU liquids, volumetric smoke and the FFT ocean all report available on Metal. metallium-gl gained what
+    those paths need: stand-ins for casts to `GlTexture`/`GlBuffer`/`GlSampler` and Mixin accessors on them, engine
+    buffers and 3D / 2D-array engine textures by GL name, R32UI atomics, pack-buffer readback (design doc §12b).
+    - Verified in the game test (`-PwithPhysics=<jar> -PwithGl`): a liquid source simulates ~15 000 particles with
+      ~5 300 compute dispatches in 40 s, and the finalize kernel writes correct indirect-draw arguments (240 indices x
+      14 172 instances) into the renderpearl buffer the mod draws from.
+    - **Not visible, on any backend, with the 3.2.5 jar we have:** its build compiles these features' render gates to
+      a constant `false` (`LiquidRenderer.shouldRenderLiquids`, `shouldRenderOcean`,
+      `ConfigClient.areVolumetricSmokePhysicsEnabled`, `areSmokePhysicsEnabled`, `areFireVfxEnabled`), and nothing
+      calls `LiquidComputeSystem.prepareRender`. That looks like the free build without the paid ("Pro") features.
+      Metallium does not switch them on. To check visually, test with a Physics Mod build that has them
+      enabled; the GPU paths above are ready for it.
 - **Axiom 6.1.3**: routed through metallium-gl. `Annotations` uses 5 GL functions metallium-gl does not implement
   yet (the retargeter logs 5 distinct functions without implementation). It also uses Minecraft's GL backend in 7 classes, so the editor
   overlays may fail on Metal. Not exercised in the test (it needs the Axiom editor). Status: partial.

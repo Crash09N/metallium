@@ -39,7 +39,8 @@ final class GlExternalTextures {
         }
         int name = gl.textures.reserve();
         Texture texture = new Texture(name);
-        texture.target = GL_TEXTURE_2D;
+        texture.target = store.is3D() ? GL_TEXTURE_3D : store.layers() > 1 ? GL_TEXTURE_2D_ARRAY : GL_TEXTURE_2D;
+        texture.depth = store.is3D() ? store.depth() : store.layers();
         texture.external = true;
         texture.immutable = true;
         texture.store = store;
@@ -49,6 +50,9 @@ final class GlExternalTextures {
         texture.height = store.height();
         texture.levels = store.levels();
         texture.minFilter = store.levels() > 1 ? GL_NEAREST_MIPMAP_LINEAR : GL_NEAREST;
+        if (texture.format.kind == TexFormat.Kind.UINT || texture.format.kind == TexFormat.Kind.SINT) {
+            texture.minFilter = GL_NEAREST;
+        }
         texture.magFilter = GL_NEAREST;
         gl.textures.put(name, texture);
         names.put(engineTexture, name);
@@ -79,6 +83,8 @@ final class GlExternalTextures {
             case RGBA32F -> GL_RGBA32F;
             case DEPTH32F -> GL_DEPTH_COMPONENT32F;
             case DEPTH32F_STENCIL8 -> GL_DEPTH32F_STENCIL8;
+            case R32UI -> GL_R32UI;
+            case R32I -> GL_R32I;
             default -> GL_RGBA8;
         };
     }
