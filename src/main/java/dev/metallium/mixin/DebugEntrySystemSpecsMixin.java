@@ -1,9 +1,6 @@
 package dev.metallium.mixin;
 
-import dev.metallium.BackendSelection;
-import dev.metallium.Metallium;
-import dev.metallium.api.MetalliumRuntime;
-import net.fabricmc.loader.api.FabricLoader;
+import dev.metallium.debug.MetalliumF3Lines;
 import net.minecraft.client.gui.components.debug.DebugEntrySystemSpecs;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
@@ -13,7 +10,10 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 
-/** Adds a "Metallium" line to the F3 system-specs block (right side, next to the GPU/backend lines). */
+/**
+ * Adds a "Metallium" line to the F3 system-specs block (right side, next to the GPU/backend lines). BetterF3 does not
+ * draw this block; see {@code dev.metallium.compat.betterf3.mixin.MiscRightModuleMixin}.
+ */
 @Mixin(DebugEntrySystemSpecs.class)
 abstract class DebugEntrySystemSpecsMixin {
     @ModifyArg(
@@ -23,24 +23,7 @@ abstract class DebugEntrySystemSpecsMixin {
     )
     private Collection<String> metallium$addStatusLine(final Collection<String> lines) {
         List<String> result = new ArrayList<>(lines);
-        result.add(metallium$statusLine());
-        result.addAll(MetalliumRuntime.statusLines());
+        result.addAll(MetalliumF3Lines.lines());
         return result;
-    }
-
-    private static String metallium$statusLine() {
-        String version = FabricLoader.getInstance().getModContainer(Metallium.MOD_ID)
-                .map(mod -> mod.getMetadata().getVersion().getFriendlyString())
-                .orElse("?");
-        if (MetalliumRuntime.isMetalActive()) {
-            String details = MetalliumRuntime.metalDescription();
-            return "Metallium " + version + ": Metal active" + (details.isEmpty() ? "" : " · " + details);
-        }
-        dev.metallium.MetalliumConfig.GraphicsEngine engine = dev.metallium.MetalliumConfig.INSTANCE.engine;
-        if (engine != dev.metallium.MetalliumConfig.GraphicsEngine.METAL) {
-            return "Metallium " + version + ": inactive (Graphics Engine: " + engine + ")";
-        }
-        BackendSelection.Decision decision = BackendSelection.decision();
-        return "Metallium " + version + ": inactive (" + (decision.offerMetal() ? "Metal init failed, using fallback" : decision.reason()) + ")";
     }
 }

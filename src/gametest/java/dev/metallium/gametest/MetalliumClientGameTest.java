@@ -947,6 +947,19 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
             if (!failures.isEmpty()) throw new AssertionError(String.join("; ", failures));
             return;
         }
+        if ("betterf3".equals(System.getProperty("metallium.gametest.mode"))) {
+            try {
+                new BetterF3Scenario(this::line, failures).run(context, backend);
+                line(failures.isEmpty() ? "result: PASS" : "result: FAIL " + failures);
+            } catch (Throwable t) {
+                line("result: FAIL " + t);
+                throw t;
+            } finally {
+                writeReport();
+            }
+            if (!failures.isEmpty()) throw new AssertionError(String.join("; ", failures));
+            return;
+        }
         context.takeScreenshot("metallium-title");
         graphicsApiLabelsTest(context);
 
