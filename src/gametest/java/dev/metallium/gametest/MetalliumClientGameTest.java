@@ -1045,6 +1045,11 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
         for (String mod : new String[] {"distanthorizons", "voxy", "bobby", "reglass", "cullleaves", "moreculling"}) {
             line(mod + " loaded: " + net.fabricmc.loader.api.FabricLoader.getInstance().isModLoaded(mod));
         }
+        String sessionExit = System.getProperty("metallium.gametest.sessionExit");
+        if (sessionExit != null) {
+            sessionExitRun(context, backend, sessionExit);
+            return;
+        }
         if (dev.metallium.compat.CrashGuard.recovery() != null) {
             crashRecoveryRun(context, backend);
             return;
@@ -1773,6 +1778,38 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
             }
         } finally {
             dev.metallium.power.PowerManager.setMode(before);
+        }
+    }
+
+    /**
+     * -PsessionExit=normal|sigterm|crash: ends the session the given way once the title screen is up; the session marker
+     * (config/metallium/session.json) must be gone afterwards for normal/sigterm and kept for crash
+     * (tools/check-session-exit.sh runs all three and checks the files).
+     */
+    private void sessionExitRun(ClientGameTestContext context, String backend, String mode) {
+        java.nio.file.Path marker = net.fabricmc.loader.api.FabricLoader.getInstance().getConfigDir().resolve("metallium/session.json");
+        line("session exit: mode=" + mode + " backend=" + backend + " marker present=" + java.nio.file.Files.exists(marker)
+                + " recovery=" + (dev.metallium.compat.CrashGuard.recovery() != null));
+        if (!backend.startsWith("Metal")) failures.add("session exit: expected Metal, got " + backend);
+        if (!java.nio.file.Files.exists(marker)) failures.add("session exit: no marker while running");
+        line(failures.isEmpty() ? "result: PASS" : "result: FAIL " + failures);
+        writeReport();
+        if (!failures.isEmpty()) throw new AssertionError(String.join("; ", failures));
+        switch (mode) {
+            case "normal" -> {
+                context.runOnClient(client -> client.stop());
+                context.waitTicks(40);
+            }
+            case "sigterm" -> {
+                ProcessHandle.current().destroy(); // SIGTERM to ourselves
+                context.waitTicks(400);
+            }
+            case "crash" -> {
+                net.minecraft.CrashReport report = net.minecraft.CrashReport.forThrowable(new RuntimeException("simulated session-exit crash"), "simulated");
+                report.saveToFile(net.fabricmc.loader.api.FabricLoader.getInstance().getGameDir().resolve("crash-reports/crash-sessionexit.txt"), net.minecraft.ReportType.CRASH);
+                System.exit(-1);
+            }
+            default -> throw new AssertionError("unknown sessionExit " + mode);
         }
     }
 
