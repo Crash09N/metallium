@@ -168,6 +168,8 @@ loom.runs.clientGameTest {
 	if (project.hasProperty('benchBiome')) vmArg "-Dmetallium.bench.biome=${project.property('benchBiome')}"
 	// -PbenchWindow=2560x1440: benchmark window size (default: the game test's 854x480).
 	if (project.hasProperty('benchWindow')) vmArg "-Dmetallium.bench.window=${project.property('benchWindow')}"
+	// -PbenchFpsLimit=165: Minecraft's frame limiter during the benchmark (10-259; default unlimited).
+	if (project.hasProperty('benchFpsLimit')) vmArg "-Dmetallium.bench.fpsLimit=${project.property('benchFpsLimit')}"
 	// -PbenchVsync: run the benchmark with VSync on (default off) to compare presented vs rendered frames.
 	if (project.hasProperty('benchVsync')) vmArg '-Dmetallium.bench.vsync=true'
 	// -PbenchDisplay=<index or name substring>: display for the benchmark window (default: highest refresh rate).

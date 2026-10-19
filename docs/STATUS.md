@@ -149,6 +149,19 @@ Metal Performance HUD shows only ~70 displayed fps; VSync on shows 144 correctly
   run while nobody uses the Mac (the HUD cannot be read from logs: `MTL_HUD_LOG_ENABLED=1` wrote nothing to the unified
   log here; `-PmetalHud` sets both variables). The "HUD shows no GPU time" report is not investigated yet. `bench-present:` also has `displayed_fps` now (presents with a distinct `presentedTime`);
   windowed it still reports 142.8/s on the 60 Hz display, so it is the compositor latch, not scan-out.
+- 2026-10-19, owner with Voxy (modpack, 2560x1440 windowed on the G5, HUD on): Minecraft 165 fps, HUD 65-70; VSync
+  on 140/140. Ruled out on the metallium-gl side (docs/design/metallium-gl.md §12.6): 0 GPU waits and 0 ICB
+  allocations during a 30 s Voxy bench measurement. Working hypothesis: handler pacing at frame times close to the
+  refresh period. A present is decided only at frame end and needs the previous present's handler, which comes about
+  1-2 refreshes later. At ~6 ms frames that means one present every 2-3 frames (55-83/s), while the light scene
+  (0.3-1.7 ms frames) presents ~150/s. New opt-in `-PpresentPacing=refresh`: like `handler`, plus a second present in
+  flight once 3/4 of a refresh period has passed since the last one. `-PbenchFpsLimit=165` emulates the owner's frame
+  time. **Not measured yet**: every bench run on 2026-10-19 between 16:40 and 17:30 (owner at the Mac) got 0 presents,
+  even the light scene at 1920x1080 (2336 rendered fps, all frames skipped: `nextDrawable` never returned). That is
+  environmental (no present-path commit since the 152/s measurement), so those runs are invalid for presents. To run
+  when nobody uses the Mac:
+  `gpu-lock.sh --exclusive ./gradlew :runClientGameTest -Pbench -PwithSodium -PwithGl -PwithVoxy=<jar> -PbenchScene=voxy -PbenchWindow=2560x1440 -PbenchFpsLimit=165
+  [-PpresentPacing=refresh|gpu]` (handler / refresh / gpu), plus the real-fullscreen resize repro (`-PvoxyFullscreen`).
 
 ### Encoder count (2026-10-19)
 

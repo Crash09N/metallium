@@ -162,7 +162,8 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
         context.runOnClient(client -> {
             client.options.enableVsync().set(BENCH_VSYNC);
             line("bench display: " + moveToBenchDisplay(client));
-            client.options.framerateLimit().set(260); // 260 = unlimited
+            // 260 = unlimited; -Dmetallium.bench.fpsLimit=N emulates a heavier client's frame time (present pacing tests).
+            client.options.framerateLimit().set(Integer.getInteger("metallium.bench.fpsLimit", 260));
             client.options.chunkSectionFadeInTime().set(0.0);
             // Vanilla drops to 30 fps when there is no input for a while ("AFK"); a benchmark has no input.
             client.options.inactivityFpsLimit().set(net.minecraft.client.InactivityFpsLimit.MINIMIZED);
