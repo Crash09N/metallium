@@ -204,7 +204,8 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
     }
 
     private static final String TEST_PACK = "metallium-testpack";
-    private static final String[] TEST_PACK_FILES = {"composite.vsh", "composite.fsh", "final.vsh", "final.fsh"};
+    private static final String[] TEST_PACK_FILES = {"shaders.properties", "composite.vsh", "composite.fsh", "composite1.vsh", "composite1.fsh",
+            "final.vsh", "final.fsh"};
     private static final String GBUFFER_PACK = "metallium-gbufferpack";
     private static final String[] GBUFFER_PACK_FILES = {"gbuffers_terrain.vsh", "gbuffers_terrain.fsh", "composite.vsh", "composite.fsh"};
     private static final String SHADOW_PACK = "metallium-shadowpack";
@@ -246,6 +247,12 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
         clearChat(context);
         Path on = context.takeScreenshot("metallium-iris-testpack");
         checkInverted(off, on);
+        // The bundled test pack uses only supported features (incl. blend.composite1): nothing may fail to translate.
+        List<String> testPackProblems = context.computeOnClient(client -> metalPipelineProblems());
+        line("iris test pack: unsupported-feature reports=" + testPackProblems);
+        if (!testPackProblems.isEmpty()) {
+            failures.add("test shader pack reports unsupported features on Metal: " + testPackProblems);
+        }
 
         // Stage 3: gbuffers_terrain writes a marker into colortex1, the composite pass turns marked pixels magenta.
         line("iris gbuffers test pack: pipeline=" + context.computeOnClient(client -> irisSelectPack(GBUFFER_PACK, true)));
@@ -707,6 +714,23 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
     }
 
     /** Selects a pack (or turns shaders off), reloads Iris and returns the class name of the resulting pipeline. */
+    /** The active Metal Iris pipeline's "Not supported yet" reports (empty on OpenGL or without a Metal pipeline). */
+    @SuppressWarnings("unchecked")
+    private static List<String> metalPipelineProblems() {
+        try {
+            Object manager = Class.forName("net.irisshaders.iris.Iris").getMethod("getPipelineManager").invoke(null);
+            Object pipeline = manager.getClass().getMethod("getPipelineNullable").invoke(manager);
+            if (pipeline == null || !pipeline.getClass().getName().equals("dev.metallium.iris.post.MetalPostPipeline")) {
+                return List.of();
+            }
+            java.lang.reflect.Field field = pipeline.getClass().getDeclaredField("problems");
+            field.setAccessible(true);
+            return List.copyOf((List<String>) field.get(pipeline));
+        } catch (ReflectiveOperationException e) {
+            return List.of("could not read pipeline problems: " + e);
+        }
+    }
+
     private static String irisSelectPack(String pack, boolean enabled) {
         try {
             Class<?> iris = Class.forName("net.irisshaders.iris.Iris");

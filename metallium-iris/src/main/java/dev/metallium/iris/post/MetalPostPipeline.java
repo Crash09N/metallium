@@ -57,6 +57,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import com.mojang.renderpearl.api.pipeline.BlendFunction;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalDouble;
@@ -331,14 +332,14 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
         if (programDirectives.getViewportScale().scale() != 1.0f) {
             problems.add(name + ": viewport scale not supported yet (rendered at full size)");
         }
-        if (programDirectives.getBlendModeOverride().isPresent()) {
-            problems.add(name + ": blend override not supported yet (blending off)");
-        }
+        // The final pass (no draw buffers, writes the main target) never blends, like Iris's FinalPassRenderer.
+        List<Optional<BlendFunction>> blends = drawBuffers.length == formats.size() && drawBuffers.length > 0
+                ? PostBlend.forDrawBuffers(programDirectives, drawBuffers) : null;
         try {
             Map<PatchShaderType, String> transformed = TransformPatcher.patchComposite(name,
                     source.getVertexSource().orElseThrow(), null, source.getFragmentSource().orElseThrow(), stage, getTextureMap(), getTextureOverrides(stage));
             PostProgram program = PostProgram.compile(name, transformed.get(PatchShaderType.VERTEX), transformed.get(PatchShaderType.FRAGMENT), formats,
-                    storageValidator());
+                    storageValidator(), blends);
             CommonUniforms.addDynamicUniforms(program.uniforms, FogMode.OFF);
             customUniforms.assignTo(program.uniforms);
             customUniforms.mapholderToPass(program.uniforms, program);

@@ -602,12 +602,12 @@ final class GbufferState implements AutoCloseable {
         }
     }
 
-    private static Optional<BlendFunction> toBlend(final BlendModeOverride override) {
+    static Optional<BlendFunction> toBlend(final BlendModeOverride override) {
         BlendMode mode = ((BlendModeOverrideAccessor) override).metallium$getBlendMode();
         return toBlend(mode);
     }
 
-    private static Optional<BlendFunction> toBlend(@Nullable final BlendMode mode) {
+    static Optional<BlendFunction> toBlend(@Nullable final BlendMode mode) {
         if (mode == null) {
             return Optional.empty();
         }
