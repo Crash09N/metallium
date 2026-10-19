@@ -16,6 +16,7 @@ The jar contains (jar-in-jar, `META-INF/jars/`):
 | `metal-jvm-0.1.0.jar` | MIT (`LICENSES/MIT-metal-jvm.txt`) | Metal bindings |
 | `metallium-gl-<v>.jar` | Apache-2.0 | OpenGL to Metal translation for mods that call GL directly; only routes mods that need it |
 | `metallium-iris-<v>.jar` | **LGPL-3.0** (own `LICENSE` + `SOURCE.txt` inside) | Iris shader-pack adapter; stays a separate jar so it can be replaced |
+| `metallium-voxy-natives-<v>.jar` | Apache-2.0 / BSD-3-Clause / OLDAP-2.8 (texts in its `META-INF/licenses/`) | Native files only (4.0 MB): the macOS arm64 RocksDB 10.2.1 and LWJGL 3.4.1 zstd/LMDB natives that Voxy's bundled libraries lack. Inert on other systems and without Voxy |
 
 The core (outer jar) is Apache-2.0. The LGPL adapter is never merged into the core jar; its corresponding source is the
 `metallium-iris/` directory of this repository (see `NOTICE`, README "Credits & licenses", and `SOURCE.txt` in the nested jar).
@@ -29,6 +30,11 @@ Requirements: Apple Silicon Mac, macOS 14+, Minecraft 26.3, Fabric Loader >= 0.1
 3. Start the game. F3 shows the "Metallium ..." line; the Metallium status screen is reachable from the Sodium "Metallium" tab or Video Settings.
 
 Do not install the separate `metallium-gl` / `metallium-iris` jars next to this one (duplicate mod ids).
+
+`./gradlew releaseJar` also writes the standalone `metallium-voxy-natives-<v>.jar` (for Voxy on a Mac without Metallium).
+With Metallium installed it is not needed (Fabric keeps the newer copy if both are present). Without these natives Voxy
+crashes the game on world join on a Mac ("librocksdbjni-osx-arm64.jnilib was not found inside JAR"); if they are missing,
+Metallium disables Voxy for the session and says so before the title screen and on its status screen.
 
 ## What is inert when
 

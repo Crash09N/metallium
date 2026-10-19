@@ -21,21 +21,19 @@ import java.util.List;
  */
 public final class VoxyNativesScreen extends Screen {
     private static final int WHITE = 0xFFFFFFFF;
-    private static final int GRAY = 0xFFB0B0B0;
     private static final int GOLD = 0xFFFFC040;
     private static boolean shown;
     private final Screen next;
     private final List<String> message = new ArrayList<>();
     private final List<FormattedCharSequence> wrapped = new ArrayList<>();
 
-    /** True once per session when there is something to tell (macOS arm64 only). */
+    /** True until acknowledged once per session, when there is something to tell (macOS arm64 only). */
     public static boolean shouldShow() {
         return !shown && !VoxyNatives.problems().isEmpty();
     }
 
     public VoxyNativesScreen(final Screen next) {
         super(Component.literal(VoxyNatives.anyMissing() ? "Voxy needs macOS native libraries" : "Voxy's macOS native libraries do not match"));
-        shown = true;
         this.next = next;
         for (VoxyNatives.Problem problem : VoxyNatives.problems()) {
             message.add(problem.describe() + ".");
@@ -64,14 +62,15 @@ public final class VoxyNativesScreen extends Screen {
         super.extractRenderState(graphics, mouseX, mouseY, delta);
         graphics.centeredText(this.font, Component.literal("Metallium: " + this.title.getString()), this.width / 2, 20, GOLD);
         int y = 40;
-        for (int i = 0; i < wrapped.size(); i++) {
-            graphics.centeredText(this.font, wrapped.get(i), this.width / 2, y, i == wrapped.size() - 2 ? GRAY : WHITE);
+        for (FormattedCharSequence line : wrapped) {
+            graphics.centeredText(this.font, line, this.width / 2, y, WHITE);
             y += 11;
         }
     }
 
     @Override
     public void onClose() {
+        shown = true; // only once acknowledged: something replacing it with the title screen must not swallow it
         this.minecraft.gui.setScreen(next);
     }
 }
