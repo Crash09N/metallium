@@ -350,3 +350,22 @@ if (project.hasProperty('releaseJarTest')) {
 	}
 	tasks.matching { it.name == 'runClientGameTest' }.configureEach { dependsOn 'releaseJar' }
 }
+
+// ./gradlew runClientProd  -> production-style Fabric launch (fabric.development unset) of the play instance, for mods that
+// refuse Loom dev environments (Essential: "Failed to find tiny mappings file"). Metallium is the release jar
+// (build/release/metallium-<v>.jar, added with -Dfabric.addMods, includes metallium-gl + metallium-iris), not dev classes.
+// The instance (../metallium-research/play-instance by default, or -PplayProd=<dir>) supplies the other mods. Offline user, no login.
+tasks.register('runClientProd', JavaExec) {
+	dependsOn 'releaseJar'
+	def dirProp = project.findProperty('playProd')
+	def instDir = file((dirProp instanceof String && !dirProp.isEmpty() && dirProp != 'true') ? dirProp : '../metallium-research/play-instance')
+	def rel = layout.buildDirectory.file("release/metallium-${project.version}.jar").get().asFile
+	workingDir = instDir
+	classpath = files(configurations.runtimeClasspath.filter { !it.name.startsWith('metal-jvm') })
+	mainClass = 'net.fabricmc.loader.impl.launch.knot.KnotClient'
+	jvmArgs '--enable-native-access=ALL-UNNAMED', '-XstartOnFirstThread', '-Xmx6G', "-Dfabric.addMods=${rel}"
+	args '--username', 'Player', '--version', 'Metallium-play', '--gameDir', instDir.absolutePath,
+		'--assetsDir', "${System.getProperty('user.home')}/.gradle/caches/fabric-loom/assets", '--assetIndex', '26.3-34',
+		'--accessToken', '0', '--userType', 'legacy'
+	doFirst { if (!rel.exists()) throw new GradleException("missing $rel") }
+}
