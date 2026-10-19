@@ -1029,6 +1029,9 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
         tryCommand(world, "execute as @p at @s run particle minecraft:block{block_state:\"minecraft:dirt\"} ^-1 ^ ^2.5 0.3 0.3 0.3 0 200 force");
         context.waitTicks(2);
         clearChat(context);
+        if (System.getProperty("metallium.iris.dumpBuffers") != null) {
+            System.setProperty("metallium.iris.dumpNow", "true"); // -PirisDump: buffers of this particle frame
+        }
         context.takeScreenshot(screenshot);
         context.waitTicks(40); // let them die before the next screenshot
     }
