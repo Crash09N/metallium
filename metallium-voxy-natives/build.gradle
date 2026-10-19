@@ -1,0 +1,65 @@
+plugins {
+	id 'java'
+}
+
+// metallium-voxy-natives: resources-only Fabric mod with the macOS arm64 native libraries that Voxy's bundled RocksDB and
+// LWJGL zstd / LMDB jars leave out (Voxy ships only their Linux and Windows natives, so its world storage fails on a Mac).
+// No code: each library's own loader finds the file through Fabric's class loader at the path it already looks up.
+// Inert on other systems and without Voxy. The natives come unmodified from the official Maven Central artifacts; only
+// the macOS arm64 files are copied. Versions must equal the Java classes Voxy bundles (see voxy_natives_* below).
+def rocksdbVersion = project.voxy_natives_rocksdb_version
+def lwjglVersion = project.voxy_natives_lwjgl_version
+version = "${project.voxy_natives_version}+rocksdb.${rocksdbVersion}.lwjgl.${lwjglVersion}"
+group = project.maven_group
+
+base {
+	archivesName = 'metallium-voxy-natives'
+}
+
+repositories {
+	mavenCentral()
+}
+
+configurations {
+	macNatives { transitive = false }
+}
+
+dependencies {
+	macNatives "org.rocksdb:rocksdbjni:${rocksdbVersion}"
+	macNatives "org.lwjgl:lwjgl-zstd:${lwjglVersion}:natives-macos-arm64"
+	macNatives "org.lwjgl:lwjgl-lmdb:${lwjglVersion}:natives-macos-arm64"
+}
+
+processResources {
+	inputs.property 'version', project.version
+	inputs.property 'rocksdb', rocksdbVersion
+	inputs.property 'lwjgl', lwjglVersion
+	filesMatching('fabric.mod.json') {
+		expand 'version': project.version, 'rocksdb': rocksdbVersion, 'lwjgl': lwjglVersion
+	}
+	// RocksDB's NativeLibraryLoader: classLoader.getResourceAsStream("librocksdbjni-osx-arm64.jnilib").
+	// LWJGL's Library: "macos/arm64/org/lwjgl/<module>/liblwjgl_<module>.dylib" (+ its META-INF .sha1 for debug checks).
+	from({ configurations.macNatives.collect { zipTree(it) } }) {
+		include 'librocksdbjni-osx-arm64.jnilib'
+		include 'macos/arm64/org/lwjgl/**'
+		include 'META-INF/macos/arm64/org/lwjgl/**'
+		includeEmptyDirs = false
+	}
+	from('licenses') { into 'META-INF/licenses' }
+}
+
+java {
+	sourceCompatibility = JavaVersion.VERSION_25
+	targetCompatibility = JavaVersion.VERSION_25
+}
+
+// Fails the build if a native is missing (e.g. after a version bump where Maven Central changed the file names).
+jar {
+	doLast {
+		def names = new java.util.zip.ZipFile(archiveFile.get().asFile).withCloseable { z -> z.entries().collect { it.name } }
+		['librocksdbjni-osx-arm64.jnilib', 'macos/arm64/org/lwjgl/zstd/liblwjgl_zstd.dylib',
+		 'macos/arm64/org/lwjgl/lmdb/liblwjgl_lmdb.dylib', 'fabric.mod.json'].each { n ->
+			if (!names.contains(n)) throw new GradleException("metallium-voxy-natives: $n missing from ${archiveFile.get().asFile.name}")
+		}
+	}
+}

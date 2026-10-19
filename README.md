@@ -66,6 +66,10 @@ project's code may legally be copied. Rows will be updated whenever code is actu
 |---|---|---|---|
 | [Metallum](https://github.com/kokodio/metallum) | kokodio | MIT | **Code adapted:** the Metal backend in `dev.metallium.backend` started from Metallum v0.0.25 (`4da72f5`). Files carry the MIT notice; licence text in `LICENSES/MIT-metallum.txt`. |
 | [metal-jvm](https://github.com/kokodio/metal-jvm) | kokodio | MIT | **Bundled dependency** (jar-in-jar, Maven Central `io.github.kokodio:metal-jvm`). Licence text in `LICENSES/MIT-metal-jvm.txt`. |
+| [RocksDB](https://github.com/facebook/rocksdb) (rocksdbjni 10.2.1) | Meta Platforms, Inc. and affiliates; LevelDB Authors | Apache-2.0 (dual GPLv2/Apache-2.0; redistributed under Apache-2.0) + LevelDB BSD | **Bundled native, unmodified:** `librocksdbjni-osx-arm64.jnilib` from Maven Central `org.rocksdb:rocksdbjni:10.2.1`, in the `metallium-voxy-natives` addon (jar-in-jar, also standalone) so Voxy's bundled RocksDB loads on macOS. Licence texts in the addon jar's `META-INF/licenses/`. |
+| [LWJGL](https://github.com/LWJGL/lwjgl3) zstd + LMDB bindings 3.4.1 | LWJGL contributors | BSD-3-Clause | **Bundled natives, unmodified:** macOS arm64 `liblwjgl_zstd.dylib` / `liblwjgl_lmdb.dylib` (+ `.sha1`) from Maven Central `org.lwjgl:lwjgl-{zstd,lmdb}:3.4.1:natives-macos-arm64`, in `metallium-voxy-natives`. |
+| [Zstandard](https://github.com/facebook/zstd) | Meta Platforms, Inc. and affiliates | BSD-3-Clause | Statically contained in LWJGL's `liblwjgl_zstd.dylib` (above). |
+| [LMDB](https://www.symas.com/lmdb) | Howard Chu, Symas Corp. | OpenLDAP Public License 2.8 | Statically contained in LWJGL's `liblwjgl_lmdb.dylib` (above). |
 | [mcopt](https://github.com/noahdunnagan/mcopt) | noahdunnagan | Apache-2.0 (+ NOTICE) | Metal command-encoding techniques (pass merging, deferred clears, store-action selection). Only code from commit `09fea99` (0.3.0-alpha.1) onward. |
 
 ### Ideas and research only (no code copied)
