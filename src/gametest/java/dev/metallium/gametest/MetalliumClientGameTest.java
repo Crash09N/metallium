@@ -227,9 +227,9 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
             if (window.matches("\\d+x\\d+")) {
                 String[] wh = window.split("x");
                 context.runOnClient(client -> client.getWindow().setWindowed(Integer.parseInt(wh[0]), Integer.parseInt(wh[1])));
-                // Put the window on the display with the highest refresh rate (a large window on a small 60 Hz screen
-                // gave run-to-run swings of 2x on a two-display Mac).
-                line("bench: window display " + context.computeOnClient(client -> moveToFastestDisplay(client.getWindow().handle())));
+                // Re-centre the resized window on the bench display (a 2560x1440 window hanging off the 60 Hz main
+                // screen gave run-to-run swings of 2x).
+                line("bench: window display " + context.computeOnClient(MetalliumClientGameTest::moveToBenchDisplay));
                 context.waitTicks(20);
             }
             line("bench: framebuffer " + context.computeOnClient(c -> c.getWindow().getWidth() + "x" + c.getWindow().getHeight()));
@@ -961,33 +961,6 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
             return "id " + id + " -> " + (texture == null ? "untracked" : texture.getClass().getSimpleName());
         } catch (ReflectiveOperationException e) {
             return "error: " + e;
-        }
-    }
-
-    /** Moves an SDL window to the top-left of the display with the highest refresh rate; returns what it chose. */
-    private static String moveToFastestDisplay(long window) {
-        java.nio.IntBuffer displays = org.lwjgl.sdl.SDLVideo.SDL_GetDisplays();
-        if (displays == null) {
-            return "unknown (SDL_GetDisplays failed)";
-        }
-        int best = -1;
-        float bestHz = -1;
-        for (int i = 0; i < displays.remaining(); i++) {
-            int id = displays.get(displays.position() + i);
-            org.lwjgl.sdl.SDL_DisplayMode mode = org.lwjgl.sdl.SDLVideo.SDL_GetCurrentDisplayMode(id);
-            if (mode != null && mode.refresh_rate() > bestHz) {
-                bestHz = mode.refresh_rate();
-                best = id;
-            }
-        }
-        if (best < 0) {
-            return "unknown";
-        }
-        try (org.lwjgl.system.MemoryStack stack = org.lwjgl.system.MemoryStack.stackPush()) {
-            org.lwjgl.sdl.SDL_Rect bounds = org.lwjgl.sdl.SDL_Rect.malloc(stack);
-            org.lwjgl.sdl.SDLVideo.SDL_GetDisplayBounds(best, bounds);
-            org.lwjgl.sdl.SDLVideo.SDL_SetWindowPosition(window, bounds.x(), bounds.y());
-            return String.format(java.util.Locale.ROOT, "%d (%dx%d @ %.0f Hz)", best, bounds.w(), bounds.h(), bestHz);
         }
     }
 
