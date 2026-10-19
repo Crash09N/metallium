@@ -463,6 +463,12 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
             context.takeScreenshot("metallium-iris-external-pack");
             blockParticles(context, world, "metallium-iris-external-pack-particles");
             line("external pack: still running after 100 ticks");
+            // F3 / status-screen line (owner report: "Iris via Metallium adapter: shaders off" while a pack rendered).
+            String status = context.computeOnClient(client -> String.join(" | ", dev.metallium.api.MetalliumRuntime.statusLines()));
+            line("external pack: status lines: " + status);
+            if (dev.metallium.api.MetalliumRuntime.isMetalActive() && !status.contains(" on Metal (")) {
+                failures.add("F3/status line does not report the running shader pack: " + status);
+            }
             // More gbuffers programs: block entities (chest, sign), weather (rain). Removed again before the
             // shaders-off comparison below.
             tryCommand(world, "execute as @p at @s positioned ^ ^-1 ^4 run setblock ~ ~ ~ minecraft:chest");

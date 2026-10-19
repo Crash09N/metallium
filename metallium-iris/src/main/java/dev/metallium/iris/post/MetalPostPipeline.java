@@ -120,6 +120,17 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
     private final IntList buffersToBeCleared;
     private final Map<GpuFormat, PostProgram> copyPrograms = new HashMap<>();
     private final List<String> problems = new ArrayList<>();
+    /**
+     * The subset of {@link #problems} worth a chat message: programs that are skipped (the pack visibly renders
+     * wrong) and DH programs while Distant Horizons is installed. Everything else goes to the log and the status
+     * screen only (owner decision 2026-10-19: chat only for problems the player can act on).
+     */
+    private final List<String> chatProblems = new ArrayList<>();
+    /** Short pipeline description for the F3 line / status screen; the full summary is logged. */
+    private String statusSummary = "";
+    /** The pipeline that rendered the last level frame (independent of Iris's PipelineManager, for the F3 line). */
+    private static volatile @org.jspecify.annotations.Nullable MetalPostPipeline lastRendering;
+    private static volatile long lastRenderingNanos;
     private final GpuBuffer quad;
     private final GpuSampler linear;
     private final GpuSampler nearest;
@@ -267,7 +278,11 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
                 + (computeCount > 0 ? " + " + computeCount + " compute" : "")
                 + (storageBuffers != null ? " + SSBOs" : "") + (customImages != null ? " + custom images" : "");
         MetalliumIris.LOGGER.info("[metallium-iris] {}", summary);
-        reportToChat(summary);
+        this.statusSummary = (shadowRenderer != null ? "shadow " + shadowTargets.resolution + "px, " : "")
+                + (gbuffers != null ? "gbuffers, " : "")
+                + (shadowcomp.size() + begin.size() + prepare.size() + deferred.size() + composite.size()) + " fullscreen passes"
+                + (finalPass != null ? " + final" : "") + (computeCount > 0 ? ", " + computeCount + " compute" : "");
+        reportToChat();
     }
 
     // ---------------------------------------------------------------------------------------------- construction
@@ -356,6 +371,7 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
         String name = source.getName();
         if (source.getGeometrySource().isPresent() || source.getTessControlSource().isPresent() || source.getTessEvalSource().isPresent()) {
             problems.add(name + ": geometry/tessellation shaders are not supported on Metal (pass skipped)");
+            chatProblems.add(problems.getLast());
             return null;
         }
         ProgramDirectives programDirectives = source.getDirectives();
@@ -381,6 +397,7 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
         } catch (Exception | LinkageError e) {
             String message = e.getMessage() == null ? e.toString() : e.getMessage().lines().findFirst().orElse(e.toString());
             problems.add(name + ": failed to translate (" + message + ")");
+            chatProblems.add(problems.getLast());
             MetalliumIris.LOGGER.warn("[metallium-iris] Program {} could not be translated for Metal", name, e);
             GbufferState.dumpSources(name, transformed);
             return null;
@@ -580,6 +597,7 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
             } catch (Exception | LinkageError e) {
                 String message = e.getMessage() == null ? e.toString() : e.getMessage().lines().findFirst().orElse(e.toString());
                 problems.add(name + ": compute shader failed to translate (" + message + ")");
+                chatProblems.add(problems.getLast());
                 MetalliumIris.LOGGER.warn("[metallium-iris] Compute program {} could not be translated for Metal", name, e);
             }
         }
@@ -800,18 +818,33 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
     }
 
     private void reportUnsupportedPrograms(final boolean gbuffersRun, final boolean shadowsRun) {
+        // Iris itself only uses a pack's dh_* programs when Distant Horizons is installed: without DH they are not a gap.
+        boolean dhInstalled = net.fabricmc.loader.api.FabricLoader.getInstance().isModLoaded("distanthorizons");
         List<String> skipped = new ArrayList<>();
+        List<String> dhSkipped = new ArrayList<>();
         for (ProgramId id : ProgramId.values()) {
             ProgramGroup group = id.getGroup();
-            boolean unsupported = (group == ProgramGroup.Shadow && !shadowsRun) || group == ProgramGroup.Dh || (group == ProgramGroup.Gbuffers && !gbuffersRun);
-            if (unsupported && programSet.get(id).isPresent()) {
+            if (!programSet.get(id).isPresent()) {
+                continue;
+            }
+            if (group == ProgramGroup.Dh) {
+                dhSkipped.add(id.getSourceName());
+            } else if ((group == ProgramGroup.Shadow && !shadowsRun) || (group == ProgramGroup.Gbuffers && !gbuffersRun)) {
                 skipped.add(id.getSourceName());
             }
         }
+        if (!dhSkipped.isEmpty()) {
+            if (dhInstalled) {
+                problems.add(dhSkipped.size() + " DH programs are not executed yet on Metal (Distant Horizons LODs are drawn without the pack)");
+                chatProblems.add(problems.getLast());
+                MetalliumIris.LOGGER.warn("[metallium-iris] DH programs not executed: {}", String.join(", ", dhSkipped));
+            } else {
+                MetalliumIris.LOGGER.debug("[metallium-iris] DH programs unused (Distant Horizons not installed): {}", String.join(", ", dhSkipped));
+            }
+        }
         if (!skipped.isEmpty()) {
-            problems.add(skipped.size() + (shadowsRun ? " DH programs are not executed yet on Metal"
-                    : gbuffersRun ? " shadow/DH programs are not executed yet on Metal (no shadow pass)"
-                    : " gbuffers/shadow programs are not executed yet on Metal (the vanilla scene is used)"));
+            problems.add(skipped.size() + (gbuffersRun ? " shadow programs are not executed on Metal (no shadow pass)"
+                    : " gbuffers/shadow programs are not executed on Metal (the vanilla scene is used)"));
             MetalliumIris.LOGGER.warn("[metallium-iris] programs not executed: {}", String.join(", ", skipped));
         }
         if (!shadowsRun && (java.util.Arrays.stream(programSet.getComposite(ProgramArrayId.ShadowComposite)).anyMatch(s -> s != null && s.isValid())
@@ -833,21 +866,41 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
         return count;
     }
 
-    private void reportToChat(final String summary) {
+    /**
+     * Problems always go to the log (and the status screen through {@link #statusProblems()}); the chat only gets the
+     * ones in {@link #chatProblems}. The pipeline summary is never sent to the chat.
+     */
+    private void reportToChat() {
         for (String problem : problems) {
             MetalliumIris.LOGGER.warn("[metallium-iris] Unsupported shader pack feature: {}", problem);
         }
+        if (chatProblems.isEmpty()) {
+            return;
+        }
         try {
-            var chat = Minecraft.getInstance().gui.hud.getChat();
-            chat.addClientSystemMessage(Component.literal("[Metallium] " + summary).withStyle(ChatFormatting.GOLD));
-            if (!problems.isEmpty()) {
-                String first = problems.getFirst();
-                chat.addClientSystemMessage(Component.literal("[Metallium] Not supported yet: " + first
-                        + (problems.size() > 1 ? " (+" + (problems.size() - 1) + " more, see log)" : "")).withStyle(ChatFormatting.YELLOW));
-            }
+            String first = chatProblems.getFirst();
+            Minecraft.getInstance().gui.hud.getChat().addClientSystemMessage(Component.literal("[Metallium] Shader pack: " + first
+                    + (chatProblems.size() > 1 ? " (+" + (chatProblems.size() - 1) + " more, see the Metallium status screen)" : ""))
+                    .withStyle(ChatFormatting.YELLOW));
         } catch (RuntimeException e) {
             MetalliumIris.LOGGER.debug("[metallium-iris] chat not available", e);
         }
+    }
+
+    /** The Metal pipeline that rendered a level frame within the last second, or null (for the F3/status line). */
+    public static @org.jspecify.annotations.Nullable MetalPostPipeline rendering() {
+        MetalPostPipeline pipeline = lastRendering;
+        return pipeline != null && System.nanoTime() - lastRenderingNanos < 1_000_000_000L ? pipeline : null;
+    }
+
+    /** Short description of the passes this pipeline runs (status line). */
+    public String statusSummary() {
+        return statusSummary;
+    }
+
+    /** Unsupported-feature reports of this pipeline (status screen; also logged). */
+    public List<String> statusProblems() {
+        return List.copyOf(problems);
     }
 
     private static ByteBuffer quadVertices() {
@@ -889,6 +942,8 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
 
     @Override
     public void beginLevelRendering() {
+        lastRendering = this;
+        lastRenderingNanos = System.nanoTime();
         if (revertWorldSettings) {
             revertWorldSettings = false;
             revertToVanillaWorldSettings();
@@ -1498,6 +1553,11 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
         }
     }
 
+    /** True after a runtime failure switched this pipeline to the vanilla fallback. */
+    public boolean hasFailed() {
+        return failed;
+    }
+
     public boolean rendersGbuffers() {
         return gbuffers != null && !failed;
     }
@@ -1555,6 +1615,9 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
 
     @Override
     public void destroy() {
+        if (lastRendering == this) {
+            lastRendering = null;
+        }
         if (gbuffers != null) {
             gbuffers.close();
         }
