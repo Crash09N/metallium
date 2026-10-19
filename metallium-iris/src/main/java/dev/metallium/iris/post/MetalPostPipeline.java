@@ -1466,6 +1466,43 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
         return gbuffers != null ? directives.shouldRenderSkyDisc() : super.shouldRenderSkyDisc();
     }
 
+    /** Iris's horizon cone (its own class, Blaze3D-only), drawn like {@code IrisRenderingPipeline.onBeginClear}. */
+    private net.irisshaders.iris.pathways.@org.jspecify.annotations.Nullable HorizonRenderer horizon;
+
+    /**
+     * Like Iris's pipeline: before the sky, an inverted cone around the camera between the sky planes is drawn with
+     * the sky pipeline, so the pack's {@code gbuffers_skybasic} computes the sky colour below the vanilla sky disc too.
+     * Without it the band between the horizon and the end of the render distance kept the clear (fog) colour: a
+     * visible "wall" at the render distance with Complementary (owner report; OpenGL shows a smooth horizon).
+     * The pass targets the main target, so the gbuffers capture redirects it into the pack's buffers.
+     */
+    @Override
+    public void onBeginClear() {
+        if (gbuffers == null || failed) {
+            return;
+        }
+        setPhase(WorldRenderingPhase.SKY);
+        var level = Minecraft.getInstance().level;
+        if (level == null || !directives.shouldRenderSkyDisc()
+                || level.dimensionType().skybox() != net.minecraft.world.level.dimension.DimensionType.Skybox.OVERWORLD
+                && !level.dimensionType().hasSkyLight()) {
+            return;
+        }
+        try {
+            if (horizon == null) {
+                horizon = new net.irisshaders.iris.pathways.HorizonRenderer();
+            }
+            Vector3d fog = CapturedRenderingState.INSTANCE.getFogColor();
+            // Alpha 1 like Iris (Sildur's gives pink reflections with 0).
+            horizon.renderHorizon(CapturedRenderingState.INSTANCE.getGbufferModelView(), CapturedRenderingState.INSTANCE.getGbufferProjection(),
+                    new Vector4f((float) fog.x, (float) fog.y, (float) fog.z, 1.0f));
+        } catch (RuntimeException e) {
+            if (warnedSamplers.add("horizon " + e)) {
+                MetalliumIris.LOGGER.error("[metallium-iris] horizon rendering failed", e);
+            }
+        }
+    }
+
     @Override
     public boolean shouldRenderWeather() {
         return gbuffers != null ? directives.shouldRenderWeather() : super.shouldRenderWeather();
@@ -1617,6 +1654,9 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
     public void destroy() {
         if (lastRendering == this) {
             lastRendering = null;
+        }
+        if (horizon != null) {
+            horizon.destroy();
         }
         if (gbuffers != null) {
             gbuffers.close();
