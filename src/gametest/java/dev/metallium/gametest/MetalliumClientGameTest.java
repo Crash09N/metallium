@@ -195,6 +195,21 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
             });
             // Camera: above the terrain at the origin so the view shows land to the horizon, not mostly sky.
             String cameraSetting = System.getProperty("metallium.bench.camera", "");
+            // -Dmetallium.bench.biome=minecraft:ocean: camera just above sea level in the nearest such biome (water-heavy
+            // views are what make reflection-heavy packs expensive; the default view is snowy plains).
+            String biome = System.getProperty("metallium.bench.biome", "");
+            if (cameraSetting.isEmpty() && !biome.isEmpty()) {
+                net.minecraft.core.BlockPos found = world.getServer().computeOnServer(server -> {
+                    var result = server.overworld().findClosestBiome3d(
+                            holder -> holder.unwrapKey().map(key -> key.identifier().toString().equals(biome)).orElse(false),
+                            net.minecraft.core.BlockPos.ZERO.atY(64), 6400, 32, 64);
+                    return result == null ? null : result.getFirst();
+                });
+                line("bench: nearest " + biome + " at " + found);
+                if (found != null) {
+                    cameraSetting = found.getX() + " 66 " + found.getZ() + " 0 10";
+                }
+            }
             int surface = context.computeOnClient(client -> client.level.getHeight(net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING, 0, 0));
             String camera = !cameraSetting.isEmpty() ? cameraSetting : voxy ? "0 " + (surface + 60) + " 0 110 20"
                     : "0 " + (surface + 25) + " 0 " + (flight ? "-90 10" : "110 15");

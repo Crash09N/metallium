@@ -153,6 +153,8 @@ loom.runs.clientGameTest {
 	if (project.hasProperty('shaderCache')) vmArg "-Dmetallium.shaderCache=${project.property('shaderCache')}"
 	// -PshaderDump=/abs/dir: write every compiled MSL source (and compute GLSL) there (diagnostics).
 	if (project.hasProperty('shaderDump')) vmArg "-Dmetallium.shaderDump=${project.property('shaderDump')}"
+	// -PbenchBiome=minecraft:ocean: bench camera just above sea level in the nearest such biome.
+	if (project.hasProperty('benchBiome')) vmArg "-Dmetallium.bench.biome=${project.property('benchBiome')}"
 	// -PbenchWindow=2560x1440: benchmark window size (default: the game test's 854x480).
 	if (project.hasProperty('benchWindow')) vmArg "-Dmetallium.bench.window=${project.property('benchWindow')}"
 	// -PbenchVsync: run the benchmark with VSync on (default off) to compare presented vs rendered frames.
