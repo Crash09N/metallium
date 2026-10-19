@@ -142,6 +142,8 @@ loom.runs.clientGameTest {
 	if (project.hasProperty('shaderCache')) vmArg "-Dmetallium.shaderCache=${project.property('shaderCache')}"
 	// -PbenchVsync: run the benchmark with VSync on (default off) to compare presented vs rendered frames.
 	if (project.hasProperty('benchVsync')) vmArg '-Dmetallium.bench.vsync=true'
+	// -PpresentPacing=gpu: VSync-off present pacing on GPU completion + half refresh (default: presented handler).
+	if (project.hasProperty('presentPacing')) vmArg "-Dmetallium.present.pacing=${project.property('presentPacing')}"
 }
 
 // ./gradlew runClientGameTest -PwithSodium  → runs the game tests with Sodium loaded.
