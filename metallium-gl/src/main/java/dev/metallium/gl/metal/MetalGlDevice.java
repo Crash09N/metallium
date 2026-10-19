@@ -44,6 +44,7 @@ public final class MetalGlDevice implements GlDevice {
     private @Nullable MTLComputePipelineState fillPipeline;
     private @Nullable RenderTargets encoderTargets;
     private @Nullable MTLFence encoderFence;
+    private @Nullable MTLFence ownFence;
     private @Nullable GpuUse frameUse;
     private final Map<String, MTLRenderPipelineState> pipelines = new HashMap<>();
     private final Map<Long, MTLDepthStencilState> depthStates = new HashMap<>();
@@ -501,10 +502,24 @@ public final class MetalGlDevice implements GlDevice {
 
     // ---------------------------------------------------------------------------------------------- encoders
 
+    /**
+     * Orders this device's consecutive encoders when the host has no fence of its own (headless). Metal's automatic
+     * hazard tracking alone does not reliably order a compute pass with texture atomics against the blit passes around
+     * it (clear before, readback after): without a fence a readback saw a 3D R32UI image before / while the atomics ran
+     * (about 1 in 4 runs under GPU load). Every encoder waits for this fence at its start and updates it at its end.
+     */
+    private MTLFence ownFence() {
+        if (ownFence == null) {
+            ownFence = device.newFence();
+        }
+        return ownFence;
+    }
+
     private MTLCommandBuffer commandBuffer() {
         if (commandBuffer == null) {
             commandBuffer = host.begin(this::interrupted);
-            encoderFence = host.fence();
+            MTLFence hostFence = host.fence();
+            encoderFence = hostFence != null ? hostFence : ownFence();
             frameUse = host.currentUse();
         }
         return commandBuffer;
