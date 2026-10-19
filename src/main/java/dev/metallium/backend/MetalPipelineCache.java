@@ -63,7 +63,11 @@ import java.util.regex.Pattern;
 @Environment(EnvType.CLIENT)
 final class MetalPipelineCache {
     static final String MSL_NAMESPACE = "msl";
-    private static final String ARCHIVE_FILE = "pipelines.mtlarchive";
+    /** Archive segments: {@code pipelines.mtlarchive} (older versions) and {@code pipelines-<time>.mtlarchive}. */
+    private static final String ARCHIVE_PREFIX = "pipelines";
+    private static final String ARCHIVE_SUFFIX = ".mtlarchive";
+    /** Segments (sessions that compiled new pipelines) before the archive is started over. */
+    private static final int MAX_SEGMENTS = 24;
     private static final String ARCHIVE_IN_USE_MARKER = "pipelines.mtlarchive.in-use";
     private static final String VARIANTS_FILE = "variants.txt";
     /** Descriptor keys of pipelines Apple's archiver could not write; never added to the archive again. */
@@ -79,9 +83,14 @@ final class MetalPipelineCache {
     private final MTLDevice device;
     /** Read lock: archive lookups/adds (concurrent); write lock: serialize, discard, close. */
     private final ReentrantReadWriteLock archiveLock = new ReentrantReadWriteLock();
+    /** This session's archive (new pipelines only), written to {@link #sessionSegment}. */
     private volatile @Nullable MTLBinaryArchive archive;
-    /** The archive file of the previous session opened as a library (null if there was none). */
-    private volatile @Nullable MTLLibrary archiveLibrary;
+    /** Archive segments of earlier sessions (read only) and the same files opened as libraries. */
+    private final List<MTLBinaryArchive> loadedArchives = new ArrayList<>();
+    private final List<MTLLibrary> archiveLibraries = new ArrayList<>();
+    /** Every archive pipeline lookups search: loaded segments + this session's archive. */
+    private volatile @Nullable NSArray<MTLBinaryArchive> archiveArray;
+    private final String sessionSegment = ARCHIVE_PREFIX + "-" + System.currentTimeMillis() + ARCHIVE_SUFFIX;
     private volatile boolean archiveDirty;
     /** Archive writes stopped for this session (an add failed in an unexpected way, or a rebuild gave up). */
     private volatile boolean archiveWritesDisabled;
@@ -89,10 +98,10 @@ final class MetalPipelineCache {
     /** Full-descriptor keys of every pipeline added to the archive this session: each is added exactly once. */
     private final Set<String> addedKeys = ConcurrentHashMap.newKeySet();
     /**
-     * Retained copies of the descriptors added since the archive file was last written (insertion order), so the
-     * archive can be rebuilt without a pipeline the archiver cannot write. Guarded by itself.
+     * Retained copies of the descriptors added to this session's archive (insertion order), so it can be rebuilt
+     * without a pipeline the archiver cannot write. Guarded by itself.
      */
-    private final Map<String, MTLRenderPipelineDescriptor> unsavedAdds = new LinkedHashMap<>();
+    private final Map<String, MTLRenderPipelineDescriptor> sessionAdds = new LinkedHashMap<>();
     private final Set<String> excludedKeys = ConcurrentHashMap.newKeySet();
     private volatile boolean excludedDirty;
     private boolean inUseMarkerPresent;
@@ -137,7 +146,8 @@ final class MetalPipelineCache {
         MetalPipelineCache cache = new MetalPipelineCache(disk, device);
         Metallium.LOGGER.info("[metallium] Shader cache {} ({} of {} MiB): binary archive {}, {} recorded pipeline variants",
                 disk.directory(), disk.sizeBytes() >> 20, disk.maxBytes() >> 20,
-                cache.archive == null ? "unavailable" : cache.archiveLibrary != null ? "loaded" : "new", cache.variants.size());
+                cache.archive == null ? "unavailable" : cache.loadedArchives.isEmpty() ? "new" : "loaded (" + cache.loadedArchives.size() + " segments)",
+                cache.variants.size());
         return cache;
     }
 
@@ -191,18 +201,36 @@ final class MetalPipelineCache {
 
     // ---------------------------------------------------------------- binary archive
 
+    /** Archive segment files of earlier sessions, oldest first (the legacy {@code pipelines.mtlarchive} sorts first). */
+    private static List<Path> segmentFiles(final Path directory) {
+        try (var stream = Files.list(directory)) {
+            return stream.filter(path -> {
+                String name = path.getFileName().toString();
+                return name.startsWith(ARCHIVE_PREFIX) && name.endsWith(ARCHIVE_SUFFIX);
+            }).sorted().toList();
+        } catch (IOException e) {
+            return List.of();
+        }
+    }
+
     private void loadArchive(final ShaderDiskCache disk) {
         Path directory = disk.directory();
-        Path file = directory.resolve(ARCHIVE_FILE);
         Path marker = directory.resolve(ARCHIVE_IN_USE_MARKER);
         try {
-            if (Files.exists(marker)) {
-                Metallium.LOGGER.warn("[metallium] The game stopped early while the pipeline binary archive was in use; discarding the archive");
-                Files.deleteIfExists(file);
+            List<Path> segments = segmentFiles(directory);
+            long total = 0;
+            for (Path segment : segments) {
+                total += Files.size(segment);
             }
-            if (Files.exists(file) && Files.size(file) > disk.maxBytes() / 2) {
-                Metallium.LOGGER.info("[metallium] Pipeline binary archive exceeds half the cache size cap; starting a new one");
-                Files.deleteIfExists(file);
+            String reset = Files.exists(marker) ? "the game stopped early while it was in use"
+                    : total > disk.maxBytes() / 2 ? "it exceeds half the cache size cap"
+                    : segments.size() >= MAX_SEGMENTS ? "it has " + segments.size() + " segments"
+                    : null;
+            if (reset != null && !segments.isEmpty()) {
+                Metallium.LOGGER.warn("[metallium] Discarding the pipeline binary archive ({}); starting a new one", reset);
+                for (Path segment : segments) {
+                    Files.deleteIfExists(segment);
+                }
             }
             Files.writeString(marker, "in use since " + java.time.Instant.now());
             this.inUseMarkerPresent = true;
@@ -210,27 +238,52 @@ final class MetalPipelineCache {
             Metallium.LOGGER.warn("[metallium] Pipeline binary archive disabled: {}", e.toString());
             return;
         }
-        boolean existing = Files.exists(file);
         try (AutoreleasePool _ = AutoreleasePool.push()) {
-            if (existing) {
+            for (Path segment : segmentFiles(directory)) {
+                MTLBinaryArchive loaded = null;
                 try {
-                    this.archive = newArchive(file);
-                    this.archiveLibrary = this.device.newLibraryWithURL(NSURL.fileURL(file.toAbsolutePath().toString()));
+                    loaded = newArchive(segment);
+                    MTLLibrary library = this.device.newLibraryWithURL(NSURL.fileURL(segment.toAbsolutePath().toString()));
+                    this.loadedArchives.add(loaded);
+                    this.archiveLibraries.add(library);
                 } catch (NSErrorException e) {
-                    Metallium.LOGGER.warn("[metallium] Pipeline binary archive could not be opened ({}); starting a new one", e.getMessage());
-                    if (this.archive != null) {
-                        this.archive.release();
-                        this.archive = null;
+                    Metallium.LOGGER.warn("[metallium] Pipeline binary archive segment {} could not be opened ({}); deleting it", segment.getFileName(), e.getMessage());
+                    if (loaded != null) {
+                        loaded.release();
                     }
-                    this.archiveLibrary = null;
+                    try {
+                        Files.deleteIfExists(segment);
+                    } catch (IOException ignored) {
+                        // tried
+                    }
                 }
             }
-            if (this.archive == null) {
-                this.archive = newArchive(null);
-            }
+            // This session's new pipelines go into a fresh archive of their own: Metal re-serializes an archive opened
+            // from a file at several times its size once anything is added to it (measured: 30 pipelines 755 KB, +1
+            // pipeline 2.2 MB; Iris game test 9.9 MB -> 115 MB), and serializing an unchanged one moves its file.
+            this.archive = newArchive(null);
+            updateArchiveArray();
         } catch (NSErrorException e) {
             Metallium.LOGGER.warn("[metallium] Pipeline binary archive unavailable: {}", e.getMessage());
             this.archive = null;
+        }
+    }
+
+    /** {@link #archiveArray} = earlier segments + this session's archive. Call with the write lock (or before use). */
+    private void updateArchiveArray() {
+        List<MTLBinaryArchive> all = new ArrayList<>(this.loadedArchives);
+        if (this.archive != null) {
+            all.add(this.archive);
+        }
+        try (java.lang.foreign.Arena arena = java.lang.foreign.Arena.ofConfined()) {
+            MemorySegment pointers = arena.allocate(java.lang.foreign.ValueLayout.ADDRESS, Math.max(1, all.size()));
+            for (int i = 0; i < all.size(); i++) {
+                pointers.setAtIndex(java.lang.foreign.ValueLayout.ADDRESS, i, MemorySegment.ofAddress(all.get(i).handle()));
+            }
+            NSArray<MTLBinaryArchive> array = NSArray.arrayWithObjects(MTLBinaryArchive::new, pointers, all.size());
+            array.retain();
+            // The previous array is not released: a compile thread may be reading it right now (once per rebuild).
+            this.archiveArray = array;
         }
     }
 
@@ -251,28 +304,30 @@ final class MetalPipelineCache {
         return this.archive != null && !this.archiveDiscarded;
     }
 
-    /** The precompiled function {@code name} from the previous sessions' archive, or null (compile from source). */
+    /** The precompiled function {@code name} from the earlier sessions' archive segments, or null (compile from source). */
     @Nullable
     MTLFunction archivedFunction(final String name) {
-        MTLLibrary library = this.archiveLibrary;
-        if (library == null || this.archiveDiscarded) {
+        if (this.archiveDiscarded) {
             return null;
         }
-        try (AutoreleasePool _ = AutoreleasePool.push()) {
-            MTLFunction function = library.newFunctionWithName(name);
-            if (function != null) {
-                ShaderCacheStats.archivedFunctions.increment();
+        for (MTLLibrary library : this.archiveLibraries) {
+            try (AutoreleasePool _ = AutoreleasePool.push()) {
+                MTLFunction function = library.newFunctionWithName(name);
+                if (function != null) {
+                    ShaderCacheStats.archivedFunctions.increment();
+                    return function;
+                }
+            } catch (RuntimeException e) {
+                // try the next segment
             }
-            return function;
-        } catch (RuntimeException e) {
-            return null;
         }
+        return null;
     }
 
-    /** Stops using the archive for the rest of the session and deletes its file (a pipeline failed with it). */
+    /** Stops using the archive for the rest of the session and deletes its files (a pipeline failed with it). */
     void discardArchive() {
         this.archiveDiscarded = true;
-        this.archiveLibrary = null; // not released: functions taken from it may still be in use
+        // The libraries are not released: functions taken from them may still be in use.
     }
 
     /**
@@ -296,7 +351,7 @@ final class MetalPipelineCache {
                 if (this.excludedKeys.contains(key)) {
                     return MetalUtilities.newRenderPipelineState(this.device, descriptor);
                 }
-                descriptor.setBinaryArchives(NSArray.arrayWithObject(MTLBinaryArchive::new, archive));
+                descriptor.setBinaryArchives(this.archiveArray);
                 try {
                     MTLRenderPipelineState state = this.device.newRenderPipelineState(descriptor, MTLPipelineOption.FailOnBinaryArchiveMiss, MemorySegment.NULL);
                     ShaderCacheStats.archiveHits.increment();
@@ -314,8 +369,8 @@ final class MetalPipelineCache {
                         archive.addRenderPipelineFunctions(descriptor);
                         MTLRenderPipelineDescriptor copy = new MTLRenderPipelineDescriptor(descriptor.copy().handle());
                         copy.setBinaryArchives(null);
-                        synchronized (this.unsavedAdds) {
-                            this.unsavedAdds.put(key, copy);
+                        synchronized (this.sessionAdds) {
+                            this.sessionAdds.put(key, copy);
                         }
                         this.archiveDirty = true;
                     } catch (NSErrorException e) {
@@ -373,15 +428,15 @@ final class MetalPipelineCache {
     }
 
     /**
-     * Writes the archive to {@code temp}. On failure ("expecting 'fragment' stage in pipeline no. N" and similar
-     * archiver errors, which reject the whole file) the archive is rebuilt from the last written file plus this
-     * session's adds, leaving out the pipelines it cannot write (found by bisection; only this session's adds can be
-     * at fault, the file was written before), and the rebuilt archive replaces the live one. The rebuild runs without
-     * the archive lock, so compile threads keep using the live archive meanwhile. Call from {@link #save} only.
+     * Writes this session's archive to {@code temp}. On failure ("expecting 'fragment' stage in pipeline no. N" and
+     * similar archiver errors, which reject the whole file) a new archive is built from this session's adds, leaving
+     * out the pipelines it cannot write (found by bisection), and replaces the live one; earlier sessions' segments
+     * are not involved (they were written before). The rebuild runs without the archive lock, so compile threads keep
+     * using the live archive meanwhile. Call from {@link #save} only.
      *
      * @return true if {@code temp} now holds a complete archive.
      */
-    private boolean writeArchive(final Path directory, final Path temp) {
+    private boolean writeArchive(final Path temp) {
         List<Map.Entry<String, MTLRenderPipelineDescriptor>> adds;
         String error;
         this.archiveLock.writeLock().lock();
@@ -390,42 +445,39 @@ final class MetalPipelineCache {
             if (archive == null) {
                 return false;
             }
-            synchronized (this.unsavedAdds) {
-                adds = new ArrayList<>(this.unsavedAdds.entrySet());
+            synchronized (this.sessionAdds) {
+                adds = new ArrayList<>(this.sessionAdds.entrySet());
             }
             error = simulatedFailure(adds) ? SIMULATED_ERROR : trySerialize(archive, temp);
         } finally {
             this.archiveLock.writeLock().unlock();
         }
         if (error == null) {
-            releaseSaved(adds);
             return true;
         }
         Metallium.LOGGER.warn("[metallium] The pipeline binary archive could not be written ({}); rebuilding it without the pipelines Metal cannot store",
                 firstLine(error));
         long start = System.nanoTime();
-        Path file = directory.resolve(ARCHIVE_FILE);
-        @Nullable Path base = Files.exists(file) ? file : null;
         List<Map.Entry<String, MTLRenderPipelineDescriptor>> good = new ArrayList<>();
         List<Map.Entry<String, MTLRenderPipelineDescriptor>> rest = adds;
         List<Map.Entry<String, MTLRenderPipelineDescriptor>> bad = new ArrayList<>();
         MTLBinaryArchive rebuilt;
         while (true) {
-            rebuilt = buildArchive(base, good, rest, temp);
+            rebuilt = buildArchive(good, rest, temp);
             if (rebuilt != null) {
                 break;
             }
             if (rest.isEmpty() || bad.size() >= MAX_EXCLUDED_PER_REBUILD) {
                 this.archiveWritesDisabled = true;
-                Metallium.LOGGER.warn("[metallium] Pipeline binary archive rebuild failed; no archive writes this session (the archive from earlier sessions stays in use)");
+                Metallium.LOGGER.warn("[metallium] Pipeline binary archive rebuild failed; no archive writes this session (earlier sessions' archive stays in use)");
                 return false;
             }
-            // Smallest prefix of rest that fails together with base + good; its last entry is a culprit.
+            // Smallest prefix of rest that fails together with good; its last entry is a culprit.
             int low = 1;
             int high = rest.size();
             while (low < high) {
                 int mid = (low + high) >>> 1;
-                MTLBinaryArchive probe = buildArchive(base, good, rest.subList(0, mid), temp);
+                MTLBinaryArchive probe = buildArchive(good, rest.subList(0, mid), temp);
                 if (probe != null) {
                     probe.release();
                     low = mid + 1;
@@ -449,8 +501,11 @@ final class MetalPipelineCache {
             Set<String> snapshot = new java.util.HashSet<>();
             adds.forEach(entry -> snapshot.add(entry.getKey()));
             List<Map.Entry<String, MTLRenderPipelineDescriptor>> later = new ArrayList<>();
-            synchronized (this.unsavedAdds) {
-                this.unsavedAdds.entrySet().stream().filter(entry -> !snapshot.contains(entry.getKey())).forEach(later::add);
+            synchronized (this.sessionAdds) {
+                this.sessionAdds.entrySet().stream().filter(entry -> !snapshot.contains(entry.getKey())).forEach(later::add);
+                for (Map.Entry<String, MTLRenderPipelineDescriptor> entry : bad) {
+                    this.sessionAdds.remove(entry.getKey());
+                }
             }
             for (Map.Entry<String, MTLRenderPipelineDescriptor> entry : later) {
                 try {
@@ -462,6 +517,7 @@ final class MetalPipelineCache {
             }
             // The old archive is not released: a compile thread may still hold it in a descriptor's binaryArchives.
             this.archive = rebuilt;
+            updateArchiveArray();
             if (newer > 0) {
                 this.archiveDirty = true;
             }
@@ -470,27 +526,15 @@ final class MetalPipelineCache {
         }
         Metallium.LOGGER.info("[metallium] Pipeline binary archive rebuilt in {} ms: {} new pipelines kept, {} left out for good (compiled at load instead): {}",
                 (System.nanoTime() - start) / 1_000_000, adds.size() - bad.size() + newer, bad.size(), culprits);
-        releaseSaved(adds);
         return true;
     }
 
-    /** The adds in {@code saved} are in the archive file now (or excluded): drop their retained descriptors. */
-    private void releaseSaved(final List<Map.Entry<String, MTLRenderPipelineDescriptor>> saved) {
-        synchronized (this.unsavedAdds) {
-            for (Map.Entry<String, MTLRenderPipelineDescriptor> entry : saved) {
-                if (this.unsavedAdds.remove(entry.getKey()) != null) {
-                    entry.getValue().release();
-                }
-            }
-        }
-    }
-
-    /** A new archive from {@code base} (or empty) plus the given adds, written to {@code temp}; null if it fails. */
-    private @Nullable MTLBinaryArchive buildArchive(final @Nullable Path base, final List<Map.Entry<String, MTLRenderPipelineDescriptor>> first,
+    /** A new archive of the given adds, written to {@code temp}; null if the add or the write fails. */
+    private @Nullable MTLBinaryArchive buildArchive(final List<Map.Entry<String, MTLRenderPipelineDescriptor>> first,
                                                     final List<Map.Entry<String, MTLRenderPipelineDescriptor>> second, final Path temp) {
         MTLBinaryArchive candidate;
         try {
-            candidate = newArchive(base);
+            candidate = newArchive(null);
         } catch (NSErrorException e) {
             return null;
         }
@@ -620,16 +664,18 @@ final class MetalPipelineCache {
             changed = true;
         }
         if (this.archiveDiscarded) {
-            changed |= Files.deleteIfExists(directory.resolve(ARCHIVE_FILE));
+            for (Path segment : segmentFiles(directory)) {
+                changed |= Files.deleteIfExists(segment);
+            }
         } else if (this.archiveDirty && !this.archiveWritesDisabled) {
-            Path temp = directory.resolve(ARCHIVE_FILE + "." + ProcessHandle.current().pid() + ".tmp");
+            Path temp = directory.resolve(this.sessionSegment + "." + ProcessHandle.current().pid() + ".tmp");
             boolean written;
             try (AutoreleasePool _ = AutoreleasePool.push()) {
                 this.archiveDirty = false;
-                written = writeArchive(directory, temp);
+                written = writeArchive(temp);
             }
             if (written) {
-                ShaderDiskCache.moveAtomically(temp, directory.resolve(ARCHIVE_FILE));
+                ShaderDiskCache.moveAtomically(temp, directory.resolve(this.sessionSegment));
                 changed = true;
             } else {
                 Files.deleteIfExists(temp);
@@ -662,9 +708,9 @@ final class MetalPipelineCache {
                 this.archive.release();
                 this.archive = null;
             }
-            synchronized (this.unsavedAdds) {
-                this.unsavedAdds.values().forEach(MTLRenderPipelineDescriptor::release);
-                this.unsavedAdds.clear();
+            synchronized (this.sessionAdds) {
+                this.sessionAdds.values().forEach(MTLRenderPipelineDescriptor::release);
+                this.sessionAdds.clear();
             }
         } finally {
             this.archiveLock.writeLock().unlock();
