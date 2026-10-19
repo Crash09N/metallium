@@ -147,6 +147,11 @@ loom.runs.clientGameTest {
 	// -PbenchFullscreen: benchmark fullscreen on that display.
 	if (project.hasProperty('benchFullscreen')) vmArg '-Dmetallium.bench.fullscreen=true'
 	// -PpresentPacing=gpu: VSync-off present pacing on GPU completion + half refresh (default: presented handler).
+	// -PmetalHud: Apple's Metal Performance HUD in the game window (+ its unified-log metrics, MTL_HUD_LOG_ENABLED).
+	if (project.hasProperty('metalHud')) {
+		environmentVariable 'MTL_HUD_ENABLED', '1'
+		environmentVariable 'MTL_HUD_LOG_ENABLED', '1'
+	}
 	if (project.hasProperty('presentPacing')) vmArg "-Dmetallium.present.pacing=${project.property('presentPacing')}"
 }
 

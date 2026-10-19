@@ -122,10 +122,25 @@ Metal Performance HUD shows only ~70 displayed fps; VSync on shows 144 correctly
 - 2026-10-19 follow-up: `-PpresentPacing=gpu` (`-Dmetallium.present.pacing=gpu`, default stays `handler`) presents
   when the GPU finished the previous present and half a refresh period passed; the drawable blit + present go into a
   small command buffer of their own after the frame's (the frame is copied first, so no frame waits for the display).
-  NOT yet measured on a visible display: from 01:51 the test Mac's screen was locked, and while locked every client
-  (Metal old or new pacing, and OpenGL fullscreen at ~22 fps) is throttled by macOS — Metal renders 59.6 fps with
-  every present dropped. Measure with the screen unlocked (windowed and fullscreen, 144 Hz if possible) before
-  making it the default. `bench-present:` also has `displayed_fps` now (presents with a distinct `presentedTime`);
+  While the screen is locked every client is throttled by macOS (Metal either pacing: 59.6 rendered, all presents
+  dropped; OpenGL fullscreen ~22 fps) — such runs are invalid. Measured windowed on the 144 Hz Odyssey G5
+  (`-PbenchDisplay`, default = highest-refresh display), AC power, owner partly using the Mac:
+
+  | pacing | scene | rendered fps | presented/s | note |
+  |---|---|---|---|---|
+  | handler | light | 3377 | 151.8 | exclusive, nothing else running |
+  | handler | light | 2889 | 106.1 | Metal HUD on, owner active |
+  | handler | shaders | 601 | 184.5 | Metal HUD on |
+  | gpu | shaders | 482 | 137.7 | |
+  | gpu | shaders | 437 | 139.8 | Metal HUD on |
+  | gpu, VSync on | light | 140.9 | 140.8 | |
+
+  With the default handler pacing the windowed presents already reach or exceed the refresh rate; `gpu` pacing caps
+  them just below it (138-140 of 144) and costs ~20 % rendered fps (frame copy + extra command buffer), so it stays
+  opt-in. Runs with the window occluded (owner's windows in front) showed 2-120 presents/s and were discarded. The
+  owner's ~70 shown fps was not reproduced windowed; fullscreen on the G5 and the Metal HUD's own counter still need a
+  run while nobody uses the Mac (the HUD cannot be read from logs: `MTL_HUD_LOG_ENABLED=1` wrote nothing to the unified
+  log here; `-PmetalHud` sets both variables). The "HUD shows no GPU time" report is not investigated yet. `bench-present:` also has `displayed_fps` now (presents with a distinct `presentedTime`);
   windowed it still reports 142.8/s on the 60 Hz display, so it is the compositor latch, not scan-out.
 
 ### Encoder count (2026-10-19)
