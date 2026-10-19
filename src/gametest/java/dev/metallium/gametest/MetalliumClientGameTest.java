@@ -1136,10 +1136,10 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
                 && System.getProperty("metallium.gl.routedMods", "").contains("voxy");
         try {
             TestSingleplayerContext world = context.worldBuilder().setUseConsistentSettings(false)
-                    .adjustSettings(state -> state.setSeed(System.getProperty("metallium.gametest.seed", "metallium-forest"))).create();
+                    .adjustSettings(state -> state.setSeed(System.getProperty("metallium.gametest.seed", "metallium"))).create();
             world.getConnection().waitForChunksRender();
             tryCommand(world, "gamemode spectator @a");
-            tryCommand(world, "tp @a 0 140 0 30 25");
+            tryCommand(world, "tp @a 0 129 0 110 20");
             tryCommand(world, "time set 6000");
             tryCommand(world, "gamerule advance_time false");
             context.runOnClient(client -> client.options.renderDistance().set(16));
