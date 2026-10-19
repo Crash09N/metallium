@@ -1147,6 +1147,7 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
             comboShaderPack(context, "bobby");
             context.waitTicks(600);
             clearChat(context);
+            int before = context.computeOnClient(client -> client.level.getChunkSource().getLoadedChunksCount());
             line("bobby: server 16: " + chunkStats(context));
             context.takeScreenshot("metallium-bobby-server16");
             sodiumStats(context, "bobby server16");
@@ -1154,7 +1155,11 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
             context.waitTicks(400);
             clearChat(context);
             line("bobby: server 4: " + chunkStats(context));
-            checkTerrainVisible(context.takeScreenshot("metallium-bobby-server4"), "bobby cached chunks (server view distance 4)");
+            int after = context.computeOnClient(client -> client.level.getChunkSource().getLoadedChunksCount());
+            // Without Bobby the client drops to the server's 9x9 area; Bobby keeps the chunks it had.
+            if (after < before * 0.9 || after <= 81) failures.add("bobby: client chunks dropped from " + before + " to " + after);
+            // Judged by looking (snowy terrain fools the coverage heuristic); not a failure criterion here.
+            checkTerrainVisible(context.takeScreenshot("metallium-bobby-server4"), "bobby cached chunks (server view distance 4)", false);
             measure(context, "bobby server4");
             if (voxy) {
                 line("bobby+voxy: " + glSummary());

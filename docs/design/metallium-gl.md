@@ -328,6 +328,19 @@ and automatic routing on, all of Voxy's classes are retargeted without `-Dmetall
 automatic routing off or no metallium-gl keep the safe-disable mixin. The status screen's key-mods row reads
 "Voxy …: runs via metallium-gl (OpenGL 4.6 translated to Metal)" (asserted by the Voxy game test).
 
+**Combination game tests** (2026-10-19, on battery, `gpu-lock.sh`; screenshots looked at; scripts: `-PwithBobby`,
+`-PwithPhysics=<jar>` together with an LOD mod runs the LOD scenario plus `physicsInWorld`, `-Pshaderpack` activates the
+pack in the DH / Voxy / Bobby scenarios):
+
+| Combination | Result |
+|---|---|
+| Voxy (auto-routed, no `-PglMods`) + Sodium | PASS; LODs at vanilla rd 4 match the rd-16 view; MDI-count only as ICBs; status row "runs via metallium-gl" |
+| Bobby 5.2.16 alone (vanilla renderer) | runs; after the server view distance drops 16 → 4 the client keeps 157 of 168 chunks and the view is unchanged |
+| Bobby + Sodium + Voxy | PASS; Sodium keeps 96 sections at server distance 4; Voxy LODs over Bobby's chunks at rd 4 |
+| Physics Mod 3.2.5 + Voxy + Sodium | PASS; brick debris, zombie ragdoll and TNT on Metal with Voxy running (3 routed mods, 0 unimplemented GL functions) |
+| Iris + Voxy (Complementary Reimagined) | runs, no errors; Voxy draws, but the pack fogs everything beyond the vanilla distance: Voxy's Iris integration (`IrisVoxyRenderPipeline`, pack `voxy_*.glsl` programs) hooks Iris's GL pipeline, which metallium-iris replaces — needs metallium-iris work |
+| DH + Iris (+ Physics Mod) | was a hang (DH forces its OpenGL renderer when Iris is present; on Metal its start fails and the render thread waits forever). Fixed by `DhIrisEngineMixin` (Blaze3D stays). Now runs; LODs fogged by the pack ("2 DH programs are not executed yet on Metal"), physics debris works |
+
 ## 12b. Engine objects behind Minecraft's GL backend types (Physics Mod GPU compute)
 
 Mods written against Minecraft's OpenGL backend cast renderpearl objects to `GlTexture`, `GlTextureView`, `GlBuffer`
