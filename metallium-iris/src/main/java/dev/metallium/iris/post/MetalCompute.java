@@ -160,7 +160,13 @@ final class MetalCompute implements MetalliumInterop.ExternalEncoderClient, Auto
         MTLComputeCommandEncoder encoder = computeEncoder();
         encoder.setComputePipelineState(state);
         encoder.setTexture(texture, 0);
-        MTLSize group = is3d ? new MTLSize(4, 4, 4) : new MTLSize(8, 8, 1);
+        // 512-thread groups: with 4x4x4 groups, zeroing Complementary's 512x256x512 R8 + 512x64x512 R16 voxel images
+        // took 1.63 ms per frame on an M3 Max, with 8x8x8 0.39 ms (measured in isolation; the clear is store-bound).
+        MTLSize group = is3d ? new MTLSize(8, 8, 8) : new MTLSize(16, 16, 1);
+        long limit = state.maxTotalThreadsPerThreadgroup();
+        if (group.width() * group.height() * group.depth() > limit) {
+            group = is3d ? new MTLSize(4, 4, 4) : new MTLSize(8, 8, 1);
+        }
         encoder.dispatchThreadgroups(new MTLSize(
                 (texture.width() + group.width() - 1) / group.width(),
                 (texture.height() + group.height() - 1) / group.height(),
