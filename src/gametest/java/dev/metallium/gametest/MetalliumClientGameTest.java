@@ -100,6 +100,7 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
         int renderDistance = Integer.getInteger("metallium.bench.renderDistance", "rd32".equals(BENCH_SCENE) || voxy ? 32 : 12);
         int settleTicks = Integer.getInteger("metallium.bench.settleTicks", flight ? 100 : 300);
         int settleSeconds = Integer.getInteger("metallium.bench.settleSeconds", renderDistance >= 24 ? 150 : flight ? 20 : renderDistance >= 16 ? 90 : 60);
+        line("bench: render distance=" + renderDistance);
         String pack = System.getProperty("metallium.gametest.shaderpack", "");
         if (shaders && (pack.isEmpty() || !Files.isRegularFile(Path.of(pack))
                 || !net.fabricmc.loader.api.FabricLoader.getInstance().isModLoaded("iris"))) {
@@ -120,6 +121,8 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
                 .create()) {
             world.getConnection().waitForChunksRender();
             tryCommand(world, "gamerule spawn_monsters false");
+            // Spectators must still make the server generate and send chunks beyond the spawn area.
+            tryCommand(world, "gamerule spectators_generate_chunks true");
             tryCommand(world, "gamemode spectator @a");
             tryCommand(world, "time set 6000");
             tryCommand(world, "gamerule advance_time false");
@@ -145,6 +148,18 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
                     : "0 " + (surface + 25) + " 0 " + (flight ? "-90 10" : "110 15");
             line("bench: surface y at origin=" + surface + ", camera=" + camera);
             tryCommand(world, "tp @a " + camera);
+            if (!flight) {
+                // The game test runs the server in lock-step; plain waiting ticks never generates the chunks beyond the
+                // spawn area (all earlier bench runs rendered only ~2.6k sections). Wait for the whole view distance.
+                context.waitTicks(20); // let the new view distance reach both sides first
+                long loadStart = System.nanoTime();
+                try {
+                    int ticks = world.getConnection().waitForChunksDownload(20 * (renderDistance >= 32 ? 300 : 120));
+                    line(String.format("bench: chunks downloaded after %d ticks (%.1f s)", ticks, (System.nanoTime() - loadStart) / 1e9));
+                } catch (Throwable t) {
+                    line("bench: waitForChunksDownload failed (continuing): " + t.getMessage());
+                }
+            }
 
             if (shaders) {
                 try {
@@ -179,6 +194,10 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
             if (!flight) {
                 checkTerrainVisible(context.takeScreenshot("metallium-bench-view-" + BENCH_SCENE), "bench view");
             }
+            line("bench: client render distance option=" + context.computeOnClient(c -> c.options.renderDistance().get())
+                    + ", server view distance=" + world.getServer().computeOnServer(s -> s.getPlayerList().getViewDistance())
+                    + ", client loaded chunks=" + context.computeOnClient(c -> c.level.getChunkSource().getLoadedChunksCount())
+                    + ", server loaded chunks=" + world.getServer().computeOnServer(s -> s.overworld().getChunkSource().getLoadedChunksCount()));
             sodiumStats(context, "bench");
 
             List<Integer> fpsSamples = new ArrayList<>();

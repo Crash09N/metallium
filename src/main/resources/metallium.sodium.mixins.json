@@ -5,8 +5,10 @@
   "mixins": [
   ],
   "client": [
+    "DefaultChunkRendererPerfMixin",
     "DrawBackendMixin",
     "EnumOptionMixin",
+    "GLDrawBatchDrawMixin",
     "StatefulOptionMixin"
   ],
   "injectors": {
