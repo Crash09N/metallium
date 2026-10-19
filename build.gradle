@@ -143,6 +143,8 @@ loom.runs.clientGameTest {
 	// -PglMods=voxy (with -PwithGl): retarget these mods' GL calls to metallium-gl; -PglFailFast=false logs instead of throwing.
 	if (project.hasProperty('glMods')) vmArg "-Dmetallium.gl.mods=${project.property('glMods')}"
 	if (project.hasProperty('glFailFast')) vmArg "-Dmetallium.gl.failFast=${project.property('glFailFast')}"
+	// -PvoxyFullscreen: the Voxy scenario also toggles fullscreen on and off after its window resizes.
+	if (project.hasProperty('voxyFullscreen')) vmArg '-Dmetallium.gametest.voxyFullscreen=true'
 	// -PglTrace=N [-PglTraceAfter=S]: log N metallium-gl device operations after S seconds (diagnostics).
 	if (project.hasProperty('glTrace')) vmArg "-Dmetallium.gl.trace=${project.property('glTrace')}"
 	if (project.hasProperty('glTraceAfter')) vmArg "-Dmetallium.gl.traceAfter=${project.property('glTraceAfter')}"
