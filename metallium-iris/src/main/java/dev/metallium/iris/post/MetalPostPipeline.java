@@ -995,6 +995,7 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
     }
 
     private boolean initializedBlockIds;
+    private final DebugDump debugDump = new DebugDump();
 
     @Override
     public void finalizeLevelRendering() {
@@ -1112,6 +1113,9 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
                     PostTargets.Target target = targets.get(buffer);
                     encoder.copyTextureToTexture(target.alt, target.main, 0, 0, 0, 0, 0, target.main.getWidth(0), target.main.getHeight(0));
                 }
+            }
+            if (debugDump.due()) {
+                debugDump.dump(targets);
             }
         } finally {
             GbufferPasses.resume();
