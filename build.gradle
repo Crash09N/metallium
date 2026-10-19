@@ -395,5 +395,8 @@ tasks.register('runClientProd', JavaExec) {
 	args '--username', 'Player', '--version', 'Metallium-play', '--gameDir', instDir.absolutePath,
 		'--assetsDir', "${System.getProperty('user.home')}/.gradle/caches/fabric-loom/assets", '--assetIndex', '26.3-34',
 		'--accessToken', '0', '--userType', 'legacy'
+	// -PplayWorld=<save folder>: join that singleplayer world straight from start-up (Minecraft's quick play).
+	def playWorld = project.findProperty('playWorld')
+	if (playWorld instanceof String && !playWorld.isEmpty() && playWorld != 'true') args '--quickPlaySingleplayer', playWorld
 	doFirst { if (!rel.exists()) throw new GradleException("missing $rel") }
 }
