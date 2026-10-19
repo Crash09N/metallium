@@ -404,6 +404,8 @@ tasks.register('runClientProd', JavaExec) {
 		'--assetsDir', "${System.getProperty('user.home')}/.gradle/caches/fabric-loom/assets", '--assetIndex', '26.3-34',
 		'--accessToken', '0', '--userType', 'legacy'
 	// -PplayWorld=<save folder>: join that singleplayer world straight from start-up (Minecraft's quick play).
+	// Known: with Animated Mojang Logo installed, quick play hangs in the world-loading screen (doWorldLoad waits for the
+	// logo overlay); remove that mod in the instance used for -PplayWorld. Launch only copies of the owner's instance.
 	def playWorld = project.findProperty('playWorld')
 	if (playWorld instanceof String && !playWorld.isEmpty() && playWorld != 'true') args '--quickPlaySingleplayer', playWorld
 	doFirst { if (!rel.exists()) throw new GradleException("missing $rel") }
