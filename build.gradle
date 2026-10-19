@@ -132,6 +132,8 @@ loom.runs.clientGameTest {
 		project.property('terrain').toString().split(',').each { opt -> if (!opt.isEmpty()) vmArg "-Dmetallium.terrain.${opt}" }
 	}
 	if (project.hasProperty('perfCounters')) vmArg '-Dmetallium.perfCounters=true'
+	// -PperfTrace (with -PperfCounters): log every encoder of one submit per counter window and why it was opened.
+	if (project.hasProperty('perfTrace')) vmArg '-Dmetallium.perfTrace=true'
 	// -PglMods=voxy (with -PwithGl): retarget these mods' GL calls to metallium-gl; -PglFailFast=false logs instead of throwing.
 	if (project.hasProperty('glMods')) vmArg "-Dmetallium.gl.mods=${project.property('glMods')}"
 	if (project.hasProperty('glFailFast')) vmArg "-Dmetallium.gl.failFast=${project.property('glFailFast')}"
@@ -155,6 +157,17 @@ loom.runs.clientGameTest {
 	if (project.hasProperty('benchWindow')) vmArg "-Dmetallium.bench.window=${project.property('benchWindow')}"
 	// -PbenchVsync: run the benchmark with VSync on (default off) to compare presented vs rendered frames.
 	if (project.hasProperty('benchVsync')) vmArg '-Dmetallium.bench.vsync=true'
+	// -PbenchDisplay=<index or name substring>: display for the benchmark window (default: highest refresh rate).
+	if (project.hasProperty('benchDisplay')) vmArg "-Dmetallium.bench.display=${project.property('benchDisplay')}"
+	// -PbenchFullscreen: benchmark fullscreen on that display.
+	if (project.hasProperty('benchFullscreen')) vmArg '-Dmetallium.bench.fullscreen=true'
+	// -PpresentPacing=gpu: VSync-off present pacing on GPU completion + half refresh (default: presented handler).
+	// -PmetalHud: Apple's Metal Performance HUD in the game window (+ its unified-log metrics, MTL_HUD_LOG_ENABLED).
+	if (project.hasProperty('metalHud')) {
+		environmentVariable 'MTL_HUD_ENABLED', '1'
+		environmentVariable 'MTL_HUD_LOG_ENABLED', '1'
+	}
+	if (project.hasProperty('presentPacing')) vmArg "-Dmetallium.present.pacing=${project.property('presentPacing')}"
 }
 
 // ./gradlew runClientGameTest -PwithSodium  → runs the game tests with Sodium loaded.
@@ -290,6 +303,23 @@ if (project.hasProperty('withPhysics')) {
 	}
 }
 
+// ./gradlew runClientGameTest -PwithBetterF3=/abs/path/BetterF3-20.0.0-Fabric-26.3.jar  -> BetterF3 scenario (F3 overlay
+// shows the Metallium lines through BetterF3's own HUD). BetterF3 is MIT; the jar is only loaded from the given path at
+// test time. It needs Cloth Config (Modrinth, test-only). Combine with -PwithIris for the Iris adapter status line.
+if (project.hasProperty('withBetterF3')) {
+	def betterF3Jar = project.property('withBetterF3')
+	if (!(betterF3Jar instanceof String) || betterF3Jar.isEmpty() || betterF3Jar == 'true' || !file(betterF3Jar).isFile()) {
+		throw new GradleException('-PwithBetterF3 needs the path of a BetterF3 jar, e.g. -PwithBetterF3=/abs/BetterF3-20.0.0-Fabric-26.3.jar')
+	}
+	dependencies {
+		gametestRuntimeOnly files(betterF3Jar)
+		gametestRuntimeOnly 'maven.modrinth:cloth-config:fg2uyxOW'
+	}
+	loom.runs.clientGameTest {
+		vmArg '-Dmetallium.gametest.mode=betterf3'
+	}
+}
+
 // ./gradlew runClientGameTest -PwithGl -PcrashRecovery  → simulates "the last session crashed in a metallium-gl-routed
 // mod": seeds a session marker and a crash report into the run directory, so this run must start on OpenGL and show the
 // crash-recovery screen before the title screen.
@@ -336,4 +366,23 @@ if (project.hasProperty('releaseJarTest')) {
 				files(releaseJarFile)
 	}
 	tasks.matching { it.name == 'runClientGameTest' }.configureEach { dependsOn 'releaseJar' }
+}
+
+// ./gradlew runClientProd  -> production-style Fabric launch (fabric.development unset) of the play instance, for mods that
+// refuse Loom dev environments (Essential: "Failed to find tiny mappings file"). Metallium is the release jar
+// (build/release/metallium-<v>.jar, added with -Dfabric.addMods, includes metallium-gl + metallium-iris), not dev classes.
+// The instance (../metallium-research/play-instance by default, or -PplayProd=<dir>) supplies the other mods. Offline user, no login.
+tasks.register('runClientProd', JavaExec) {
+	dependsOn 'releaseJar'
+	def dirProp = project.findProperty('playProd')
+	def instDir = file((dirProp instanceof String && !dirProp.isEmpty() && dirProp != 'true') ? dirProp : '../metallium-research/play-instance')
+	def rel = layout.buildDirectory.file("release/metallium-${project.version}.jar").get().asFile
+	workingDir = instDir
+	classpath = files(configurations.runtimeClasspath.filter { !it.name.startsWith('metal-jvm') })
+	mainClass = 'net.fabricmc.loader.impl.launch.knot.KnotClient'
+	jvmArgs '--enable-native-access=ALL-UNNAMED', '-XstartOnFirstThread', '-Xmx6G', "-Dfabric.addMods=${rel}"
+	args '--username', 'Player', '--version', 'Metallium-play', '--gameDir', instDir.absolutePath,
+		'--assetsDir', "${System.getProperty('user.home')}/.gradle/caches/fabric-loom/assets", '--assetIndex', '26.3-34',
+		'--accessToken', '0', '--userType', 'legacy'
+	doFirst { if (!rel.exists()) throw new GradleException("missing $rel") }
 }

@@ -1,0 +1,9 @@
+{
+  "required": false,
+  "package": "dev.metallium.compat.betterf3.mixin",
+  "compatibilityLevel": "JAVA_25",
+  "client": [
+    "MinecraftGpuUtilizationMixin",
+    "MiscRightModuleMixin"
+  ]
+}

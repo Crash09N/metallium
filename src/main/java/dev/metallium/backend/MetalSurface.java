@@ -46,13 +46,8 @@ import java.util.concurrent.locks.LockSupport;
 
 @Environment(EnvType.CLIENT)
 final class MetalSurface implements GpuSurfaceBackend {
+    private static final boolean GPU_PACING = "gpu".equals(System.getProperty("metallium.present.pacing", "handler"));
     private static final long PRESENT_PENDING_TIMEOUT_NS = 100_000_000L;
-    /**
-     * VSync off: presents allowed to wait for their presented handler at once. Measured 2026-10-18 (light bench,
-     * exclusive GPU, window visible): 1 → 3918 rendered / 179 shown per s, 2 → 3427 / 83, 3 → 963 / 74,
-     * 100 → 381 / 63. More presents in flight make the layer drop frames and stall rendering, so keep 1.
-     */
-    private static final int MAX_PRESENTS_IN_FLIGHT = 1;
     private static final Set<GpuSurface.PresentMode> SUPPORTED_PRESENT_MODES = EnumSet.of(GpuSurface.PresentMode.IMMEDIATE, GpuSurface.PresentMode.FIFO, GpuSurface.PresentMode.MAILBOX);
     private final long metalView;
     private final CAMetalLayer metalLayer;
@@ -62,6 +57,8 @@ final class MetalSurface implements GpuSurfaceBackend {
     private final AtomicInteger presentsInFlight = new AtomicInteger();
     private final long presentedHandler = presentedHandlerBlock(this);
     private long lastPresentNs;
+    private long refreshPeriodNs = 1_000_000_000L / 60;
+    private long refreshCheckedNs;
     private boolean displaySync = true;
     private int width;
     private int height;
@@ -136,22 +133,47 @@ final class MetalSurface implements GpuSurfaceBackend {
             present(metalEncoder, drawable, textureView, System.nanoTime());
             return;
         }
-        // No vsync (mailbox): a windowed CAMetalLayer only hands drawables back at the display refresh, so a blocking
-        // nextDrawable() would cap the frame rate at the refresh rate. Instead a helper thread acquires drawables and
-        // the newest rendered frame is presented whenever a drawable is ready and fewer than MAX_PRESENTS_IN_FLIGHT
-        // presents still wait for the display (presented handler; 100 ms safety valve). Otherwise the drawable blit is
-        // skipped (the frame itself is still rendered), like a mailbox swapchain dropping frames. Not queueing behind an
-        // unshown present keeps the GPU from waiting on drawables the compositor still holds.
+        // No vsync (mailbox): a CAMetalLayer only hands drawables back at the display refresh, so a blocking
+        // nextDrawable() would cap the frame rate at the refresh rate. A helper thread acquires drawables; a rendered
+        // frame is presented only when a drawable is ready and the previous present is out of the way, otherwise the
+        // drawable blit is skipped (the frame itself is still rendered), like a mailbox swapchain dropping frames.
+        // "Out of the way" (-Dmetallium.present.pacing):
+        //  - "handler" (default): the previous present's presented handler ran (100 ms safety valve). Suspected cause
+        //    of the owner's ~70 shown fps on a 144 Hz display: the next present can only follow a refresh after the
+        //    handler. More presents in flight measured worse (2026-10-18, see docs/STATUS.md).
+        //  - "gpu": the GPU finished the previous present's own command buffer and half a refresh period has passed.
+        //    The present goes into a separate command buffer (MetalCommandEncoder#presentTextureToDrawableDecoupled)
+        //    so no frame waits for the display. Not measured on a visible display yet (screen was locked).
         long now = System.nanoTime();
-        if (this.presentsInFlight.get() >= MAX_PRESENTS_IN_FLIGHT && now - this.lastPresentNs < PRESENT_PENDING_TIMEOUT_NS) {
+        if (now - this.refreshCheckedNs > 1_000_000_000L) {
+            this.refreshCheckedNs = now;
+            float hz = PresentStats.displayRefreshHz();
+            this.refreshPeriodNs = hz > 1f ? (long) (1e9 / hz) : 1_000_000_000L / 60;
+        }
+        boolean ready;
+        if (GPU_PACING) {
+            ready = metalEncoder.previousPresentCompleted() && now - this.lastPresentNs >= this.refreshPeriodNs / 2;
+        } else {
+            ready = this.presentsInFlight.get() < 1 || now - this.lastPresentNs >= PRESENT_PENDING_TIMEOUT_NS;
+        }
+        if (!ready) {
             if (drawable != null) {
                 this.prefetcher.putBack(drawable);
             }
             PresentStats.skipped.incrementAndGet();
+            this.prefetcher.request();
             return;
         }
         if (drawable != null) {
-            present(metalEncoder, drawable, textureView, now);
+            this.presentsInFlight.incrementAndGet();
+            this.lastPresentNs = now;
+            PresentStats.submitted.incrementAndGet();
+            if (GPU_PACING) {
+                metalEncoder.presentTextureToDrawableDecoupled(drawable, textureView, this.presentedHandler);
+            } else {
+                metalEncoder.presentTextureToDrawable(drawable, textureView, this.presentedHandler);
+            }
+            drawable.release();
         } else {
             PresentStats.skipped.incrementAndGet();
         }
@@ -178,8 +200,13 @@ final class MetalSurface implements GpuSurfaceBackend {
      */
     private void onPresented(final MemorySegment block, final MemorySegment drawable) {
         this.presentsInFlight.updateAndGet(n -> n > 0 ? n - 1 : 0);
-        boolean shown = drawable.address() != 0L && new MTLDrawable(drawable.address()).presentedTime() > 0.0;
+        double presentedTime = drawable.address() != 0L ? new MTLDrawable(drawable.address()).presentedTime() : 0.0;
+        boolean shown = presentedTime > 0.0;
         (shown ? PresentStats.presented : PresentStats.dropped).incrementAndGet();
+        if (shown && presentedTime > PresentStats.lastPresentedTime + 0.001) {
+            PresentStats.lastPresentedTime = presentedTime;
+            PresentStats.displayed.incrementAndGet();
+        }
     }
 
     /**
@@ -238,8 +265,19 @@ final class MetalSurface implements GpuSurfaceBackend {
     @Override
     public void close() {
         this.prefetcher.stop();
+        // Presented handlers are FFM upcalls on a Quartz thread: one arriving after the JVM began shutting down aborts
+        // it ("Could not attach thread for upcall"). Let every submitted present report back before the view goes away.
+        awaitPresentsReported(500L);
         PresentStats.windowHandle = 0L;
         SDLMetal.SDL_Metal_DestroyView(this.metalView);
+        awaitPresentsReported(100L);
+    }
+
+    private void awaitPresentsReported(final long timeoutMs) {
+        long deadline = System.nanoTime() + timeoutMs * 1_000_000L;
+        while (this.presentsInFlight.get() > 0 && System.nanoTime() < deadline) {
+            LockSupport.parkNanos(1_000_000L);
+        }
     }
 
     @Override
@@ -290,6 +328,13 @@ final class MetalSurface implements GpuSurfaceBackend {
         void stop() {
             this.running = false;
             this.requests.release();
+            if (this.thread != null) {
+                try {
+                    this.thread.join(200L); // it may sit in nextDrawable() until the display hands one back
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }
             CAMetalDrawable drawable = this.ready.getAndSet(null);
             if (drawable != null) {
                 drawable.release();
