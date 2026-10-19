@@ -71,9 +71,14 @@ public final class BackendSelection {
         }
 
         FabricLoader loader = FabricLoader.getInstance();
-        if (loader.isModLoaded("iris") && !loader.isModLoaded(IRIS_ADAPTER_MOD_ID)) {
+        if (loader.isModLoaded("iris")) {
             // Iris 1.11 hard-casts the device to vanilla's GlDevice and would crash on Metal.
-            return new Decision(false, "Iris is installed without the Metallium Iris adapter; using OpenGL so Iris keeps working");
+            if (!loader.isModLoaded(IRIS_ADAPTER_MOD_ID)) {
+                return new Decision(false, "Iris is installed without the Metallium Iris adapter; using OpenGL so Iris keeps working");
+            }
+            if (!dev.metallium.compat.IrisSupport.adapterUsable()) {
+                return new Decision(false, dev.metallium.compat.IrisSupport.problem() + "; using OpenGL so Iris keeps working");
+            }
         }
 
         if (!forced) {

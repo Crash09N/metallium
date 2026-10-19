@@ -496,6 +496,11 @@ final class MetalRenderPass implements RenderPassBackend {
     }
 
     private static void bindTextureAndSampler(final MTLRenderCommandEncoder enc, final MTLTexture texture, final MTLSamplerState sampler, final long index, final int stageMask) {
+        if (index >= MetalCrossShaderCompiler.MAX_SAMPLER_STATES) {
+            // Metal has 16 sampler states per stage; textures above sample through constexpr samplers in the shader.
+            bindTexture(enc, texture, index, stageMask);
+            return;
+        }
         if ((stageMask & MetalCompiledRenderPipeline.STAGE_VERTEX) != 0) {
             enc.setVertexTexture(texture, index);
             enc.setVertexSamplerState(sampler, index);

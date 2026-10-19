@@ -23,6 +23,10 @@ public final class MetalliumIris implements ClientModInitializer {
 
     @Override
     public void onInitializeClient() {
+        if (!dev.metallium.compat.IrisSupport.adapterUsable()) {
+            LOGGER.info("[metallium-iris] inactive: {}", dev.metallium.compat.IrisSupport.problem());
+            return;
+        }
         LOGGER.info("[metallium-iris] Iris adapter loaded (work in progress)");
         dev.metallium.api.MetalliumRuntime.registerStatusLine(MetalliumIris::statusLine);
     }

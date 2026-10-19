@@ -51,6 +51,8 @@ final class ComputePass implements AutoCloseable {
     final String name;
     final ComputeTranslator.Kernel kernel;
     final PostUniforms.Holder uniforms;
+    /** Iris texture stage (selects {@code texture.<stage>.*} custom textures); set by the pipeline after compiling. */
+    net.irisshaders.iris.shaderpack.texture.TextureStage stage = net.irisshaders.iris.shaderpack.texture.TextureStage.COMPOSITE_AND_FINAL;
     private final PostUniforms.@Nullable Block block;
     private final MTLComputePipelineState state;
     private final @Nullable Vector3i absoluteWorkGroups;

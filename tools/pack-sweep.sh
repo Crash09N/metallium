@@ -8,6 +8,7 @@
 #   PACK_DIR=/Users/noah/Downloads/metallium-research/shaderpacks
 #   RESULTS_DIR=/Users/noah/Downloads/metallium-research/sweep-results/<date>
 #   REFERENCE=1           also run each pack with -Pengine=OPENGL (reference screenshot)
+#   GPU_LOCK=/path/gpu-lock.sh   wraps each gradle run (not --exclusive: compatibility runs may share the GPU)
 #   OUT=docs/compat/shaderpacks-<date>.md     SMOKE=1 marks the output as a smoke run (do not commit)
 set -u
 cd "$(dirname "$0")/.."
@@ -40,9 +41,9 @@ manifest() { # manifest <file> <column: 4 = version, 7 = licence>
 
 run_one() { # run_one <zip> <engine> <tag>: runs the game test, copies report/log/screenshot into RESULTS_DIR
   local zip="$1" engine="$2" tag="$3"
-  until ! pgrep -f "[d]evlaunchinjector.Main" >/dev/null; do sleep 5; done
+  [ -n "${GPU_LOCK:-}" ] || until ! pgrep -f "[d]evlaunchinjector.Main" >/dev/null; do sleep 5; done
   rm -rf "$REPORT" "$RUNDIR/screenshots" "$LOG"
-  ./gradlew --no-daemon :runClientGameTest -PwithSodium -PwithIris "-Pengine=$engine" "-Pshaderpack=$PACK_DIR/$zip" \
+  ${GPU_LOCK:+$GPU_LOCK} ./gradlew --no-daemon :runClientGameTest -PwithSodium -PwithIris "-Pengine=$engine" "-Pshaderpack=$PACK_DIR/$zip" \
     > "$RESULTS_DIR/$tag-gradle.log" 2>&1
   STATUS_RUN=$?
   [ -f "$REPORT" ] && cp "$REPORT" "$RESULTS_DIR/$tag-report.txt"
