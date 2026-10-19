@@ -25,6 +25,13 @@ public final class PresentStats {
     /** presentedTime of the last displayed present (presented handlers run on one Quartz thread). */
     static volatile double lastPresentedTime;
     static volatile long windowHandle;
+    /** Sizes at the last present (drawable, layer drawableSize, presented texture, configured surface), for benches. */
+    static volatile String sizes = "none";
+
+    /** Drawable / layer / presented texture / surface sizes at a recent present ("none" before the first). */
+    public static String sizes() {
+        return sizes;
+    }
 
     private PresentStats() {
     }

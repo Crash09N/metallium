@@ -192,6 +192,7 @@ final class MetalSurface implements GpuSurfaceBackend {
             this.nextPresentNs = Math.max(this.nextPresentNs, now - interval) + interval;
             PresentStats.submitted.incrementAndGet();
             PresentStats.submitTimes.add(now);
+            recordSizes(drawable, textureView);
             if (GPU_PACING || RATE_PACING && RATE_DECOUPLED) {
                 metalEncoder.presentTextureToDrawableDecoupled(drawable, textureView, this.presentedHandler);
             } else {
@@ -215,6 +216,7 @@ final class MetalSurface implements GpuSurfaceBackend {
         this.lastPresentNs = now;
         PresentStats.submitted.incrementAndGet();
         PresentStats.submitTimes.add(now);
+        recordSizes(drawable, textureView);
         encoder.presentTextureToDrawable(drawable, textureView, this.presentedHandler);
         drawable.release();
     }
@@ -276,6 +278,24 @@ final class MetalSurface implements GpuSurfaceBackend {
     }
 
     private boolean sizeMismatchLogged;
+    private long sizesRecordedNs;
+
+    /** Twice a second: drawable, layer and presented-texture sizes for the bench (render size must equal display size). */
+    private void recordSizes(final CAMetalDrawable drawable, final GpuTextureView textureView) {
+        long now = System.nanoTime();
+        if (now - this.sizesRecordedNs < 500_000_000L) {
+            return;
+        }
+        this.sizesRecordedNs = now;
+        try (AutoreleasePool _ = AutoreleasePool.push()) {
+            MTLTexture texture = drawable.texture();
+            CGSize layer = this.metalLayer.drawableSize();
+            PresentStats.sizes = "drawable=" + texture.width() + "x" + texture.height()
+                    + " layer=" + (long) layer.width() + "x" + (long) layer.height()
+                    + " presented_texture=" + textureView.getWidth(0) + "x" + textureView.getHeight(0)
+                    + " surface=" + this.width + "x" + this.height;
+        }
+    }
 
     private void logSizeMismatchOnce(final CAMetalDrawable drawable) {
         if (this.sizeMismatchLogged) {

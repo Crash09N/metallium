@@ -355,8 +355,22 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
             String display = context.computeOnClient(c -> String.valueOf(org.lwjgl.sdl.SDLVideo.SDL_GetDisplayName(
                     org.lwjgl.sdl.SDLVideo.SDL_GetDisplayForWindow(c.getWindow().handle()))));
             boolean fullscreen = context.computeOnClient(c -> (org.lwjgl.sdl.SDLVideo.SDL_GetWindowFlags(c.getWindow().handle()) & org.lwjgl.sdl.SDLVideo.SDL_WINDOW_FULLSCREEN) != 0);
-            line(BenchEnvironment.fmt("bench-env: %s display=%s resolution=%s fullscreen=%s refresh_hz=%.1f power=%s focused_always=%s occluded_ever=%s caffeinate=%s",
-                    BenchEnvironment.validity(everUnfocused[0], everOccluded[0], presentedPerSecond, metal), display, framebuffer, fullscreen,
+            String mainTarget = context.computeOnClient(c -> c.gameRenderer.mainRenderTarget().width + "x" + c.gameRenderer.mainRenderTarget().height);
+            String displaySize = context.computeOnClient(c -> {
+                org.lwjgl.sdl.SDL_DisplayMode mode = org.lwjgl.sdl.SDLVideo.SDL_GetCurrentDisplayMode(
+                        org.lwjgl.sdl.SDLVideo.SDL_GetDisplayForWindow(c.getWindow().handle()));
+                return mode == null ? "?" : mode.w() + "x" + mode.h();
+            });
+            String sizes = dev.metallium.backend.PresentStats.sizes();
+            String validity = BenchEnvironment.validity(everUnfocused[0], everOccluded[0], presentedPerSecond, metal);
+            // Fullscreen must render at the display's native size (the owner saw an upscaled image once).
+            boolean wrongSize = fullscreen && (!mainTarget.equals(displaySize) || !framebuffer.equals(displaySize)
+                    || metal && !sizes.contains("presented_texture=" + displaySize + " ") || metal && !sizes.contains("drawable=" + displaySize + " "));
+            if (wrongSize) {
+                validity = validity.equals("VALID") ? "INVALID(render size)" : validity.replace(")", ",render size)");
+            }
+            line(BenchEnvironment.fmt("bench-env: %s display=%s display_mode=%s resolution=%s main_target=%s %s fullscreen=%s refresh_hz=%.1f power=%s focused_always=%s occluded_ever=%s caffeinate=%s",
+                    validity, display, displaySize, framebuffer, mainTarget, sizes, fullscreen,
                     refreshHz, BenchEnvironment.powerSource(), !everUnfocused[0], everOccluded[0], caffeinate != null));
             if (caffeinate != null) {
                 caffeinate.destroy();
