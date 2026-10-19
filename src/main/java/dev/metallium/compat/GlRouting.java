@@ -73,6 +73,9 @@ public final class GlRouting {
         }
     }
 
+    /** Excluded from the scan and automatic routing, but routable on explicit request. */
+    static final Set<String> EXPLICIT_ONLY = Set.of("voxy");
+
     private static @Nullable Map<String, Decision> plan;
     private static volatile boolean hooked;
     private static volatile Supplier<Map<String, Long>> unimplemented = Map::of;
@@ -88,6 +91,14 @@ public final class GlRouting {
             boolean metal = BackendSelection.shouldOfferMetal();
             MetalliumConfig config = MetalliumConfig.INSTANCE;
             plan = decide(ModScan.results(), authorChoices(), userList(), config.modOverrides, config.glAutoRouting, glInstalled, metal);
+            // Mods excluded from automatic routing because Metallium has dedicated compat for them (Voxy is disabled on
+            // Metal) can still be routed explicitly (-Dmetallium.gl.mods / override METALLIUM_GL): experimental.
+            for (String id : EXPLICIT_ONLY) {
+                if (loader.isModLoaded(id) && glInstalled
+                        && (userList().contains(id) || config.modOverrides.getOrDefault(id, ModOverride.AUTO) == ModOverride.METALLIUM_GL)) {
+                    plan.put(id, new Decision(id, Status.ROUTED, "routed explicitly (experimental)", List.of(), List.of(), true, false));
+                }
+            }
             List<CrashGuard.RoutedMod> routed = new ArrayList<>();
             for (Decision d : plan.values()) {
                 if (d.routed()) {

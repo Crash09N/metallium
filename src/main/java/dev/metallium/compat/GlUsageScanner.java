@@ -32,6 +32,10 @@ import java.util.Set;
  * </ul>
  * A Mixin class whose targets all lie in Minecraft's OpenGL backend is not reported: its code only ever runs inside that
  * backend, which is not used while Metal renders (e.g. ImmediatelyFast's GlCommandEncoder optimisations).
+ * <p>{@code constructsBackend}: the class creates ({@code NEW}) or subclasses a class of Minecraft's OpenGL backend
+ * (e.g. {@code new GlTexture(...)}, {@code extends GlSampler}). That is the strong sign of a mod that builds its own
+ * OpenGL backend objects and needs OpenGL: in the owner's 145-mod pack only Physics Mod did it, while mods that merely
+ * call {@code GlStateManager} or test {@code instanceof GlDevice} (Xaero, Polytone, Axiom) start on Metal.
  */
 public final class GlUsageScanner {
     static final String LWJGL_GL = "org/lwjgl/opengl/";
@@ -45,7 +49,10 @@ public final class GlUsageScanner {
     }
 
     /** What one class uses. {@code functions} holds e.g. "GL11.glEnable" (at most a few per class). */
-    public record ClassUsage(String internalName, boolean rawGl, boolean backendGl, Set<String> functions) {
+    public record ClassUsage(String internalName, boolean rawGl, boolean backendGl, Set<String> functions, boolean constructsBackend) {
+        public ClassUsage(final String internalName, final boolean rawGl, final boolean backendGl, final Set<String> functions) {
+            this(internalName, rawGl, backendGl, functions, false);
+        }
     }
 
     /** Null if the class neither calls raw GL nor touches Minecraft's OpenGL backend. */
@@ -63,7 +70,7 @@ public final class GlUsageScanner {
         if (!collector.mixinTargets.isEmpty() && collector.mixinTargets.stream().allMatch(t -> t.startsWith(BACKEND_GL))) {
             return null; // only modifies Minecraft's OpenGL backend
         }
-        return new ClassUsage(collector.name, collector.rawGl, collector.backendGl, Set.copyOf(collector.functions));
+        return new ClassUsage(collector.name, collector.rawGl, collector.backendGl, Set.copyOf(collector.functions), collector.constructsBackend);
     }
 
     static boolean contains(final byte[] haystack, final byte[] needle) {
@@ -81,6 +88,8 @@ public final class GlUsageScanner {
         String name = "";
         boolean rawGl;
         boolean backendGl;
+        /** NEW of, or extends, a class of Minecraft's OpenGL backend. */
+        boolean constructsBackend;
         final Set<String> functions = new LinkedHashSet<>();
         /** Internal names of the classes an {@code @Mixin} annotation targets (empty for ordinary classes). */
         final List<String> mixinTargets = new ArrayList<>();
@@ -94,6 +103,7 @@ public final class GlUsageScanner {
                           final String[] interfaces) {
             this.name = name;
             type(superName);
+            if (superName != null && superName.startsWith(BACKEND_GL)) constructsBackend = true;
             if (interfaces != null) {
                 for (String i : interfaces) type(i);
             }
@@ -150,6 +160,7 @@ public final class GlUsageScanner {
                 @Override
                 public void visitTypeInsn(final int opcode, final String type) {
                     type(type);
+                    if (opcode == Opcodes.NEW && type.startsWith(BACKEND_GL)) constructsBackend = true;
                 }
 
                 @Override

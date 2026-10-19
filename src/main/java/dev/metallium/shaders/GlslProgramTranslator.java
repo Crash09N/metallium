@@ -37,6 +37,13 @@ import java.util.regex.Pattern;
 public final class GlslProgramTranslator {
     /** MSL version for generated code. 3.1 = macOS 14+, required for native image atomics. */
     public static final int DEFAULT_MSL_VERSION = 0x030100;
+    /**
+     * MSL 3.2 in SPIRV-Cross's encoding (major * 10000 + minor * 100). Note {@link #DEFAULT_MSL_VERSION} is a hex literal
+     * SPIRV-Cross reads as a far newer version, so it emits the newest constructs (kept for existing callers).
+     * metallium-gl uses this one and compiles with {@code MTLLanguageVersion.Version3_2} (memory-order / thread-scope
+     * fences for GLSL memory barriers need 3.2).
+     */
+    public static final int MSL_VERSION_3_2 = 30200;
 
     private static final Pattern VERSION = Pattern.compile("^\\s*#version\\s+\\d+.*$", Pattern.MULTILINE);
     private static final Pattern GLOBAL_IO = Pattern.compile(
@@ -62,9 +69,17 @@ public final class GlslProgramTranslator {
     public record UniformMember(String name, int offset, int size) {
     }
 
-    /** A bound resource (texture, sampler, buffer, image) with its Metal index per stage. */
-    public record ResourceBinding(String name, Kind kind, int metalIndex) {
+    /**
+     * A bound resource (texture, sampler, buffer, image) with its Metal index per stage. {@code glBinding} is the
+     * SPIR-V {@code Binding} decoration: the {@code layout(binding = N)} value if the source has one, otherwise a number
+     * glslang assigned (see {@link #explicitLayouts} to tell them apart). -1 if the resource has no binding.
+     */
+    public record ResourceBinding(String name, Kind kind, int metalIndex, int glBinding) {
         public enum Kind { UNIFORM_BUFFER, STORAGE_BUFFER, SAMPLED_TEXTURE, STORAGE_IMAGE }
+
+        public ResourceBinding(final String name, final Kind kind, final int metalIndex) {
+            this(name, kind, metalIndex, -1);
+        }
     }
 
     public record StageResult(
@@ -74,8 +89,14 @@ public final class GlslProgramTranslator {
             @Nullable String defaultUniformBlock,
             int defaultUniformBlockSize,
             List<UniformMember> uniforms,
-            List<ResourceBinding> resources
+            List<ResourceBinding> resources,
+            int[] localSize
     ) {
+        /** Without a workgroup size (graphics stages). */
+        public StageResult(final Stage stage, final String msl, final String entryPoint, final @Nullable String defaultUniformBlock,
+                           final int defaultUniformBlockSize, final List<UniformMember> uniforms, final List<ResourceBinding> resources) {
+            this(stage, msl, entryPoint, defaultUniformBlock, defaultUniformBlockSize, uniforms, resources, new int[]{1, 1, 1});
+        }
     }
 
     public record Program(String name, Map<Stage, StageResult> stages) {
@@ -536,6 +557,72 @@ public final class GlslProgramTranslator {
         return source.substring(lineStart, Math.min(source.length(), declarationStart + 1)).contains("layout");
     }
 
+    /** Explicit {@code layout(binding = N)} / {@code layout(location = N)} of one uniform, buffer block or opaque uniform. */
+    public record ExplicitLayout(int binding, int location) {
+    }
+
+    private static final Pattern LAYOUT_DECLARATION = Pattern.compile(
+            "layout\\s*\\(([^)]*)\\)\\s*((?:\\w+\\s+)*?)(uniform|buffer)\\s+((?:(?:restrict|readonly|writeonly|coherent|volatile|highp|mediump|lowp)\\s+)*)(\\w+)\\s*(\\{|\\w+)");
+    private static final Pattern LAYOUT_INT = Pattern.compile("\\b(binding|location)\\s*=\\s*(\\d+)");
+
+    /**
+     * Explicit bindings and locations declared in {@code preprocessed} GLSL (see {@link #preprocess}), keyed by the name
+     * reflection reports: the block name for uniform/storage blocks, the variable name otherwise. GL needs to know which
+     * bindings are explicit: unbound blocks and samplers default to binding / unit 0, while glslang (Vulkan rules)
+     * assigns them other numbers.
+     */
+    public static Map<String, ExplicitLayout> explicitLayouts(final String preprocessed) {
+        Map<String, ExplicitLayout> result = new LinkedHashMap<>();
+        Matcher m = LAYOUT_DECLARATION.matcher(preprocessed);
+        while (m.find()) {
+            int binding = -1;
+            int location = -1;
+            Matcher q = LAYOUT_INT.matcher(m.group(1));
+            while (q.find()) {
+                if (q.group(1).equals("binding")) binding = Integer.parseInt(q.group(2));
+                else location = Integer.parseInt(q.group(2));
+            }
+            if (binding < 0 && location < 0) {
+                continue;
+            }
+            String name = m.group(6).equals("{") ? m.group(5) : m.group(6);
+            result.put(name, new ExplicitLayout(binding, location));
+        }
+        return result;
+    }
+
+    /** Runs only the GLSL preprocessor (macros, {@code #if}); used to read layout qualifiers that use macros. */
+    public static String preprocess(final String programName, final Stage stage, final String source) throws TranslationException {
+        long compiler = Shaderc.shaderc_compiler_initialize();
+        long options = Shaderc.shaderc_compile_options_initialize();
+        try {
+            Shaderc.shaderc_compile_options_set_source_language(options, Shaderc.shaderc_source_language_glsl);
+            ByteBuffer sourceText = MemoryUtil.memUTF8(source, false);
+            ByteBuffer fileName = MemoryUtil.memUTF8(programName + "." + stage.name().toLowerCase());
+            ByteBuffer entryPoint = MemoryUtil.memUTF8("main");
+            long result;
+            try {
+                result = Shaderc.shaderc_compile_into_preprocessed_text(compiler, sourceText, stage.shadercKind, fileName, entryPoint, options);
+            } finally {
+                MemoryUtil.memFree(sourceText);
+                MemoryUtil.memFree(fileName);
+                MemoryUtil.memFree(entryPoint);
+            }
+            try {
+                if (Shaderc.shaderc_result_get_compilation_status(result) != Shaderc.shaderc_compilation_status_success) {
+                    throw new TranslationException(programName + "/" + stage + ": " + Shaderc.shaderc_result_get_error_message(result));
+                }
+                ByteBuffer bytes = Shaderc.shaderc_result_get_bytes(result);
+                return bytes == null ? "" : MemoryUtil.memUTF8(bytes, bytes.remaining());
+            } finally {
+                Shaderc.shaderc_result_release(result);
+            }
+        } finally {
+            Shaderc.shaderc_compile_options_release(options);
+            Shaderc.shaderc_compiler_release(compiler);
+        }
+    }
+
     private static boolean isSpirv(final byte[] bytes) {
         // SPIR-V magic 0x07230203 in either byte order, whole words, at least the 5-word header.
         if (bytes.length < 20 || bytes.length % 4 != 0) {
@@ -739,8 +826,9 @@ public final class GlslProgramTranslator {
 
     /**
      * Translates one stage produced by {@link #compileToSpirv(String, Map)} to MSL (the SPIR-V buffer stays owned by the
-     * caller). {@code glClipSpace}: the source writes OpenGL clip-space depth (-w..w); the vertex stage then remaps it to
-     * Metal's 0..w. Used by hosts that run unmodified OpenGL programs (metallium-gl).
+     * caller). {@code glClipSpace}: the program has OpenGL semantics — it writes GL clip-space depth (-w..w), which the
+     * vertex stage remaps to Metal's 0..w, and its {@code gl_InstanceID} excludes the base instance
+     * ({@link #glInstanceId}). Used by hosts that run unmodified OpenGL programs (metallium-gl).
      */
     public static StageResult spirvToMsl(final SpirvStage stage, final int mslVersion, final boolean glClipSpace) throws TranslationException {
         return spirvToMsl(stage.stage(), stage.spirv().duplicate().order(stage.spirv().order()), mslVersion, glClipSpace);
@@ -778,6 +866,9 @@ public final class GlslProgramTranslator {
 
                 check(Spvc.spvc_compiler_compile(compiler, p), "compile");
                 String msl = MemoryUtil.memUTF8(p.get(0));
+                if (glClipSpace && stage == Stage.VERTEX) {
+                    msl = glInstanceId(msl);
+                }
 
                 List<UniformMember> members = new ArrayList<>();
                 List<ResourceBinding> resources = new ArrayList<>();
@@ -789,11 +880,42 @@ public final class GlslProgramTranslator {
                 PointerBuffer entryCount = stack.mallocPointer(1);
                 check(Spvc.spvc_compiler_get_entry_points(compiler, entries, entryCount), "get_entry_points");
                 String entryPoint = Spvc.spvc_compiler_get_cleansed_entry_point_name(compiler, "main", executionModel(stage));
-                return new StageResult(stage, msl, entryPoint != null ? entryPoint : "main0", defaultBlock[0], defaultBlockSize[0], members, resources);
+                int[] localSize = {1, 1, 1};
+                if (stage == Stage.COMPUTE) {
+                    for (int i = 0; i < 3; i++) {
+                        localSize[i] = Math.max(1, Spvc.spvc_compiler_get_execution_mode_argument_by_index(compiler, Spv.SpvExecutionModeLocalSize, i));
+                    }
+                }
+                return new StageResult(stage, msl, entryPoint != null ? entryPoint : "main0", defaultBlock[0], defaultBlockSize[0], members, resources, localSize);
             } finally {
                 Spvc.spvc_context_destroy(context);
             }
         }
+    }
+
+    private static final Pattern INSTANCE_INDEX_PARAM = Pattern.compile("uint gl_InstanceIndex \\[\\[instance_id\\]\\]");
+    private static final Pattern BASE_INSTANCE_PARAM = Pattern.compile("uint (\\w+) \\[\\[base_instance\\]\\]");
+
+    /**
+     * OpenGL's {@code gl_InstanceID} does not include the draw's base instance; Metal's {@code [[instance_id]]} (and
+     * Vulkan's {@code gl_InstanceIndex}, which glslang maps {@code gl_InstanceID} to) does. For programs with GL
+     * semantics the vertex entry point therefore receives Metal's value under another name and recomputes
+     * {@code gl_InstanceIndex = instance_id - base_instance}. Matters for {@code glDraw*BaseInstance} and indirect draws.
+     */
+    static String glInstanceId(final String msl) {
+        Matcher param = INSTANCE_INDEX_PARAM.matcher(msl);
+        if (!param.find()) {
+            return msl;
+        }
+        Matcher base = BASE_INSTANCE_PARAM.matcher(msl);
+        String baseName = base.find() ? base.group(1) : "spvGlBaseInstance";
+        String replacement = "uint spvMetalInstanceId [[instance_id]]" + (baseName.equals("spvGlBaseInstance") ? ", uint spvGlBaseInstance [[base_instance]]" : "");
+        String patched = msl.substring(0, param.start()) + replacement + msl.substring(param.end());
+        int body = patched.indexOf('{', param.start() + replacement.length());
+        if (body < 0) {
+            return msl;
+        }
+        return patched.substring(0, body + 1) + "\n    uint gl_InstanceIndex = spvMetalInstanceId - " + baseName + ";" + patched.substring(body + 1);
     }
 
     private static int executionModel(final Stage stage) {
@@ -819,7 +941,7 @@ public final class GlslProgramTranslator {
         for (SpvcReflectedResource ubo : list(stack, shaderResources, Spvc.SPVC_RESOURCE_TYPE_UNIFORM_BUFFER)) {
             String blockName = ubo.nameString();
             int index = Spvc.spvc_compiler_msl_get_automatic_resource_binding(compiler, ubo.id());
-            resources.add(new ResourceBinding(blockName, ResourceBinding.Kind.UNIFORM_BUFFER, index));
+            resources.add(new ResourceBinding(blockName, ResourceBinding.Kind.UNIFORM_BUFFER, index, binding(compiler, ubo.id())));
             if (blockName.endsWith("gl_DefaultUniformBlock") || Spvc.spvc_compiler_get_name(compiler, ubo.base_type_id()).endsWith("gl_DefaultUniformBlock")) {
                 defaultBlock[0] = blockName;
                 long type = Spvc.spvc_compiler_get_type_handle(compiler, ubo.base_type_id());
@@ -838,16 +960,21 @@ public final class GlslProgramTranslator {
         }
         for (SpvcReflectedResource ssbo : list(stack, shaderResources, Spvc.SPVC_RESOURCE_TYPE_STORAGE_BUFFER)) {
             resources.add(new ResourceBinding(Spvc.spvc_compiler_get_name(compiler, ssbo.base_type_id()), ResourceBinding.Kind.STORAGE_BUFFER,
-                    Spvc.spvc_compiler_msl_get_automatic_resource_binding(compiler, ssbo.id())));
+                    Spvc.spvc_compiler_msl_get_automatic_resource_binding(compiler, ssbo.id()), binding(compiler, ssbo.id())));
         }
         for (SpvcReflectedResource sampled : list(stack, shaderResources, Spvc.SPVC_RESOURCE_TYPE_SAMPLED_IMAGE)) {
             resources.add(new ResourceBinding(sampled.nameString(), ResourceBinding.Kind.SAMPLED_TEXTURE,
-                    Spvc.spvc_compiler_msl_get_automatic_resource_binding(compiler, sampled.id())));
+                    Spvc.spvc_compiler_msl_get_automatic_resource_binding(compiler, sampled.id()), binding(compiler, sampled.id())));
         }
         for (SpvcReflectedResource image : list(stack, shaderResources, Spvc.SPVC_RESOURCE_TYPE_STORAGE_IMAGE)) {
             resources.add(new ResourceBinding(image.nameString(), ResourceBinding.Kind.STORAGE_IMAGE,
-                    Spvc.spvc_compiler_msl_get_automatic_resource_binding(compiler, image.id())));
+                    Spvc.spvc_compiler_msl_get_automatic_resource_binding(compiler, image.id()), binding(compiler, image.id())));
         }
+    }
+
+    private static int binding(final long compiler, final int id) {
+        return Spvc.spvc_compiler_has_decoration(compiler, id, Spv.SpvDecorationBinding)
+                ? Spvc.spvc_compiler_get_decoration(compiler, id, Spv.SpvDecorationBinding) : -1;
     }
 
     private static List<SpvcReflectedResource> list(final MemoryStack stack, final long shaderResources, final int type) throws TranslationException {

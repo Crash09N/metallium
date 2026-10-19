@@ -41,7 +41,8 @@ Status legend: ✅ done · 🔄 in progress · ⏳ planned · 🔬 needs researc
   OpenGL fallback bridges, per-mod unimplemented-function log, GL state tracker + Metal device for buffers (persistent
   mapping), 2D textures, FBOs, GLSL 330+ programs, VAOs, draws, blend/depth/cull state, fences; unit tests incl. real
   Metal readback; game test `-PwithGl` (raw-GL test mod renders on Metal, pixel-checked)
-- ⏳ Next for Voxy: compute, SSBO + atomics, image load/store, indirect + indirect-count draws, UBOs, DSA (design §12)
+- ✅ Voxy runs unmodified through metallium-gl and renders its LOD terrain (explicit opt-in `-Dmetallium.gl.mods=voxy`;
+  compute, SSBO + atomics, image load/store, indirect + indirect-count draws, UBOs, DSA — design §12)
 - Calls to `org.lwjgl.opengl.*` in mod code are redirected at load time to Metallium's layer
 - Emulated GL state (textures, buffers, framebuffers, programs, blend/depth) with synthetic GL names → Metal objects
 - Draws are recorded into Metallium's current render pass; GLSL goes through `GlslProgramTranslator`
@@ -52,6 +53,10 @@ Status legend: ✅ done · 🔄 in progress · ⏳ planned · 🔬 needs researc
   Voxy runs unmodified through the layer (its licence forbids porting/copying). Parallel option: ask MCRcortex about a
   Metal path on Metallium's extension API (together with the Nvidium-Reborn name/logo question).
 - Limits: readbacks and frequent framebuffer switches are slower; immediate mode / geometry shaders later or never
+- ⏸ Deferred until after the alpha (owner decision 2026-10-18): the broad coverage campaign (scan the top ~200
+  Fabric 26.3 client mods, implement missing GL functions until ≥90% of mods work). Only the GL coverage that
+  current targets (Iris adapter, Voxy, DH, the owner's modpack) need is done before the alpha. WIP scanner parked on
+  branch `parked/gl-coverage`.
 
 ## Phase 5 — Iris shader packs (top feature priority) 🔄
 - ✅ Shader translator: Iris-style GLSL → SPIR-V → Metal with uniform/binding reflection

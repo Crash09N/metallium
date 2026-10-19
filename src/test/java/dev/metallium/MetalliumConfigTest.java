@@ -48,6 +48,16 @@ class MetalliumConfigTest {
     }
 
     @Test
+    void openGlChoicesSurviveAndUnknownValuesAreDropped() {
+        MetalliumConfig old = MetalliumConfig.parse("{\"engine\": \"METAL\"}");
+        assertTrue(old.openGlChoices.isEmpty());
+        MetalliumConfig c = MetalliumConfig.parse("{\"openGlChoices\": {\"physicsmod\": \"OPENGL\", \"x\": \"MAYBE\"}}");
+        assertEquals(Map.of("physicsmod", MetalliumConfig.OpenGlChoice.OPENGL), c.openGlChoices);
+        c.openGlChoices.put("y", MetalliumConfig.OpenGlChoice.METAL);
+        assertEquals(MetalliumConfig.OpenGlChoice.METAL, MetalliumConfig.parse(c.toJson()).openGlChoices.get("y"));
+    }
+
+    @Test
     void brokenFileYieldsDefaults() {
         MetalliumConfig c = MetalliumConfig.parse("{ not json");
         assertEquals(GraphicsEngine.METAL, c.engine);

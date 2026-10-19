@@ -318,6 +318,95 @@ class GlslProgramTranslatorTest {
         compileWithMetalIfAvailable(program);
     }
 
+    private static final String GL_COMPUTE = """
+            #version 460 core
+            layout(local_size_x = 128) in;
+            layout(binding = 3, std430) restrict buffer Counts { uint total; uint values[]; };
+            layout(binding = 1, std140) uniform Settings { uint count; };
+            layout(binding = 2, r32f) uniform restrict writeonly image2D target;
+            layout(binding = 5) uniform sampler2D depth;
+            layout(location = 7) uniform int explicitLocation;
+            uniform float loose;
+            shared uint scratch[128];
+            void main() {
+                uint i = gl_LocalInvocationID.x;
+                scratch[i] = values[gl_GlobalInvocationID.x];
+                barrier();
+                memoryBarrierShared();
+                if (i == 0u) {
+                    atomicAdd(total, scratch[0] + count + uint(explicitLocation));
+                    uint old = atomicCompSwap(values[0], 0u, 1u);
+                    imageStore(target, ivec2(gl_WorkGroupID.xy), vec4(texelFetch(depth, ivec2(0), 0).r + loose + float(old)));
+                }
+            }
+            """;
+
+    @Test
+    void computeWithGlBindingRulesReflectsBindingsAndWorkgroupSize() throws Exception {
+        Map<Stage, GlslProgramTranslator.SpirvStage> spirv = GlslProgramTranslator.compileToSpirv("glcompute", Map.of(Stage.COMPUTE, GL_COMPUTE));
+        try {
+            GlslProgramTranslator.SpirvStage stage = spirv.get(Stage.COMPUTE);
+            StageResult cs = GlslProgramTranslator.spirvToMsl(stage, GlslProgramTranslator.MSL_VERSION_3_2, false);
+            assertArrayEquals(new int[]{128, 1, 1}, cs.localSize());
+            Map<String, Integer> bindings = new java.util.HashMap<>();
+            for (ResourceBinding r : cs.resources()) bindings.put(r.name(), r.glBinding());
+            assertEquals(3, bindings.get("Counts"), "resources: " + cs.resources());
+            assertEquals(1, bindings.get("Settings"), "resources: " + cs.resources());
+            assertEquals(2, bindings.get("target"), "resources: " + cs.resources());
+            assertEquals(5, bindings.get("depth"), "resources: " + cs.resources());
+            Map<String, GlslProgramTranslator.ExplicitLayout> layouts = GlslProgramTranslator.explicitLayouts(
+                    GlslProgramTranslator.preprocess("glcompute", Stage.COMPUTE, GL_COMPUTE));
+            assertEquals(Map.of("Counts", new GlslProgramTranslator.ExplicitLayout(3, -1), "Settings", new GlslProgramTranslator.ExplicitLayout(1, -1),
+                    "target", new GlslProgramTranslator.ExplicitLayout(2, -1), "depth", new GlslProgramTranslator.ExplicitLayout(5, -1),
+                    "explicitLocation", new GlslProgramTranslator.ExplicitLayout(-1, 7)), layouts);
+            compileWithMetalIfAvailable(new Program("glcompute", Map.of(Stage.COMPUTE, cs)), true);
+        } finally {
+            spirv.values().forEach(s -> org.lwjgl.system.MemoryUtil.memFree(s.spirv()));
+        }
+    }
+
+    @Test
+    void glInstanceIdExcludesBaseInstanceForGlPrograms() throws Exception {
+        String vs = """
+                #version 460 core
+                flat out int instance;
+                void main() { instance = gl_InstanceID; gl_Position = vec4(float(gl_VertexID), 0.0, 0.0, 1.0); }
+                """;
+        Map<Stage, GlslProgramTranslator.SpirvStage> spirv = GlslProgramTranslator.compileToSpirv("instance", Map.of(Stage.VERTEX, vs));
+        try {
+            StageResult gl = GlslProgramTranslator.spirvToMsl(spirv.get(Stage.VERTEX), GlslProgramTranslator.MSL_VERSION_3_2, true);
+            assertTrue(gl.msl().contains("[[base_instance]]") && gl.msl().contains("gl_InstanceIndex = spvMetalInstanceId - "), gl.msl());
+            compileWithMetalIfAvailable(new Program("instance", Map.of(Stage.VERTEX, gl)), true);
+            StageResult vulkan = GlslProgramTranslator.spirvToMsl(spirv.get(Stage.VERTEX), GlslProgramTranslator.MSL_VERSION_3_2, false);
+            assertFalse(vulkan.msl().contains("spvMetalInstanceId"), "Vulkan-semantics callers are unchanged");
+        } finally {
+            spirv.values().forEach(s -> org.lwjgl.system.MemoryUtil.memFree(s.spirv()));
+        }
+    }
+
+    @Test
+    void subgroupArithmeticAndClusteredOpsCompileToMsl() throws Exception {
+        String source = """
+                #version 460 core
+                #extension GL_KHR_shader_subgroup_basic : require
+                #extension GL_KHR_shader_subgroup_arithmetic : require
+                #extension GL_KHR_shader_subgroup_clustered : require
+                layout(local_size_x = 64) in;
+                layout(binding = 0, std430) buffer Data { uint values[]; };
+                layout(binding = 1, std430) buffer Floats { float floats[]; };
+                void main() {
+                    uint v = values[gl_GlobalInvocationID.x];
+                    uint prefix = subgroupExclusiveAdd(v);
+                    subgroupBarrier();
+                    float m = subgroupClusteredMax(floats[gl_GlobalInvocationID.x], 4);
+                    float all = subgroupMax(m);
+                    if (gl_SubgroupInvocationID == gl_SubgroupSize - 1u) values[gl_SubgroupID] = prefix + uint(all) + gl_NumSubgroups;
+                }
+                """;
+        Program program = GlslProgramTranslator.translate("subgroups", Map.of(Stage.COMPUTE, source), GlslProgramTranslator.MSL_VERSION_3_2);
+        compileWithMetalIfAvailable(program, true);
+    }
+
     @Test
     void vulkanOnlyKeywordsAreValidGlIdentifiers() throws Exception {
         // Photon's bicubic helper: "sampler" is a type keyword only in Vulkan GLSL.
@@ -439,6 +528,10 @@ class GlslProgramTranslatorTest {
 
     /** On macOS, also hands the generated MSL to the real Metal compiler. */
     private static void compileWithMetalIfAvailable(Program program) {
+        compileWithMetalIfAvailable(program, false);
+    }
+
+    private static void compileWithMetalIfAvailable(Program program, boolean msl32) {
         if (!System.getProperty("os.name", "").toLowerCase().contains("mac")) {
             return;
         }
@@ -446,7 +539,12 @@ class GlslProgramTranslatorTest {
             MTLDevice device = Metal.MTLCreateSystemDefaultDevice();
             assertNotNull(device, "no Metal device");
             for (StageResult stage : program.stages().values()) {
-                MTLLibrary library = device.newLibraryWithSource(stage.msl(), null);
+                io.github.kokodio.metaljvm.metal.MTLCompileOptions options = null;
+                if (msl32) {
+                    options = io.github.kokodio.metaljvm.metal.MTLCompileOptions.alloc().init();
+                    options.setLanguageVersion(io.github.kokodio.metaljvm.metal.MTLLanguageVersion.Version3_2);
+                }
+                MTLLibrary library = device.newLibraryWithSource(stage.msl(), options);
                 assertNotNull(library, program.name() + "/" + stage.stage());
                 assertNotNull(library.newFunctionWithName(stage.entryPoint()), "entry point " + stage.entryPoint());
                 library.release();

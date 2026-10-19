@@ -22,6 +22,19 @@ public final class VoxyCompat {
         return FabricLoader.getInstance().isModLoaded("voxy");
     }
 
+    /**
+     * True when metallium-gl retargets Voxy's GL calls to Metal (opt-in); then Voxy must start normally. metallium-gl
+     * publishes the routed mod ids in a system property at start-up (core does not depend on metallium-gl).
+     */
+    public static boolean isRoutedThroughMetalliumGl() {
+        for (String id : System.getProperty("metallium.gl.routedMods", "").split(",")) {
+            if (id.trim().equals("voxy")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /** Called when Voxy's init was cancelled. */
     public static void onVoxyDisabled() {
         Metallium.LOGGER.warn("[Metallium] {}", MESSAGE);
@@ -30,7 +43,7 @@ public final class VoxyCompat {
 
     /** One chat message per game session, when the player joins a world. */
     public static void showNoticeOnce() {
-        if (noticeShown || !MetalliumRuntime.isMetalActive() || !isVoxyLoaded()) {
+        if (noticeShown || !MetalliumRuntime.isMetalActive() || !isVoxyLoaded() || isRoutedThroughMetalliumGl()) {
             return;
         }
         noticeShown = true;

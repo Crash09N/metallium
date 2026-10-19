@@ -102,8 +102,45 @@ public interface GlDevice {
     record TextureBinding(int textureIndex, int samplerIndex, @Nullable TextureStore texture, SamplerState sampler) {
     }
 
+    /** A uniform or storage buffer at Metal buffer index {@code index}; {@code buffer == null}: nothing bound in GL. */
+    record BufferBinding(int index, @Nullable BufferStore buffer, long offset, boolean written) {
+    }
+
+    /** A storage image (glBindImageTexture) at Metal texture index {@code index}: one mip level of {@code texture}. */
+    record ImageBinding(int index, @Nullable TextureStore texture, int level, boolean written) {
+    }
+
     /** Resources of one shader stage. {@code uniformBufferIndex < 0}: the stage has no loose uniforms. */
-    record StageBindings(@Nullable ByteBuffer uniforms, int uniformBufferIndex, TextureBinding[] textures) {
+    record StageBindings(@Nullable ByteBuffer uniforms, int uniformBufferIndex, TextureBinding[] textures, BufferBinding[] buffers,
+                         ImageBinding[] images) {
+        static final BufferBinding[] NO_BUFFERS = new BufferBinding[0];
+        static final ImageBinding[] NO_IMAGES = new ImageBinding[0];
+
+        public StageBindings(final @Nullable ByteBuffer uniforms, final int uniformBufferIndex, final TextureBinding[] textures) {
+            this(uniforms, uniformBufferIndex, textures, NO_BUFFERS, NO_IMAGES);
+        }
+    }
+
+    /** Stencil test state in GL terms (front and back share one state; GL's separate variants are not tracked). */
+    record StencilState(boolean enabled, int func, int ref, int readMask, int writeMask, int sfail, int dpfail, int dppass) {
+        public static final StencilState DISABLED = new StencilState(false, 0x0207 /* ALWAYS */, 0, 0xFF, 0xFF, 0x1E00, 0x1E00, 0x1E00);
+    }
+
+    /**
+     * glDispatchCompute: {@code groups} threadgroups, or, if {@code indirect != null}, the three uints at
+     * {@code indirectOffset} in that buffer (GL's DispatchIndirectCommand layout = Metal's).
+     */
+    record DispatchOp(ProgramStore program, int groupsX, int groupsY, int groupsZ, @Nullable BufferStore indirect, long indirectOffset,
+                      StageBindings bindings) {
+    }
+
+    /**
+     * Indirect indexed draws: {@code drawCount} GL {@code DrawElementsIndirectCommand}s (5 uints, layout identical to
+     * Metal's {@code MTLDrawIndexedPrimitivesIndirectArguments}) at {@code offset}, {@code stride} bytes apart. With a
+     * {@code countBuffer}, the uint at {@code countOffset} (GPU-written) limits the number of draws; {@code drawCount} is
+     * then GL's {@code maxdrawcount}.
+     */
+    record IndirectDraws(BufferStore commands, long offset, int drawCount, int stride, @Nullable BufferStore countBuffer, long countOffset) {
     }
 
     /** Per colour attachment blend state (GL enums). */
@@ -118,7 +155,7 @@ public interface GlDevice {
     record RasterState(int[] viewport, float depthNear, float depthFar, int @Nullable [] scissor, BlendState[] blend,
                        float[] blendColor, boolean depthTest, int depthFunc, boolean depthWrite, int cullFace,
                        boolean frontFaceCcw, boolean polygonOffset, float offsetFactor, float offsetUnits,
-                       boolean wireframe) {
+                       boolean wireframe, StencilState stencil, boolean clipDepthZeroToOne) {
     }
 
     /** A fully resolved draw. {@code indexBuffer == null}: non-indexed ({@code first} is the first vertex). */
@@ -166,6 +203,72 @@ public interface GlDevice {
     /** glFlush: close any open encoder (work is submitted with the host's frame). */
     void flush();
 
-    /** glFinish: submit and wait where possible (headless); in-game this only closes the encoder. */
-    void finish();
+    /** glFinish: submit and wait for all GPU work so far; true if it waited (all earlier fences are then complete). */
+    boolean finish();
+
+    // ------------------------------------------------------------------------------------------ GL 4.x (compute etc.)
+    // Default implementations: CPU fallbacks or "unsupported", so test devices only implement what they exercise.
+
+    /** A compute program; {@code localSize} is the workgroup size from the shader. */
+    default ProgramStore createComputeProgram(final String label, final StageCode compute, final int[] localSize) throws DeviceException {
+        throw new DeviceException(name() + ": compute is not supported");
+    }
+
+    void dispatch(DispatchOp op);
+
+    /** {@code op} with its count/instance fields ignored: the commands come from {@code draws}. */
+    void drawIndirect(DrawOp op, IndirectDraws draws);
+
+    /** GPU-ordered copy between buffers (glCopyBufferSubData). */
+    void copyBuffer(BufferStore source, long sourceOffset, BufferStore destination, long destinationOffset, long size);
+
+    /** GPU-ordered fill of {@code size} bytes with a repeated 4-byte pattern (glClearBufferSubData). */
+    void fillBuffer(BufferStore destination, long offset, long size, int pattern);
+
+    /** GPU-ordered write of CPU data into a buffer the GPU may still read or write this frame. */
+    void uploadBuffer(BufferStore destination, long offset, ByteBuffer data);
+
+    /** Reads buffer bytes after all GPU work so far (glGetBufferSubData); false if the device cannot wait. */
+    boolean readBuffer(BufferStore source, long offset, ByteBuffer out);
+
+    /** Reads one mip level as tightly packed texels of the texture's format (glGetTexImage); false if impossible. */
+    default boolean readTexture(final TextureStore texture, final int level, final ByteBuffer out) {
+        return false;
+    }
+
+    /** GPU-ordered fill of one mip level with one texel value in the texture's format (glClearTexImage). */
+    default void clearTexture(final TextureStore texture, final int level, final ByteBuffer texel) {
+    }
+
+    /** Copies a region between textures of the same format (glCopyImageSubData / glBlitFramebuffer 1:1). */
+    default void copyTextureRegion(final TextureStore source, final int sourceLevel, final int sx, final int sy,
+                                   final TextureStore destination, final int destinationLevel, final int dx, final int dy,
+                                   final int width, final int height) {
+    }
+
+    /**
+     * Wraps a texture owned by the engine (Metallium's {@code GpuTexture}) so GL can sample it, attach it or copy it; null
+     * if {@code engineTexture} is not one this device understands.
+     */
+    default @Nullable TextureStore externalTexture(final Object engineTexture) {
+        return null;
+    }
+
+    /** A view of {@code texture} reinterpreting it as {@code format} (glTextureView); null if impossible. */
+    default @Nullable TextureStore textureView(final TextureStore texture, final TexFormat format, final int minLevel, final int levels) {
+        return null;
+    }
+
+    /**
+     * The depth convention of the engine's own GL context: Minecraft's OpenGL backend switches its context to
+     * {@code glClipControl(GL_LOWER_LEFT, GL_ZERO_TO_ONE)} when the device reports zero-to-one depth, and GL mods
+     * rely on that (Voxy's {@code USE_ZERO_ONE_DEPTH}). The emulated context starts in the same state.
+     */
+    default boolean engineDepthZeroToOne() {
+        return false;
+    }
+
+    /** glTextureBarrier: later draws see earlier render-target writes when sampling. */
+    default void textureBarrier() {
+    }
 }

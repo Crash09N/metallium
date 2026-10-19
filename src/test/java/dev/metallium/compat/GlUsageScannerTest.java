@@ -152,6 +152,45 @@ class GlUsageScannerTest {
     }
 
     @Test
+    void constructingAnOpenGlBackendObjectIsFlagged() {
+        // Physics Mod-style: new GlTexture(...) outside Minecraft's backend.
+        GlUsageScanner.ClassUsage usage = GlUsageScanner.scan(clazz("com/example/render/Tex3D", mv -> {
+            mv.visitTypeInsn(Opcodes.NEW, "com/mojang/renderpearl/backend/opengl/GlTexture");
+            mv.visitInsn(Opcodes.POP);
+        }));
+        assertNotNull(usage);
+        assertTrue(usage.constructsBackend());
+        ModReport report = ModScan.report("example", "Example", "1.0", List.of(usage));
+        assertTrue(report.buildsBackendObjects());
+        assertEquals(List.of("com.example.render.Tex3D"), report.backendObjectClasses());
+    }
+
+    @Test
+    void subclassingAnOpenGlBackendClassIsFlagged() {
+        ClassWriter cw = new ClassWriter(ClassWriter.COMPUTE_MAXS);
+        cw.visit(Opcodes.V21, Opcodes.ACC_PUBLIC, "com/example/Sampler3D", null, "com/mojang/renderpearl/backend/opengl/GlSampler", null);
+        cw.visitEnd();
+        GlUsageScanner.ClassUsage usage = GlUsageScanner.scan(cw.toByteArray());
+        assertNotNull(usage);
+        assertTrue(usage.constructsBackend());
+    }
+
+    @Test
+    void callingGlStateManagerOrCastingIsNotConstructing() {
+        // Xaero/Polytone/Axiom-style use: reported as backend use, but these mods start on Metal.
+        GlUsageScanner.ClassUsage usage = GlUsageScanner.scan(clazz("com/example/hud/Blend", mv -> {
+            mv.visitMethodInsn(Opcodes.INVOKESTATIC, "com/mojang/renderpearl/backend/opengl/GlStateManager", "_enableBlend", "()V", false);
+            mv.visitInsn(Opcodes.ACONST_NULL);
+            mv.visitTypeInsn(Opcodes.INSTANCEOF, "com/mojang/renderpearl/backend/opengl/GlDevice");
+            mv.visitInsn(Opcodes.POP);
+        }));
+        assertNotNull(usage);
+        assertTrue(usage.backendGl());
+        assertFalse(usage.constructsBackend());
+        assertFalse(ModScan.report("example", "Example", "1.0", List.of(usage)).buildsBackendObjects());
+    }
+
+    @Test
     void exclusions() {
         assertTrue(ModScan.excluded("sodium"));
         assertTrue(ModScan.excluded("fabric-rendering-v1"));

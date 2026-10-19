@@ -1,6 +1,6 @@
 # metallium-gl: OpenGL → Metal translation layer
 
-Status: **foundation implemented** (2026-10-18). Roadmap phase 4. Module `metallium-gl/` (Fabric mod id `metallium-gl`,
+Status: **foundation + GL 4.x (compute, SSBO, MDI-count, DSA) implemented; Voxy renders unmodified** (2026-10-18). Roadmap phase 4. Module `metallium-gl/` (Fabric mod id `metallium-gl`,
 Apache-2.0, depends on `metallium`, not on Iris).
 
 ## 1. Purpose and scope
@@ -193,32 +193,107 @@ the same descriptor (otherwise retargeting could never select it).
   (opted in by package) drawing three quads (uniform colour, 2x2 texture, FBO texture) after level rendering; the test
   checks their pixels in the screenshot on Metal.
 
-## 12. Next step (designed, not implemented): what Voxy needs
+## 12. GL 4.x for GPU-driven mods (Voxy) — implemented (step 2)
 
-Voxy (see `docs/research/notes/voxy-distant-horizons.md`): GL 4.6 compute, SSBO std430 + atomics, `glDispatchComputeIndirect`,
-`glMultiDrawElementsIndirectCountARB`, persistent coherent buffers + fences (done), DSA, r32f image stores, 64-bit ints,
-`gl_BaseInstance`, sparse buffers (optional).
+### 12.1 Voxy's GL surface (inventory)
 
-1. **Compute**: `GL_COMPUTE_SHADER` → `GlslProgramTranslator` (`Stage.COMPUTE` exists) → `MTLComputePipelineState`;
-   `glDispatchCompute(Indirect)` → a compute encoder in the frame (`dispatchThreadgroups(indirectBuffer)`), workgroup
-   size from the SPIR-V `LocalSize`. `glMemoryBarrier` → encoder boundary (or `memoryBarrierWithScope` inside one
-   compute encoder); no-op when nothing wrote storage since the last barrier.
-2. **SSBO / images**: reflect `layout(binding = N)` of storage buffers and images (SPIRV-Cross decoration) so
-   `glBindBufferBase(GL_SHADER_STORAGE_BUFFER, N, buf)` / `glBindImageTexture` map to Metal slots; atomics come from
-   SPIRV-Cross (`atomic_uint` on device memory); 64-bit atomics only where the GPU family supports them (probe → report
-   `GL_ARB_gpu_shader_int64` accordingly). Explicit UBOs use the same binding map.
-3. **Indirect draws**: `glDrawElementsIndirect` → `drawIndexedPrimitives(indirectBuffer)`; `glMultiDrawElementsIndirect`
-   → loop over commands (CPU-side count). **`glMultiDrawElementsIndirectCount`** has no Metal equivalent: a small compute
-   kernel converts GL `DrawElementsIndirectCommand`s plus the GPU count into an `MTLIndirectCommandBuffer`
-   (or zeroes `instanceCount` of commands ≥ count and the host encodes `maxDrawCount` indirect draws);
-   `gl_BaseInstance` via the `baseInstance` field (Metal supports base instance on Apple GPUs).
-4. **DSA** (`glCreate*`, `glNamed*`, `glTextureStorage2D`, `glCopyNamedBufferSubData`, `glBindTextureUnit`): thin
-   wrappers over the same objects; buffer copies as blits.
-5. **Voxy gate**: core's `VoxyCompat` cancels Voxy on Metal; once 1-4 exist it should let Voxy start when Voxy is opted
-   into metallium-gl, and Voxy's own capability probe (`GL.getCapabilities()` + test compute shaders) decides.
-6. Also open: `glBlitFramebuffer`, `glCopyTexSubImage2D`, `glCopyImageSubData`, cube/array/3D textures, MSAA, stencil
-   (state is tracked; depth-stencil states ignore it), `glGetTexImage`, timer queries, `KHR_debug` (currently logged as
-   unimplemented → no-op), `glReadPixels` in-game (needs a mid-frame submit or an async PBO path).
+Voxy 0.2.20-beta, branch `263` @ 247adf2 (local build, never committed; licence "All rights reserved": only names are
+referenced). Static inventory with `javap -c` over all 363 classes: **206 distinct GL call targets** (owner + name +
+descriptor) plus Minecraft OpenGL-backend internals. Before step 2, **106** of the 206 had no implementation; now **1**
+(`ARBSparseBuffer.glBufferPageCommitmentARB`, deliberately not claimed — Voxy only uses it when
+`GL_ARB_sparse_buffer` is reported). Runtime inventory: §12.4.
+
+| Area | What Voxy calls |
+|---|---|
+| Compute | `glDispatchCompute`, `glDispatchComputeIndirect`, `glMemoryBarrier`, compute shaders (`#version 430/460`, shared memory, `barrier()`, atomics, subgroup arithmetic + clustered ops in Hi-Z / prefix sum) |
+| Binding points | `glBindBufferBase/Range` (SSBO, UBO), `glBindImageTexture` (r32f / rgba8, one mip), sampler objects (`glGenSamplers`, `glCreateSamplers`, `glSamplerParameteri`, `glBindSampler`), `glBindTextureUnit` |
+| Draws | `glMultiDrawElementsIndirectCountARB` (main terrain draw, `GL_UNSIGNED_SHORT`, up to 100k draws), `glDrawElementsIndirect`, `glDrawElementsInstancedBaseInstance`, `gl_BaseInstance` in vertex shaders, `glProvokingVertex(FIRST)` |
+| Buffers (DSA) | `glNamedBufferStorage` (persistent + coherent), `ngl`/`gl` `MapNamedBuffer(Range)`, `glCopyNamedBufferSubData`, `nglClearNamedBufferSubData/Data`, `glGetNamedBufferSubData`, `glFlushMappedNamedBufferRange` |
+| Textures (DSA) | `glCreateTextures`, `glTextureStorage2D`, `nglTextureSubImage2D`, `glTextureParameteri/f`, `glTextureView`, `nglClearTexImage`, `glGetTextureImage` (reads Minecraft's block atlas), `glGetTextureLevelParameteri` |
+| Framebuffers (DSA) | `glCreateFramebuffers`, `glNamedFramebufferTexture/Renderbuffer`, `glNamedFramebufferDrawBuffer(s)`, `glClearNamedFramebufferfv/iv/fi`, `glBlitNamedFramebuffer`, depth-stencil renderbuffers, stencil test (`glStencilFunc/Op/Mask`) |
+| Queries / misc | `glGetInteger64` (SSBO limits), `glGetIntegeri` (SSBO binding), timer queries (`glQueryCounter`, `glGetQueryObjecti64`), `glObjectLabel`, `nglShaderSource`, `nglUniformMatrix4fv`, `nglGetSynciv`, fences |
+| Capability probe | `GL.getCapabilities()`: `glDispatchComputeIndirect != 0`, `glMultiDrawElementsIndirectCountARB != 0`, `GL_ARB_sparse_buffer`, NV extensions, `GL_KHR_shader_subgroup`; compiles probe shaders (int64, subgroups) and runs a depth-sampler compute test with readback |
+| Minecraft internals | `GlStateManager._*` (11 functions, state reset after rendering); `((GlTexture) t).glId()` / `((GlTextureView) v).glId()` for the main target colour/depth, lightmap, block atlas — also inside Voxy's **Sodium mixin** (merged into `DefaultChunkRenderer`, the opaque LOD render entry point) |
+
+### 12.2 Design as implemented
+
+- **Compute** (`GlCompute`, `MetalGlDevice.dispatch`): `GL_COMPUTE_SHADER` → translator (`Stage.COMPUTE`, workgroup size
+  from SPIR-V `LocalSize`) → `MTLComputePipelineState`. Consecutive dispatches share one *serial* compute encoder in the
+  frame's command buffer (each dispatch sees the previous one's writes); `glMemoryBarrier` therefore needs no work.
+  metallium-gl's buffers/textures are Metal-hazard-tracked across encoders; Metallium's (untracked) textures are ordered
+  by the frame fence as before.
+- **Binding points** (`GlBindings`): per-stage reflection gives each UBO/SSBO/image its Metal slot; the GL binding comes
+  from the source's `layout(binding = N)` (preprocessed with shaderc, `GlslProgramTranslator.explicitLayouts`, because
+  glslang auto-assigns numbers to unbound resources), default 0 as in GL. Same for sampler units and explicit
+  `layout(location = N)` uniforms. Storage images bind single-mip texture views. Sampler objects override texture state.
+- **Indirect-count draws** (`IndirectCountDraws`): *compute pre-pass → indirect command buffer*. A kernel reads GL's
+  `DrawElementsIndirectCommand`s and the GPU-written count and encodes an `MTLIndirectCommandBuffer` (indexed draws;
+  commands ≥ count or with 0 instances are reset); the render encoder executes it with inherited pipeline and buffers
+  (pipelines get `supportIndirectCommandBuffers`). No CPU readback, CPU cost independent of the draw count; one ICB per
+  call per frame (pooled). Rejected alternative: zeroing `instanceCount` and encoding `maxdrawcount` indirect draws on the
+  CPU (100k draw calls per frame for Voxy). Plain indirect draws use Metal's `drawIndexedPrimitives(indirectBuffer)`
+  (identical argument layout). `gl_InstanceID` is fixed to exclude the base instance (Metal's `[[instance_id]]` includes
+  it) for GL-semantics programs.
+- **Buffers**: copies / clears / uploads into GPU-written buffers are blits / a fill kernel in the command stream
+  (GL order). Buffers written by the GPU are never "renamed" on CPU updates (that would lose GPU writes).
+  `glGetBufferSubData` / `glGetTextureImage` of GPU-busy data use the new core call `MetalliumInterop.submitAndWait()`
+  (commits the frame's work so far mid-frame and waits; Metallium continues in a new command buffer).
+- **DSA** (`GlDsa`): every named call binds the object to a scratch binding, runs the bind-to-edit path and restores —
+  identical validation and errors. Separate vertex formats (`glVertexArrayAttribFormat/VertexBuffer`).
+- **Minecraft's textures by GL name** (`MetalGLInterop`, `GlExternalTextures`): the retargeter rewrites
+  `CHECKCAST GlTexture(View)` + `glId()` into one bridge; on Metal it returns a name in metallium-gl's texture space
+  wrapping Metallium's `MTLTexture` (lazy clears applied before each use; never released by GL).
+- **GlStateManager** calls in retargeted code go to `MetalGLStateManager` (same names/descriptors).
+- **Mixin-merged code**: methods that an opted-in mod's mixins merge into *other* classes (`@MixinMerged`) are retargeted
+  too (Voxy's render entry lives in Sodium's `DefaultChunkRenderer`).
+- **Capabilities**: claimed extensions = implemented ones (compute, SSBO, image load/store, UBO, copy/clear buffer,
+  (multi) draw indirect, indirect parameters, base instance, shader draw parameters, DSA, sampler objects, texture view,
+  texture barrier, timer query (CPU times), KHR_debug (no-op), KHR_shader_subgroup). Not claimed: NV/AMD extensions,
+  sparse buffers, int64 (shaders requiring `GL_ARB_gpu_shader_int64` fail to compile, so Voxy's probe takes its 32-bit
+  path), bindless. Second sink class `MetalGL4` keeps `MetalGL` focused.
+- **Voxy gate**: core's `VoxyClientMixin` steps aside when metallium-gl routes Voxy (system property
+  `metallium.gl.routedMods`, set by the bootstrap).
+
+### 12.3 Tests
+
+`MetalGl4DeviceTest` (real Metal device): compute + atomics + UBO + explicit uniform location; indirect dispatch whose
+group count a previous dispatch wrote; buffer clear/copy/readback; `imageStore` into mip 1 + `glGetTextureImage`; texture
++ sampler object in compute; MDI-count with GPU-written commands and count (count 3 of 4 → 4th not drawn) and
+`gl_BaseInstance`; `glDrawElementsIndirect` + base-instance draw; stencil; blit + texture view. `GlCallRetargeterTest`:
+GlStateManager + `glId()` rewrite; `MetalGL4` and `MetalGLStateManager` mirror their originals' descriptors.
+Translator tests: GL bindings/workgroup size/explicit layouts, subgroup clustered ops compile in Metal, `gl_InstanceID`.
+
+### 12.4 Runtime status with Voxy
+
+**Voxy renders its LOD terrain on Metal, unmodified** (2026-10-18, M3 Max, macOS 27.0.1, Voxy 247adf2 + Sodium 0.9.2).
+Command: `gpu-lock.sh ./gradlew :runClientGameTest -PwithSodium -PwithGl -PwithVoxy=<jar> -PglMods=voxy -PglFailFast=false`
+(Voxy is excluded from automatic routing, so it must be listed explicitly; `GlRouting.EXPLICIT_ONLY`).
+Scenario: natural world, spectator at y 160, vanilla render distance 16 for 60 s (Voxy ingests the loaded chunks), then 4.
+
+- Runtime inventory: 36 Voxy classes / 603 GL call sites retargeted, **0 unimplemented functions called**; per minute
+  ≈13k dispatches and ≈5k indirect draw calls (≈7-8 GPU-generated draws per MDI-count call); Voxy's F3 data: 198 models
+  baked, ~90 nodes, render-system frame time ≈0.9-1.8 ms.
+- Screenshots: at render distance 4 Sodium draws 0 sections, yet the full 16-chunk terrain is visible — Voxy's LODs; a
+  reference run without Voxy (`-PvoxyScenario`) shows the same view at distance 16 and only sky at distance 4, and the
+  Voxy image matches the vanilla rd-16 image closely. Frame time ≈2 ms (the game test caps at 30 fps).
+- Fixes found by running Voxy (each with a unit test): >2 GiB buffers (Voxy's 4 GiB geometry SSBO); `gl_DepthRange`;
+  `#extension X : enable` of unsupported extensions is a warning and glslang's predefined extension macros are hidden;
+  GL 4.1+ framebuffer completeness; resources SPIRV-Cross leaves unassigned are never bound (driver crash on index -1);
+  `glFinish` / waiting `glClientWaitSync` complete fences of the frame being recorded (Voxy spun forever on shutdown);
+  `glClipControl` + the context starts in Minecraft's zero-to-one depth convention (Voxy compiles for it);
+  **Metal forbids textures in ICB pipelines** ("Fragment shader cannot be used with indirect command buffers"), so
+  textured programs (Voxy's terrain) use the compaction fallback: a kernel writes Metal indirect arguments with
+  instanceCount 0 beyond the GPU count and the render encoder issues one indirect draw per slot (CPU cost per slot,
+  `maxdrawcount` clamped to the command buffer). Texture-free programs keep the ICB path.
+- Game-test plumbing: dev-only macOS natives for Voxy's storage (RocksDB / zstd: the 263 jar bundles none for macOS).
+
+Not done / known limits:
+- Iris + Voxy (Voxy's Iris pipeline, shader-pack programs) is untested; `glBlitFramebuffer` only 1:1.
+- Timer queries report CPU times; sparse buffers / int64 / NV paths are reported unsupported (Voxy takes its generic paths).
+- The MDI-count fallback costs one encoded draw per `maxdrawcount` slot; argument-buffer ICBs (textures via argument
+  buffers) would remove that. FPS with large LOD distances not benchmarked yet.
+- Shadow / translucent / SSAO passes run (no errors) but were not checked pixel by pixel.
+- Diagnostics: `-PglTrace=N -PglTraceAfter=S` logs device operations, `-PglDump=n,...` texture statistics after them.
 
 ## 13. Performance notes
 

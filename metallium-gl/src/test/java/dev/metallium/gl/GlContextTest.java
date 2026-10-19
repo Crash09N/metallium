@@ -172,7 +172,7 @@ class GlContextTest {
         MetalGL.glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, depth);
         assertEquals(GL_FRAMEBUFFER_COMPLETE, MetalGL.glCheckFramebufferStatus(GL_FRAMEBUFFER));
         MetalGL.glDrawBuffers(new int[]{GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1});
-        assertEquals(GL_FRAMEBUFFER_INCOMPLETE_DRAW_BUFFER, MetalGL.glCheckFramebufferStatus(GL_FRAMEBUFFER));
+        assertEquals(GL_FRAMEBUFFER_COMPLETE, MetalGL.glCheckFramebufferStatus(GL_FRAMEBUFFER), "GL 4.1+: missing draw-buffer attachments discard writes");
         MetalGL.glDrawBuffers(new int[]{GL_COLOR_ATTACHMENT0});
         MetalGL.glClearColor(0.25f, 0.5f, 0.75f, 1f);
         MetalGL.glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -190,8 +190,21 @@ class GlContextTest {
         MetalGL.glCompileShader(shader);
         assertEquals(GL_FALSE, MetalGL.glGetShaderi(shader, GL_COMPILE_STATUS));
         assertTrue(MetalGL.glGetShaderInfoLog(shader).contains("undefined_thing"), MetalGL.glGetShaderInfoLog(shader));
-        assertEquals(0, MetalGL.glCreateShader(GL_COMPUTE_SHADER));
+        assertEquals(0, MetalGL.glCreateShader(GL_GEOMETRY_SHADER));
         assertEquals(GL_INVALID_ENUM, MetalGL.glGetError());
+        int compute = MetalGL.glCreateShader(GL_COMPUTE_SHADER);
+        assertNotEquals(0, compute);
+        MetalGL.glShaderSource(compute, "#version 430\n#extension GL_ARB_gpu_shader_int64 : require\nlayout(local_size_x=32) in;\nvoid main() { uint64_t a = 1234; }\n");
+        MetalGL.glCompileShader(compute);
+        assertEquals(GL_FALSE, MetalGL.glGetShaderi(compute, GL_COMPILE_STATUS), "int64 is not supported, so it must not compile");
+        assertTrue(MetalGL.glGetShaderInfoLog(compute).contains("GL_ARB_gpu_shader_int64"), MetalGL.glGetShaderInfoLog(compute));
+        // "enable" of an unsupported extension: a warning in GL, and its macro is undefined.
+        int optional = MetalGL.glCreateShader(GL_COMPUTE_SHADER);
+        MetalGL.glShaderSource(optional, "#version 450\n#extension GL_ARB_gpu_shader_int64 : enable\n#ifdef GL_ARB_gpu_shader_int64\n"
+                + "#error int64 must look unsupported\n#endif\n#ifdef NOT_DEFINED\n#extension GL_NV_fragment_shader_barycentric : require\n#endif\n"
+                + "layout(local_size_x=32) in;\nvoid main() { }\n");
+        MetalGL.glCompileShader(optional);
+        assertEquals(GL_TRUE, MetalGL.glGetShaderi(optional, GL_COMPILE_STATUS), MetalGL.glGetShaderInfoLog(optional));
     }
 
     static int linkTestProgram() {
@@ -332,14 +345,23 @@ class GlContextTest {
         assertTrue(MetalGL.glGetString(GL_VERSION).startsWith("4.6"));
         int n = MetalGL.glGetInteger(GL_NUM_EXTENSIONS);
         assertTrue(n > 0);
+        java.util.Set<String> extensions = new java.util.HashSet<>();
         for (int i = 0; i < n; i++) {
-            assertNotEquals("GL_ARB_compute_shader", MetalGL.glGetStringi(GL_EXTENSIONS, i), "compute is not implemented yet");
+            extensions.add(MetalGL.glGetStringi(GL_EXTENSIONS, i));
         }
+        assertTrue(extensions.containsAll(java.util.Set.of("GL_ARB_compute_shader", "GL_ARB_shader_storage_buffer_object", "GL_ARB_indirect_parameters")),
+                "extensions: " + extensions);
+        assertTrue(extensions.stream().noneMatch(e -> e.startsWith("GL_NV_") || e.contains("sparse") || e.contains("int64")),
+                "only implemented extensions may be claimed: " + extensions);
         assertTrue(MetalGL.getCapabilities().OpenGL46);
         assertTrue(MetalGL.getCapabilities().GL_ARB_buffer_storage);
-        assertFalse(MetalGL.getCapabilities().GL_ARB_compute_shader);
+        assertTrue(MetalGL.getCapabilities().GL_ARB_compute_shader);
+        assertFalse(MetalGL.getCapabilities().GL_ARB_sparse_buffer);
+        assertFalse(MetalGL.getCapabilities().GL_NV_mesh_shader);
         assertNotEquals(0L, MetalGL.getCapabilities().glBindBuffer);
-        assertEquals(0L, MetalGL.getCapabilities().glDispatchCompute);
+        assertNotEquals(0L, MetalGL.getCapabilities().glDispatchComputeIndirect, "implemented in MetalGL4");
+        assertNotEquals(0L, MetalGL.getCapabilities().glMultiDrawElementsIndirectCountARB);
+        assertEquals(0L, MetalGL.getCapabilities().glBufferPageCommitmentARB);
     }
 
     @Test
