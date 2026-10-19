@@ -3,7 +3,8 @@
   "id": "metallium-iris",
   "version": "${version}",
   "name": "Metallium Iris Adapter",
-  "description": "Runs Iris shader packs on Metallium's Metal backend.",
+  "description": "Runs Iris shader packs on Metallium's Metal backend. Bundled inside Metallium; inactive unless Iris 1.11.6+ and Sodium are installed. LGPL-3.0, source: https://github.com/Crash09N/metallium/tree/main/metallium-iris",
+  "contact": {"sources": "https://github.com/Crash09N/metallium/tree/main/metallium-iris"},
   "authors": ["Metallium contributors"],
   "license": "LGPL-3.0-only",
   "environment": "client",
@@ -13,7 +14,10 @@
   "mixins": ["metallium-iris.mixins.json"],
   "depends": {
     "metallium": "*",
+    "minecraft": "~26.3"
+  },
+  "suggests": {
     "iris": ">=1.11.6 <1.12",
-    "sodium": ">=0.9.2"
+    "sodium": ">=0.9.2 <0.10"
   }
 }
