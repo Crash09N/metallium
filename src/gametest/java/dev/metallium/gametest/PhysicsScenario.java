@@ -115,12 +115,15 @@ final class PhysicsScenario {
     /** FPS of the current scene with Physics Mod's GPU feature {@code field} on and off. */
     private void benchFeature(final ClientGameTestContext context, final String scene, final String field) {
         if (!Boolean.getBoolean("metallium.gametest.physicsBench")) return;
+        dev.metallium.power.PowerMode before = dev.metallium.power.PowerManager.mode();
+        dev.metallium.power.PowerManager.setMode(dev.metallium.power.PowerMode.PERFORMANCE); // no battery FPS cap
         double on = fps(context, 8);
         setConfig(field, field.equals("oceanRenderer") ? (Object) 0 : (Object) false);
         context.waitTicks(40);
         double off = fps(context, 8);
         setConfig(field, field.equals("oceanRenderer") ? (Object) 1 : (Object) true);
         context.waitTicks(40);
+        dev.metallium.power.PowerManager.setMode(before);
         line.accept(String.format("physics: bench %s: %s on %.0f fps, off %.0f fps", scene, field, on, off));
     }
 
@@ -299,7 +302,6 @@ final class PhysicsScenario {
         context.waitTicks(60);
         context.takeScreenshot("physics-" + tag + "-smoke-fire");
         status(context, "smoke");
-        benchFeature(context, "smoke", "smokeVolumetricPhysics");
     }
 
     /**
