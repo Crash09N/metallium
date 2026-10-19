@@ -31,6 +31,9 @@ Status legend: ✅ done · 🔄 in progress · ⏳ planned · 🔬 needs researc
 - Source: mcopt (Apache-2.0, code from `09fea99` on, credited), minecraft-metal-renderer and MetalRender (ideas only)
 
 ## Phase 3 — Terrain performance (inside Sodium, not replacing it) ⏳
+- ✅ Measured (`docs/benchmarks/terrain-2026-10-19.md`): Sodium terrain costs 0.07–0.29 ms CPU per frame on Metal
+  (~60 ns per draw); with Complementary rd32 ~1 ms GPU, almost all in the main view. ICB/indirect for CPU savings and
+  draw merging are not worth it (measured); main-view GPU occlusion culling is the remaining lever
 - Sodium's indirect draw path on Metal, then indirect command buffers (ICB)
 - GPU culling: two-phase Hi-Z occlusion in compute (ideas from mcopt / Nvidium), compatible with Sodium's culler,
   Sodium Extra's fog culling and Iris's shadow pass

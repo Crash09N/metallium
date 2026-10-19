@@ -877,8 +877,22 @@ final class MetalCommandEncoder implements CommandEncoderBackend {
     @Override
     public void writeTimestamp(final @NonNull GpuQueryPool pool, final int index) {
         if (pool instanceof MetalGpuQueryPool metalPool && index >= 0 && index < pool.size()) {
-            metalPool.setValue(index, device.getTimestampNow());
+            writeGpuTimestamp(metalPool, index);
         }
+    }
+
+    /** GPU timestamps: the last command buffer that got one (identity only, may already be released). */
+    @Nullable
+    private MTLCommandBuffer timestampedBuffer;
+
+    /**
+     * Binds a timestamp to the current command buffer: the first one written into a buffer resolves to its GPU start time,
+     * later ones to its GPU end time (see {@link MetalGpuQueryPool}). Also used by {@link MetalRenderPass}.
+     */
+    void writeGpuTimestamp(final MetalGpuQueryPool pool, final int index) {
+        MTLCommandBuffer buffer = commandBuffer();
+        pool.setPending(index, buffer, buffer == timestampedBuffer);
+        timestampedBuffer = buffer;
     }
 
     private void flushPendingClearForWrite(final MetalGpuTexture texture) {

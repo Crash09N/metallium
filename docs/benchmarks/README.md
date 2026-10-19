@@ -35,3 +35,7 @@ Run through `./gradlew :runClientGameTest -PwithSodium -Pbench -Pengine=<E> -Pbe
 Every rendered frame is timed with a HUD hook in the game test (one call per rendered frame). Avg FPS = frames /
 total time; 1% low = 1000 / mean frame time of the slowest 1% of frames; p50/p95/p99/max are frame-time percentiles.
 Rendered frames are counted, frames actually presented to the display are not.
+
+Bench runs before 2026-10-19 loaded only the spawn area (≈2.6k Sodium sections at any render distance; the client
+options were not broadcast to the server). Terrain cost per frame, measured with `-PperfCounters` and
+`-Pterrain=skipDraws=all|main|shadow`: `terrain-2026-10-19.md`.

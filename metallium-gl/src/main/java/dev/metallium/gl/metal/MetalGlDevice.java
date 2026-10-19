@@ -44,6 +44,7 @@ public final class MetalGlDevice implements GlDevice {
     private @Nullable MTLComputePipelineState fillPipeline;
     private @Nullable RenderTargets encoderTargets;
     private @Nullable MTLFence encoderFence;
+    private @Nullable MTLFence ownFence;
     private @Nullable GpuUse frameUse;
     private final Map<String, MTLRenderPipelineState> pipelines = new HashMap<>();
     private final Map<Long, MTLDepthStencilState> depthStates = new HashMap<>();
@@ -213,13 +214,102 @@ public final class MetalGlDevice implements GlDevice {
         /** MSL of the vertex stage, for the GL_ZERO_TO_ONE variant (compiled on first use). */
         final @Nullable StageCode vertexCode;
         @Nullable MTLFunction vertexZeroToOne;
+        /** MSL of the fragment stage, for the indirect-command-buffer variant. */
+        final @Nullable StageCode fragmentCode;
+        /** Variant for ICB pipelines (textures in argument buffers); built on first use, null until then. */
+        @Nullable IcbVariant icb;
 
-        MetalProgram(final int id, final MTLFunction vertex, final MTLFunction fragment, final @Nullable StageCode vertexCode) {
+        MetalProgram(final int id, final MTLFunction vertex, final MTLFunction fragment, final @Nullable StageCode vertexCode,
+                     final @Nullable StageCode fragmentCode) {
             this.id = id;
             this.vertex = vertex;
             this.fragment = fragment;
             this.vertexCode = vertexCode;
+            this.fragmentCode = fragmentCode;
         }
+    }
+
+    /**
+     * A program's functions for pipelines executed from an indirect command buffer: stages that take textures are
+     * rewritten to read them from an argument buffer ({@link ArgumentBufferTextures}); a null table means the stage is
+     * used as is. {@code supported == false}: the rewrite was not possible (the caller keeps the per-slot fallback).
+     */
+    static final class IcbVariant {
+        final boolean supported;
+        final @Nullable MTLFunction vertex;
+        final @Nullable MTLFunction fragment;
+        final ArgumentBufferTextures.@Nullable Rewritten vertexTable;
+        final ArgumentBufferTextures.@Nullable Rewritten fragmentTable;
+        @Nullable MTLFunction vertexZeroToOne;
+
+        IcbVariant(final boolean supported, final @Nullable MTLFunction vertex, final @Nullable MTLFunction fragment,
+                   final ArgumentBufferTextures.@Nullable Rewritten vertexTable, final ArgumentBufferTextures.@Nullable Rewritten fragmentTable) {
+            this.supported = supported;
+            this.vertex = vertex;
+            this.fragment = fragment;
+            this.vertexTable = vertexTable;
+            this.fragmentTable = fragmentTable;
+        }
+    }
+
+    /** MDI-count calls executed as an ICB / through the per-slot fallback (diagnostics: status line, tests). */
+    public static final java.util.concurrent.atomic.AtomicLong ICB_CALLS = new java.util.concurrent.atomic.AtomicLong();
+    public static final java.util.concurrent.atomic.AtomicLong SLOT_FALLBACK_CALLS = new java.util.concurrent.atomic.AtomicLong();
+    /** CPU-encoded draws of the per-slot fallback (one per maxdrawcount slot), and CPU time spent in drawIndirect. */
+    public static final java.util.concurrent.atomic.AtomicLong SLOT_FALLBACK_DRAWS = new java.util.concurrent.atomic.AtomicLong();
+    public static final java.util.concurrent.atomic.AtomicLong INDIRECT_ENCODE_NS = new java.util.concurrent.atomic.AtomicLong();
+
+    /** -Dmetallium.gl.icbTextures=false:textured MDI-count draws use the per-slot fallback (A/B benchmark). */
+    private static final boolean ICB_TEXTURES = !"false".equals(System.getProperty("metallium.gl.icbTextures"));
+
+    /** The ICB variant of {@code program} (built once). */
+    private IcbVariant icbVariant(final MetalProgram program) {
+        if (program.icb != null) {
+            return program.icb;
+        }
+        IcbVariant variant = new IcbVariant(false, null, null, null, null);
+        if (ICB_TEXTURES && program.vertexCode != null && program.fragmentCode != null) {
+            ArgumentBufferTextures.Rewritten vs = ArgumentBufferTextures.rewrite(program.vertexCode.msl(), program.vertexCode.entryPoint());
+            ArgumentBufferTextures.Rewritten fs = ArgumentBufferTextures.rewrite(program.fragmentCode.msl(), program.fragmentCode.entryPoint());
+            boolean vsTextures = program.vertexCode.msl().contains("[[texture(") || program.vertexCode.msl().contains("[[sampler(");
+            boolean fsTextures = program.fragmentCode.msl().contains("[[texture(") || program.fragmentCode.msl().contains("[[sampler(");
+            if ((vs != null || !vsTextures) && (fs != null || !fsTextures)) {
+                try {
+                    variant = new IcbVariant(true,
+                            vs == null ? program.vertex : function("program" + program.id + ".vsh.icb", new StageCode(vs.msl(), program.vertexCode.entryPoint())),
+                            fs == null ? program.fragment : function("program" + program.id + ".fsh.icb", new StageCode(fs.msl(), program.fragmentCode.entryPoint())),
+                            vs, fs);
+                } catch (DeviceException e) {
+                    MetalGLLog.warn("ICB variant of program " + program.id + ": " + e.getMessage());
+                }
+            }
+            if (!variant.supported) {
+                MetalGLLog.warn("program " + program.id + ": textures cannot move to an argument buffer; MDI-count draws use the per-slot fallback");
+            }
+        }
+        program.icb = variant;
+        return variant;
+    }
+
+    /** The ICB variant's vertex function for the current glClipControl depth mode. */
+    private MTLFunction icbVertexFunction(final MetalProgram program, final IcbVariant variant, final boolean zeroToOne) {
+        if (variant.vertexTable == null) {
+            return vertexFunction(program, zeroToOne);
+        }
+        if (!zeroToOne) {
+            return variant.vertex;
+        }
+        if (variant.vertexZeroToOne == null) {
+            String msl = DEPTH_FIXUP.matcher(variant.vertexTable.msl()).replaceAll("");
+            try {
+                variant.vertexZeroToOne = msl.equals(variant.vertexTable.msl()) ? variant.vertex
+                        : function("program" + program.id + ".vsh.icb.zeroToOne", new StageCode(msl, program.vertexCode.entryPoint()));
+            } catch (DeviceException e) {
+                MetalGLLog.warn(e.getMessage());
+                variant.vertexZeroToOne = variant.vertex;
+            }
+        }
+        return variant.vertexZeroToOne;
     }
 
     /** SPIRV-Cross's GL clip-space depth remap ({@code FIXUP_DEPTH_CONVENTION}) in a vertex entry point. */
@@ -336,7 +426,7 @@ public final class MetalGlDevice implements GlDevice {
 
     @Override
     public ProgramStore createProgram(final String label, final StageCode vertex, final StageCode fragment) throws DeviceException {
-        return new MetalProgram(nextProgramId++, function(label + ".vsh", vertex), function(label + ".fsh", fragment), vertex);
+        return new MetalProgram(nextProgramId++, function(label + ".vsh", vertex), function(label + ".fsh", fragment), vertex, fragment);
     }
 
     private MTLFunction function(final String label, final StageCode code) throws DeviceException {
@@ -412,10 +502,24 @@ public final class MetalGlDevice implements GlDevice {
 
     // ---------------------------------------------------------------------------------------------- encoders
 
+    /**
+     * Orders this device's consecutive encoders when the host has no fence of its own (headless). Metal's automatic
+     * hazard tracking alone does not reliably order a compute pass with texture atomics against the blit passes around
+     * it (clear before, readback after): without a fence a readback saw a 3D R32UI image before / while the atomics ran
+     * (about 1 in 4 runs under GPU load). Every encoder waits for this fence at its start and updates it at its end.
+     */
+    private MTLFence ownFence() {
+        if (ownFence == null) {
+            ownFence = device.newFence();
+        }
+        return ownFence;
+    }
+
     private MTLCommandBuffer commandBuffer() {
         if (commandBuffer == null) {
             commandBuffer = host.begin(this::interrupted);
-            encoderFence = host.fence();
+            MTLFence hostFence = host.fence();
+            encoderFence = hostFence != null ? hostFence : ownFence();
             frameUse = host.currentUse();
         }
         return commandBuffer;
@@ -749,6 +853,15 @@ public final class MetalGlDevice implements GlDevice {
 
     @Override
     public void drawIndirect(final DrawOp op, final IndirectDraws draws) {
+        long start = System.nanoTime();
+        try {
+            drawIndirect0(op, draws);
+        } finally {
+            INDIRECT_ENCODE_NS.addAndGet(System.nanoTime() - start);
+        }
+    }
+
+    private void drawIndirect0(final DrawOp op, final IndirectDraws draws) {
         if (GlTrace.on()) GlTrace.log("drawIndirect " + GlTrace.draw(op) + " draws=" + draws.drawCount() + " stride=" + draws.stride()
                 + (draws.countBuffer() != null ? " gpuCount(last)=" + Integer.toUnsignedString(MemoryUtil.memGetInt(MemoryUtil.memAddress(draws.countBuffer().contents()) + draws.countOffset())) : "")
                 + " firstCmd=" + GlTrace.command(draws.commands(), draws.offset()));
@@ -762,14 +875,18 @@ public final class MetalGlDevice implements GlDevice {
         index.lastUse = frameUse;
         boolean usesTextures = op.fragment().textures().length > 0 || op.vertex().textures().length > 0
                 || op.fragment().images().length > 0 || op.vertex().images().length > 0;
-        if (draws.countBuffer() != null && usesTextures) {
-            // Metal rejects ICB pipelines whose functions bind textures directly: GPU-side compaction of the commands,
-            // then one Metal indirect draw per command slot (instanceCount 0 beyond the GPU count).
+        if (draws.countBuffer() != null && usesTextures
+                && !(op.program() instanceof MetalProgram p && icbVariant(p).supported)) {
+            // Metal rejects ICB pipelines whose functions bind textures directly; the ICB variant moves them into an
+            // argument buffer. Where that rewrite is not possible: GPU-side compaction of the commands, then one Metal
+            // indirect draw per command slot (instanceCount 0 beyond the GPU count).
             MetalBuffer count = (MetalBuffer) draws.countBuffer();
             count.lastUse = frameUse;
             if (indirectCount == null) {
                 indirectCount = new IndirectCountDraws(device, host);
             }
+            SLOT_FALLBACK_CALLS.incrementAndGet();
+            SLOT_FALLBACK_DRAWS.addAndGet(draws.drawCount());
             MTLBuffer compacted = indirectCount.compact(computeEncoder(), commands, draws.offset(), draws.stride(), count, draws.countOffset(),
                     draws.drawCount());
             MTLRenderCommandEncoder encoder = prepareDraw(op, false);
@@ -792,6 +909,7 @@ public final class MetalGlDevice implements GlDevice {
             if (indirectCount == null) {
                 indirectCount = new IndirectCountDraws(device, host);
             }
+            ICB_CALLS.incrementAndGet();
             IndirectCountDraws.Encoded icb = indirectCount.encode(computeEncoder(), commands, draws.offset(), draws.stride(), count,
                     draws.countOffset(), draws.drawCount(), index, op.index32(), op.glPrimitive());
             MTLRenderCommandEncoder encoder = prepareDraw(op, true);
@@ -833,6 +951,9 @@ public final class MetalGlDevice implements GlDevice {
             for (ImageBinding image : stage.images()) {
                 if (image.texture() != null) prepare((MetalTexture) image.texture(), image.written());
             }
+        }
+        if (indirectCommandBuffer) {
+            blackTexture(); // placeholder for unbound argument-buffer members (an upload would end the render encoder)
         }
         MTLRenderCommandEncoder encoder = renderEncoder(op.targets(), null);
         if (!(op.program() instanceof MetalProgram program)) {
@@ -900,8 +1021,9 @@ public final class MetalGlDevice implements GlDevice {
                     encoder.setVertexBytes(constant, 16, slot.index);
                 }
             }
-            bindStage(encoder, op.vertex(), true, arena);
-            bindStage(encoder, op.fragment(), false, arena);
+            IcbVariant icb = indirectCommandBuffer && program.icb != null && program.icb.supported ? program.icb : null;
+            bindStage(encoder, op.vertex(), true, arena, icb != null ? icb.vertexTable : null);
+            bindStage(encoder, op.fragment(), false, arena, icb != null ? icb.fragmentTable : null);
         }
 
         int[] v = raster.viewport();
@@ -942,7 +1064,57 @@ public final class MetalGlDevice implements GlDevice {
         }
     }
 
-    private void bindStage(final MTLRenderCommandEncoder encoder, final StageBindings stage, final boolean vertex, final java.lang.foreign.Arena arena) {
+    /**
+     * Binds a stage's textures and samplers through its argument-buffer table (ICB pipelines): writes each member's
+     * {@code MTLResourceID} and declares the textures with {@code useResource} (they are referenced indirectly).
+     */
+    private void bindTable(final MTLRenderCommandEncoder encoder, final StageBindings stage, final boolean vertex, final java.lang.foreign.Arena arena,
+                           final ArgumentBufferTextures.Rewritten table) {
+        MemorySegment ids = arena.allocate(table.size(), 8);
+        long stages = vertex ? MTLRenderStages.Vertex : MTLRenderStages.Fragment;
+        for (int i = 0; i < table.members().size(); i++) {
+            ArgumentBufferTextures.Member member = table.members().get(i);
+            long id = 0;
+            if (member.sampler()) {
+                MTLSamplerState sampler = null;
+                for (TextureBinding binding : stage.textures()) {
+                    if (binding.samplerIndex() == member.index()) {
+                        MetalTexture texture = binding.texture() == null ? blackTexture() : (MetalTexture) binding.texture();
+                        sampler = sampler(binding.sampler(), texture.levels > 1);
+                        break;
+                    }
+                }
+                id = (sampler != null ? sampler : sampler(SamplerState.DEFAULT, false)).gpuResourceID()._impl();
+            } else {
+                MTLTexture texture = null;
+                long usage = MTLResourceUsage.Read;
+                for (TextureBinding binding : stage.textures()) {
+                    if (binding.textureIndex() == member.index()) {
+                        texture = (binding.texture() == null ? blackTexture() : (MetalTexture) binding.texture()).texture;
+                        break;
+                    }
+                }
+                if (texture == null) {
+                    for (ImageBinding binding : stage.images()) {
+                        if (binding.index() == member.index()) {
+                            texture = binding.texture() == null ? blackTexture().texture : levelView((MetalTexture) binding.texture(), binding.level());
+                            if (binding.written()) usage |= MTLResourceUsage.Write;
+                            break;
+                        }
+                    }
+                }
+                if (texture == null) texture = blackTexture().texture;
+                encoder.useResource(texture, usage, stages);
+                id = texture.gpuResourceID()._impl();
+            }
+            ids.setAtIndex(java.lang.foreign.ValueLayout.JAVA_LONG, i, id);
+        }
+        if (vertex) encoder.setVertexBytes(ids, table.size(), table.bufferIndex());
+        else encoder.setFragmentBytes(ids, table.size(), table.bufferIndex());
+    }
+
+    private void bindStage(final MTLRenderCommandEncoder encoder, final StageBindings stage, final boolean vertex, final java.lang.foreign.Arena arena,
+                           final ArgumentBufferTextures.@Nullable Rewritten table) {
         ByteBuffer uniforms = stage.uniforms();
         if (uniforms != null && stage.uniformBufferIndex() >= 0) {
             int size = uniforms.capacity();
@@ -958,7 +1130,10 @@ public final class MetalGlDevice implements GlDevice {
                 host.releaseAfterGpu(copy::release);
             }
         }
-        for (TextureBinding binding : stage.textures()) {
+        if (table != null) {
+            bindTable(encoder, stage, vertex, arena, table);
+        }
+        for (TextureBinding binding : table != null ? new TextureBinding[0] : stage.textures()) {
             MetalTexture texture = binding.texture() == null ? blackTexture() : (MetalTexture) binding.texture();
             MTLSamplerState sampler = sampler(binding.sampler(), texture.levels > 1);
             if (vertex) {
@@ -975,7 +1150,7 @@ public final class MetalGlDevice implements GlDevice {
             if (vertex) encoder.setVertexBuffer(buffer.mtl(), binding.offset(), binding.index());
             else encoder.setFragmentBuffer(buffer.mtl(), binding.offset(), binding.index());
         }
-        for (ImageBinding binding : stage.images()) {
+        for (ImageBinding binding : table != null ? new ImageBinding[0] : stage.images()) {
             MTLTexture view = binding.texture() == null ? blackTexture().texture : levelView((MetalTexture) binding.texture(), binding.level());
             if (vertex) encoder.setVertexTexture(view, binding.index());
             else encoder.setFragmentTexture(view, binding.index());
@@ -1320,8 +1495,14 @@ public final class MetalGlDevice implements GlDevice {
         try (AutoreleasePool _ = AutoreleasePool.push()) {
             MTLRenderPipelineDescriptor descriptor = MTLRenderPipelineDescriptor.alloc().init();
             descriptor.setSupportIndirectCommandBuffers(indirectCommandBuffer);
-            descriptor.setVertexFunction(vertexFunction(program, op.raster().clipDepthZeroToOne()));
-            descriptor.setFragmentFunction(program.fragment);
+            IcbVariant icb = indirectCommandBuffer ? icbVariant(program) : null;
+            if (icb != null && icb.supported) {
+                descriptor.setVertexFunction(icbVertexFunction(program, icb, op.raster().clipDepthZeroToOne()));
+                descriptor.setFragmentFunction(icb.fragment);
+            } else {
+                descriptor.setVertexFunction(vertexFunction(program, op.raster().clipDepthZeroToOne()));
+                descriptor.setFragmentFunction(program.fragment);
+            }
             MTLVertexDescriptor vertexDescriptor = MTLVertexDescriptor.alloc().init();
             for (int a = 0; a < op.attributes().length; a++) {
                 VertexAttrib attrib = op.attributes()[a];
@@ -1465,6 +1646,7 @@ public final class MetalGlDevice implements GlDevice {
         MTLSamplerState state = samplers.get(key);
         if (state == null) {
             MTLSamplerDescriptor descriptor = MTLSamplerDescriptor.alloc().init();
+            descriptor.setSupportArgumentBuffers(true); // ICB pipelines read samplers from argument buffers
             boolean minLinear = s.minFilter() == GL_LINEAR || s.minFilter() == GL_LINEAR_MIPMAP_NEAREST || s.minFilter() == GL_LINEAR_MIPMAP_LINEAR;
             descriptor.setMinFilter(minLinear ? MTLSamplerMinMagFilter.Linear : MTLSamplerMinMagFilter.Nearest);
             descriptor.setMagFilter(s.magFilter() == GL_LINEAR ? MTLSamplerMinMagFilter.Linear : MTLSamplerMinMagFilter.Nearest);

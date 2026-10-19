@@ -60,3 +60,23 @@ The chat message shows only the first entry; the full list per pack is in the ge
 | superDuperVanilla | partial | composite1 MSL compile error, DH | 41 / 2 |
 
 Terrain coverage is 1.00 for all packs, including the black Bliss/photon frames, so the coverage heuristic does not detect black-frame failures (bug in the sweep heuristic).
+
+## Follow-up (same day, after the sweep)
+
+- **BSL "player model see-through" was a false positive of the check**, not a renderer bug: the colour check counted the
+  default skin's light-blue shirt as sky (BSL gave the same 0.28 on OpenGL). The check now compares the F5 view with the
+  same view with the player invisible (morning sun behind the camera, the owner's report). BSL, Complementary Unbound,
+  superDuperVanilla, Nostalgia and Bliss on Metal: body area matches the background 0.00, screenshots inspected; Unbound
+  F5 on Metal and OpenGL look identical. The owner's report is not reproduced by this scene.
+- **OpenGL references for Nostalgia/photon/Solas/rethinking-voxels are unshaded because Iris cannot load them on macOS
+  OpenGL 4.1** (Nostalgia: `#version 430`, photon: compute `deferred4_a`, Solas: `glClearTexImage` (GL 4.4) NPE,
+  rethinking-voxels: Iris `ClosedFileSystemException` reading the id map); not a harness bug. `tools/pack-sweep.sh` now
+  marks such references INVALID with the reason.
+- `tools/pack-sweep.sh`: new status `broken` from `tools/FrameStats.java` (luminance mean/stddev/dark fraction of the
+  world area): flags exactly Bliss and photon on this baseline. The DH message is info, not `partial`. `PACKS` accepts
+  names with spaces (`'|'`-separated names or globs).
+- Nostalgia: `blend override not supported yet` is gone (fullscreen-pass blend overrides implemented); Nostalgia only sets
+  `blend.prepare=off` / `blend.deferred=off`, so its look does not change.
+- superDuperVanilla: composite1 now translates (fragment output without `layout` got location 0 next to an explicit
+  location 0). Its TAA/previous-frame history (colortex5) is now active; the Metal screenshots show coloured smears that
+  still need an OpenGL comparison of the same scene.

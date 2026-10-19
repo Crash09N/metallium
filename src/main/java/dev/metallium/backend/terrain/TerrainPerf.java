@@ -1,0 +1,29 @@
+/*
+ * Copyright (c) 2026 Metallium contributors, licensed under the Apache License 2.0.
+ */
+package dev.metallium.backend.terrain;
+
+/**
+ * Terrain counters filled by the Sodium compat hooks when {@code -Dmetallium.perfCounters=true}; logged with the backend's
+ * per-submit perf line. Render thread only.
+ */
+public final class TerrainPerf {
+    public static final boolean ENABLED = Boolean.getBoolean("metallium.perfCounters");
+
+    /** Wall time inside Sodium's chunk renderer {@code render(...)} (all terrain passes incl. shadow), nanoseconds. */
+    public static long renderNs;
+    /** Calls of Sodium's chunk renderer {@code render(...)}. */
+    public static long renderCalls;
+    /** Wall time inside Sodium's chunk renderer {@code prepare(...)} (draw-list building), nanoseconds. */
+    public static long prepareNs;
+
+    private TerrainPerf() {
+    }
+
+    public static String formatAndReset(final double submits) {
+        String s = String.format("sodiumRender=%.3f ms (%.1f calls) sodiumPrepare=%.3f ms",
+                renderNs / submits / 1e6, renderCalls / submits, prepareNs / submits / 1e6);
+        renderNs = renderCalls = prepareNs = 0;
+        return s;
+    }
+}

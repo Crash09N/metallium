@@ -318,8 +318,11 @@ class MetalGl4DeviceTest {
 
     @Test
     void multiDrawIndirectCountWithTexturedFragmentShader() {
-        // Metal does not allow textures in ICB pipelines: this goes through the compaction fallback.
+        // Metal does not allow textures as direct arguments of ICB pipelines: the program's ICB variant reads them from
+        // an argument buffer, so the draw still runs as one indirect command buffer.
         setUpQuads();
+        long icbCalls = MetalGlDevice.ICB_CALLS.get();
+        long fallbackCalls = MetalGlDevice.SLOT_FALLBACK_CALLS.get();
         int texture = MetalGL4.glCreateTextures(GL_TEXTURE_2D);
         MetalGL4.glTextureStorage2D(texture, 1, GL_RGBA8, 1, 1);
         MetalGL4.glTextureSubImage2D(texture, 0, 0, 0, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, new int[]{0xFF808080});
@@ -344,6 +347,67 @@ class MetalGl4DeviceTest {
         assertEquals(GL_NO_ERROR, MetalGL.glGetError());
         assertPixel(SIZE - 4, 4, 0, 128, 0, "quad 1 drawn, tinted by the texture");
         assertPixel(4, SIZE - 4, 0, 0, 0, "quad 2 beyond the GPU count");
+        assertEquals(icbCalls + 1, MetalGlDevice.ICB_CALLS.get(), "executed as an indirect command buffer");
+        assertEquals(fallbackCalls, MetalGlDevice.SLOT_FALLBACK_CALLS.get(), "no per-slot fallback");
+    }
+
+    @Test
+    void multiDrawIndirectCountWithVertexAndSeveralFragmentTextures() {
+        // Vertex-stage texelFetch (offset per quad) + two fragment textures with different samplers, all through the
+        // ICB variant's argument buffers; the third texture unit stays unbound (placeholder, black).
+        setUpQuads();
+        long icbCalls = MetalGlDevice.ICB_CALLS.get();
+        int offsets = MetalGL4.glCreateTextures(GL_TEXTURE_2D);
+        MetalGL4.glTextureStorage2D(offsets, 1, GL_RGBA8, 4, 1);
+        MetalGL4.glTextureSubImage2D(offsets, 0, 0, 0, 4, 1, GL_RGBA, GL_UNSIGNED_BYTE, new int[]{0, 0, 0, 0});
+        int red = MetalGL4.glCreateTextures(GL_TEXTURE_2D);
+        MetalGL4.glTextureStorage2D(red, 1, GL_RGBA8, 1, 1);
+        MetalGL4.glTextureSubImage2D(red, 0, 0, 0, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, new int[]{0xFF0000FF});
+        int blue = MetalGL4.glCreateTextures(GL_TEXTURE_2D);
+        MetalGL4.glTextureStorage2D(blue, 1, GL_RGBA8, 1, 1);
+        MetalGL4.glTextureSubImage2D(blue, 0, 0, 0, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, new int[]{0xFFFF0000});
+        MetalGL4.glTextureParameteri(blue, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        MetalGL4.glBindTextureUnit(0, offsets);
+        MetalGL4.glBindTextureUnit(2, red);
+        MetalGL4.glBindTextureUnit(5, blue);
+        int commands = MetalGL.glCreateBuffers();
+        MetalGL4.glNamedBufferStorage(commands, 40, GL_DYNAMIC_STORAGE_BIT);
+        MetalGL4.glNamedBufferSubData(commands, 0, new int[]{6, 1, 0, 0, 0, 6, 1, 0, 0, 3});
+        int count = MetalGL.glCreateBuffers();
+        MetalGL4.glNamedBufferStorage(count, 4, GL_DYNAMIC_STORAGE_BIT);
+        MetalGL4.glNamedBufferSubData(count, 0, new int[]{2});
+        MetalGL.glUseProgram(program("""
+                #version 460 core
+                #extension GL_ARB_shader_draw_parameters : require
+                layout(binding = 0, std430) readonly buffer Quads { vec4 rects[]; };
+                layout(binding = 0) uniform sampler2D offsets;
+                flat out uint quad;
+                void main() {
+                    quad = uint(gl_BaseInstance) + uint(gl_InstanceID);
+                    vec4 r = rects[quad] + texelFetch(offsets, ivec2(int(quad), 0), 0);
+                    vec2 corner = vec2(float(gl_VertexID & 1), float((gl_VertexID >> 1) & 1));
+                    gl_Position = vec4(mix(r.xy, r.zw, corner), 0.0, 1.0);
+                }
+                """, """
+                #version 460 core
+                flat in uint quad;
+                layout(binding = 2) uniform sampler2D redTex;
+                layout(binding = 5) uniform sampler2D blueTex;
+                layout(binding = 7) uniform sampler2D unbound;
+                out vec4 fragColor;
+                void main() {
+                    fragColor = vec4(texture(redTex, vec2(0.5)).r, texture(unbound, vec2(0.5)).g, texture(blueTex, vec2(0.5)).b, 1.0)
+                            * (quad == 0u ? vec4(1.0, 1.0, 0.0, 1.0) : vec4(0.0, 1.0, 1.0, 1.0));
+                }
+                """));
+        MetalGL.glBindBuffer(GL_DRAW_INDIRECT_BUFFER, commands);
+        MetalGL.glBindBuffer(GL_PARAMETER_BUFFER, count);
+        MetalGL4.glMultiDrawElementsIndirectCount(GL_TRIANGLES, GL_UNSIGNED_SHORT, 0, 0, 2, 0);
+        assertEquals(GL_NO_ERROR, MetalGL.glGetError());
+        assertPixel(4, 4, 255, 0, 0, "quad 0: red texture");
+        assertPixel(SIZE - 4, SIZE - 4, 0, 0, 255, "quad 3: blue texture");
+        assertPixel(SIZE - 4, 4, 0, 0, 0, "quad 1 not drawn");
+        assertEquals(icbCalls + 1, MetalGlDevice.ICB_CALLS.get(), "executed as an indirect command buffer");
     }
 
     @Test

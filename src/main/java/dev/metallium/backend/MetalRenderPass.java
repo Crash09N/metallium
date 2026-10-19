@@ -237,6 +237,7 @@ final class MetalRenderPass implements RenderPassBackend {
             throw new UnsupportedOperationException("Metal backend does not support triangle fan multiDrawIndexed");
         }
 
+        long perfStart = PerfCounters.ENABLED ? System.nanoTime() : 0L;
         MetalGpuBuffer nativeIndexBuffer = (MetalGpuBuffer) indexBuffer;
         MTLRenderCommandEncoder enc = renderEncoder();
         bindDrawState(enc);
@@ -253,6 +254,11 @@ final class MetalRenderPass implements RenderPassBackend {
             long firstIndexOffset = offsets.get(ValueLayout.JAVA_LONG, i * 8L);
             int baseVertex = vertices.get(ValueLayout.JAVA_INT, i * 4L);
             enc.drawIndexedPrimitives(primitiveType, indexCount, indexType, indexBufferHandle, firstIndexOffset, 1, baseVertex, 0);
+        }
+        if (PerfCounters.ENABLED) {
+            PerfCounters.multiDraws++;
+            PerfCounters.subDraws += drawCount;
+            PerfCounters.multiDrawNs += System.nanoTime() - perfStart;
         }
     }
 
@@ -339,7 +345,7 @@ final class MetalRenderPass implements RenderPassBackend {
     @Override
     public void writeTimestamp(final @NonNull GpuQueryPool pool, final int index) {
         if (pool instanceof MetalGpuQueryPool metalPool && index >= 0 && index < pool.size()) {
-            metalPool.setValue(index, device.getTimestampNow());
+            commandEncoder.writeGpuTimestamp(metalPool, index);
         }
     }
 

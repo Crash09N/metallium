@@ -32,7 +32,13 @@ final class PerfCounters {
     static long orphanCopyBytes;
     static long submitWaitNs;
     static long gpuNs;
+    /** Terrain: RenderPass.multiDrawIndexed calls (Sodium: one per region and pass), their sub-draws and encode time. */
+    static long multiDraws;
+    static long subDraws;
+    static long multiDrawNs;
     private static long submits;
+    private static long lastSubmitNs;
+    private static long frameNs;
 
     private static String kinds(double n) {
         StringBuilder sb = new StringBuilder();
@@ -64,6 +70,11 @@ final class PerfCounters {
         if (tracing) {
             Metallium.LOGGER.info("Metallium trace: ---- begin submit ----");
         }
+        long now = System.nanoTime();
+        if (lastSubmitNs != 0L) {
+            frameNs += now - lastSubmitNs;
+        }
+        lastSubmitNs = now;
         if (++submits < WINDOW) {
             return;
         }
@@ -74,6 +85,10 @@ final class PerfCounters {
                 submits, renderEncoders / n, blitEncoders / n, coalescedBlits / n, kinds(n), clearEncoders / n, draws / n,
                 stagedWrites / n, stagedWriteBytes / n / 1024.0, directWrites / n, orphanWrites / n, orphanCopyBytes / n / 1024.0,
                 submitWaitNs / n / 1e6, gpuNs / n / 1e6));
+        Metallium.LOGGER.info(String.format(
+                "Metallium terrain perf (per submit): multiDraws=%.1f subDraws=%.0f multiDrawEncode=%.3f ms frame=%.3f ms %s",
+                multiDraws / n, subDraws / n, multiDrawNs / n / 1e6, frameNs / n / 1e6, dev.metallium.backend.terrain.TerrainPerf.formatAndReset(n)));
+        multiDraws = subDraws = multiDrawNs = frameNs = 0;
         java.util.Arrays.fill(blitKinds, 0);
         renderEncoders = blitEncoders = clearEncoders = coalescedBlits = draws = 0;
         stagedWrites = stagedWriteBytes = directWrites = orphanWrites = orphanCopyBytes = submitWaitNs = gpuNs = 0;
