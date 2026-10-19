@@ -642,8 +642,55 @@ public final class GlslProgramTranslator {
     private static final Pattern VULKAN_ONLY_KEYWORDS = Pattern.compile(
             "\\b(sampler|samplerShadow|length_squared|distance_squared|saturate|max3|min3|median3|powr|rsqrt|new|delete|this|template|typename|namespace|operator|friend|virtual|explicit|mutable|private|protected|public|kernel|device|thread|threadgroup|register|bias|level|min_lod_clamp|nullptr|constexpr|decltype|noexcept|throw|try|catch|alignas|alignof|static_assert|thread_local|export|typeid|dynamic_cast|static_cast|const_cast|reinterpret_cast)\\b");
 
+    private static final Pattern EXPLICIT_OUT = Pattern.compile(
+            "\\blayout\\s*\\([^)]*\\blocation\\s*=\\s*(\\d+)[^)]*\\)\\s*(?:(?:flat|smooth|noperspective|centroid|invariant)\\s+)*out\\s+[A-Za-z_][A-Za-z0-9_]*\\s+[A-Za-z_][A-Za-z0-9_]*\\s*(\\[\\s*(\\d+)\\s*\\])?\\s*;");
+
+    /**
+     * Fragment outputs without a layout next to outputs with an explicit location: the GL linker gives the unqualified
+     * ones free locations (declaration order, lowest first), while shaderc's auto-mapping numbers them from 0 and so
+     * collides with the explicit ones (superDuperVanilla composite1: {@code layout(location = 0) out vec3 a; out vec4 b;}
+     * -> MSL "duplicated color(0)"). Assigns those free locations explicitly; other sources are returned unchanged.
+     */
+    static String assignFragmentOutputLocations(final String source) {
+        java.util.BitSet used = new java.util.BitSet();
+        Matcher explicit = EXPLICIT_OUT.matcher(source);
+        while (explicit.find()) {
+            int location = Integer.parseInt(explicit.group(1));
+            used.set(location, location + (explicit.group(3) != null ? Math.max(1, Integer.parseInt(explicit.group(3))) : 1));
+        }
+        if (used.isEmpty()) {
+            return source;
+        }
+        Matcher m = GLOBAL_IO.matcher(source);
+        StringBuilder sb = new StringBuilder();
+        boolean changed = false;
+        while (m.find()) {
+            if (!m.group(3).equals("out") || hasLayoutBefore(source, m.start())) {
+                m.appendReplacement(sb, Matcher.quoteReplacement(m.group()));
+                continue;
+            }
+            int slots = 1;
+            if (m.group(6) != null) {
+                String size = m.group(6).replaceAll("[\\[\\]\\s]", "");
+                slots = size.matches("\\d+") ? Math.max(1, Integer.parseInt(size)) : 1;
+            }
+            int location = 0;
+            while (!used.get(location, location + slots).isEmpty()) {
+                location++;
+            }
+            used.set(location, location + slots);
+            String replacement = m.group(1) + "layout(location = " + location + ") " + m.group(2) + "out " + m.group(4) + " " + m.group(5)
+                    + (m.group(6) != null ? m.group(6) : "") + ";";
+            m.appendReplacement(sb, Matcher.quoteReplacement(replacement));
+            changed = true;
+        }
+        m.appendTail(sb);
+        return changed ? sb.toString() : source;
+    }
+
     static ByteBuffer compileToSpirv(final String programName, final Stage stage, final String glslSource) throws TranslationException {
-        String source = VULKAN_ONLY_KEYWORDS.matcher(glslSource).replaceAll("metallium_$1");
+        String source = VULKAN_ONLY_KEYWORDS.matcher(stage == Stage.FRAGMENT ? assignFragmentOutputLocations(glslSource) : glslSource)
+                .replaceAll("metallium_$1");
         if (!VERSION.matcher(source).find()) {
             throw new TranslationException(programName + "/" + stage + ": missing #version directive");
         }
