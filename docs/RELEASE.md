@@ -50,3 +50,17 @@ See "Release jar verification" at the end of this file.
 - metallium-gl implements a subset of OpenGL; mods using unimplemented functions get a crash-recovery screen and OpenGL on the next start.
 - Apple-native extras (MetalFX, Game Mode, ...) are not part of the alpha.
 - Closed-source mods are never bundled; Physics Mod and similar work only as separate installs.
+
+## Release jar verification
+
+Local game tests run against `build/release/metallium-0.1.0-alpha.jar` installed as a mod (no dev classes of the root
+project or subprojects on the classpath), M3 Max, macOS 27.0.1:
+
+- `./gradlew :runClientGameTest -PreleaseJarTest` (jar alone, no Sodium, no Iris): Metal active, flat/natural world render
+  (screenshots checked), status screen reports metallium-gl "installed, class loading hooked", the raw-GL test class is routed
+  through metallium-gl; the nested adapter logs `[metallium-iris] inactive: Iris is not installed`. Fabric lists
+  `metallium 0.1.0-alpha` with nested `metallium-gl` and `metallium-iris`. Only message: info that Sodium (recommended) is missing.
+- `-PreleaseJarTest -PreleaseJarIris` (jar + Sodium 0.9.2 + Iris 1.11.6): Iris "on Metal via the Metallium Iris adapter",
+  post pipeline, gbuffers, shadow and compute test packs pass as in the dev run (compute pack checks all 1.00).
+
+Reproduce: `./gradlew :runClientGameTest -PreleaseJarTest [-PreleaseJarIris]` (the flag builds the release jar first).
