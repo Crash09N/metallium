@@ -212,6 +212,8 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
     private static final String COMPUTE_PACK = "metallium-computepack";
     private static final String[] COMPUTE_PACK_FILES = {"shaders.properties", "setup.csh", "composite.csh", "composite1.csh", "composite2.vsh", "composite2.fsh",
             "composite3.vsh", "composite3.fsh"};
+    private static final String TEX_PACK = "metallium-texpack";
+    private static final String[] TEX_PACK_FILES = {"shaders.properties", "composite.vsh", "composite.fsh", "composite1.vsh", "composite1.fsh", "stripes.png", "volume.dat", "noise.png"};
 
     /**
      * Iris shader packs (needs -PwithIris): with a fixed view, compares a shaders-off screenshot with one taken with the
@@ -236,6 +238,7 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
             installTestPack(context, GBUFFER_PACK, GBUFFER_PACK_FILES);
             installTestPack(context, SHADOW_PACK, SHADOW_PACK_FILES);
             installTestPack(context, COMPUTE_PACK, COMPUTE_PACK_FILES);
+            installTestPack(context, TEX_PACK, TEX_PACK_FILES);
         } catch (IOException e) {
             failures.add("could not install test shader pack: " + e);
             return;
@@ -301,6 +304,7 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
 
         shadowPackScenario(context, world);
         computePackScenario(context);
+        texPackScenario(context);
 
         String external = externalPack(context);
         if (external != null) {
@@ -484,6 +488,38 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
             }
         } catch (IOException e) {
             failures.add("could not analyse compute pack screenshot: " + e);
+        }
+    }
+
+    /**
+     * Custom textures: the texture test pack's composite pass paints four quarters of the middle band green when a
+     * check passes (PNG stage override with repeat, raw RGB16F 3D texture as customtex0, texture.noise, size.buffer).
+     */
+    private void texPackScenario(ClientGameTestContext context) {
+        line("iris custom texture test pack: pipeline=" + context.computeOnClient(client -> irisSelectPack(TEX_PACK, true)));
+        context.waitTicks(40);
+        clearChat(context);
+        Path shot = context.takeScreenshot("metallium-iris-texpack");
+        try {
+            java.awt.image.BufferedImage image = javax.imageio.ImageIO.read(shot.toFile());
+            String[] names = {"png override", "raw 3D texture", "custom noise", "size.buffer"};
+            StringBuilder result = new StringBuilder("iris custom texture test pack: green fraction");
+            for (int i = 0; i < 4; i++) {
+                double green = colorFraction(image, 0.35, 0.65, i * 0.25 + 0.02, i * 0.25 + 0.23, 0x00FF00);
+                result.append(String.format(" %s=%.2f", names[i], green));
+                if (green < 0.90) {
+                    failures.add(String.format("custom texture test pack: %s check failed (green %.2f)", names[i], green));
+                }
+            }
+            // composite1.fsh: 18 textures in one pass (more than Metal's 16 sampler states), bottom band.
+            double many = colorFraction(image, 0.92, 0.98, 0.05, 0.95, 0x00FF00);
+            result.append(String.format(" 18-texture pass=%.2f", many));
+            if (many < 0.90) {
+                failures.add(String.format("custom texture test pack: 18-texture pass check failed (green %.2f)", many));
+            }
+            line(result.toString());
+        } catch (IOException e) {
+            failures.add("could not analyse custom texture pack screenshot: " + e);
         }
     }
 

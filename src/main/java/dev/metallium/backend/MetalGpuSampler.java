@@ -59,6 +59,8 @@ final class MetalGpuSampler implements GpuSampler {
         descriptor.setMipFilter(toMtlMipFilter(maxLod));
         descriptor.setSAddressMode(MetalConversions.addressMode(addressModeU));
         descriptor.setTAddressMode(MetalConversions.addressMode(addressModeV));
+        // renderpearl samplers have no W mode; 3D textures (shader-pack custom textures) wrap like U, as GL_REPEAT packs expect.
+        descriptor.setRAddressMode(MetalConversions.addressMode(addressModeU));
         descriptor.setMaxAnisotropy(Math.max(1, maxAnisotropy));
         descriptor.setLodMinClamp(0.0f);
         double lodMaxClamp = toMtlMaxLodClamp(maxLod);
