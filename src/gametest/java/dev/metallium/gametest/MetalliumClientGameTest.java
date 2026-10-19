@@ -122,7 +122,12 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
             tryCommand(world, "weather clear");
             // Raise the render distance only after the initial load (waitForChunksRender at a high RD times out).
             int rd = renderDistance;
-            context.runOnClient(client -> client.options.renderDistance().set(rd));
+            // broadcastOptions: the server sends chunks up to min(server view distance, client-requested distance);
+            // without it the client keeps requesting the distance it joined with.
+            context.runOnClient(client -> {
+                client.options.renderDistance().set(rd);
+                client.options.broadcastOptions();
+            });
             // The integrated server caps the view distance independently of the client option.
             world.getServer().runOnServer(server -> {
                 server.getPlayerList().setViewDistance(rd);
@@ -134,6 +139,18 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
             String camera = !cameraSetting.isEmpty() ? cameraSetting : "0 " + (surface + 25) + " 0 " + (flight ? "-90 10" : "110 15");
             line("bench: surface y at origin=" + surface + ", camera=" + camera);
             tryCommand(world, "tp @a " + camera);
+            if (!flight) {
+                // The game test runs the server in lock-step; plain waiting ticks never generates the chunks beyond the
+                // spawn area (all earlier bench runs rendered only ~2.6k sections). Wait for the whole view distance.
+                context.waitTicks(20); // let the new view distance reach both sides first
+                long loadStart = System.nanoTime();
+                try {
+                    int ticks = world.getConnection().waitForChunksDownload(20 * (renderDistance >= 32 ? 300 : 120));
+                    line(String.format("bench: chunks downloaded after %d ticks (%.1f s)", ticks, (System.nanoTime() - loadStart) / 1e9));
+                } catch (Throwable t) {
+                    line("bench: waitForChunksDownload failed (continuing): " + t.getMessage());
+                }
+            }
 
             if (shaders) {
                 try {
@@ -156,7 +173,9 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
                 checkTerrainVisible(context.takeScreenshot("metallium-bench-view-" + BENCH_SCENE), "bench view");
             }
             line("bench: client render distance option=" + context.computeOnClient(c -> c.options.renderDistance().get())
-                    + ", server view distance=" + world.getServer().computeOnServer(s -> s.getPlayerList().getViewDistance()));
+                    + ", server view distance=" + world.getServer().computeOnServer(s -> s.getPlayerList().getViewDistance())
+                    + ", client loaded chunks=" + context.computeOnClient(c -> c.level.getChunkSource().getLoadedChunksCount())
+                    + ", server loaded chunks=" + world.getServer().computeOnServer(s -> s.overworld().getChunkSource().getLoadedChunksCount()));
             sodiumStats(context, "bench");
 
             List<Integer> fpsSamples = new ArrayList<>();
