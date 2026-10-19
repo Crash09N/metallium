@@ -204,7 +204,14 @@ final class GbufferProgram implements AutoCloseable {
             }
         }
         Map<Stage, String> sources = new EnumMap<>(Stage.class);
-        sources.put(Stage.VERTEX, defaultMissingInputs(SODIUM_PUSH_CONSTANTS.matcher(spec.vertex).replaceAll("layout(push_constant) uniform iris_SodiumPushConstants"), available));
+        String vertex = SODIUM_PUSH_CONSTANTS.matcher(spec.vertex).replaceAll("layout(push_constant) uniform iris_SodiumPushConstants");
+        if (isPhysicsModPipeline(spec.source, available)) {
+            String patched = physicsModInputs(vertex);
+            dev.metallium.iris.MetalliumIris.LOGGER.debug("[metallium-iris] {}: Physics Mod layout, atlas UVs/light {}", spec.name,
+                    patched.equals(vertex) ? "NOT patched (no iris_UV0 input): " + vertex.lines().filter(l -> l.contains("UV0") || l.contains("MultiTexCoord0")).toList() : "patched");
+            vertex = patched;
+        }
+        sources.put(Stage.VERTEX, defaultMissingInputs(vertex, available));
         sources.put(Stage.FRAGMENT, withoutUnmappedOutputs(spec.fragment, spec.drawBuffers, spec.attachments));
         Set<Integer> unwritten = unwrittenOutputs(spec.fragment);
         Map<Stage, SpirvStage> stages = GlslProgramTranslator.compileToSpirv(spec.name, sources);
@@ -410,6 +417,44 @@ final class GbufferProgram implements AutoCloseable {
             }
         }
         return null;
+    }
+
+    private static final Pattern UV0_INPUT = Pattern.compile("^([ \\t]*(?:layout\\s*\\([^)]*\\)\\s*)?in\\s+vec2\\s+)iris_UV0(\\s*;)", Pattern.MULTILINE);
+    private static final Pattern UV2_INPUT = Pattern.compile("^[ \\t]*(?:layout\\s*\\([^)]*\\)\\s*)?in\\s+(i?vec2)\\s+iris_UV2\\s*;", Pattern.MULTILINE);
+
+    /**
+     * Physics Mod's own entity pipelines ({@code physics_entity*}, compatibility only: Physics Mod is closed source). Its
+     * Iris path (atlas UVs and lightmap/entity attributes in an extended vertex format) only runs on its OpenGL backend
+     * check; on Metal it draws its plain layout (Position, Color, UV0, Normal): face-local UVs that its
+     * {@code DynamicTransforms.TextureMat} maps into the block atlas, and the light in its {@code PhysicsBrightness}
+     * uniform block. Packs read {@code gl_MultiTexCoord0} without the texture matrix (Photon, Rethinking Voxels, ...),
+     * so debris sampled the whole atlas and rendered black.
+     */
+    static boolean isPhysicsModPipeline(final RenderPipeline source, final Set<String> available) {
+        return source != null && source.getLocation().getPath().startsWith("pipeline/physics_")
+                && available.contains("UV0") && !available.contains("UV2");
+    }
+
+    /**
+     * For {@link #isPhysicsModPipeline}: UV0 arrives already in atlas space (the texture matrix is applied here and
+     * {@code gl_TextureMatrix[0]} becomes identity), and the lightmap input reads Physics Mod's light uniform, like its
+     * own shader and its OpenGL Iris path.
+     */
+    static String physicsModInputs(final String vertex) {
+        if (!UV0_INPUT.matcher(vertex).find()) {
+            return vertex;
+        }
+        String out = vertex.replace("iris_transforms.TextureMat", "mat4(1.0)");
+        out = UV0_INPUT.matcher(out).replaceAll("$1metallium_physicsUV0$2");
+        out = out.replaceAll("\\biris_UV0\\b", "(iris_transforms.TextureMat * vec4(metallium_physicsUV0, 0.0, 1.0)).xy");
+        Matcher uv2 = UV2_INPUT.matcher(out);
+        if (uv2.find()) {
+            String type = uv2.group(1);
+            out = uv2.replaceAll(Matcher.quoteReplacement(
+                    "layout(std140) uniform PhysicsBrightness { int LightU; int LightV; int OverlayU; int OverlayV; } metallium_physicsLight;"));
+            out = out.replaceAll("\\biris_UV2\\b", type + "(metallium_physicsLight.LightU, metallium_physicsLight.LightV)");
+        }
+        return out;
     }
 
     /**
