@@ -7,6 +7,8 @@ import dev.metallium.BackendSelection;
 import dev.metallium.Metallium;
 import dev.metallium.MetalliumConfig;
 import dev.metallium.api.MetalliumRuntime;
+import dev.metallium.compat.voxy.VoxyCompat;
+import dev.metallium.compat.voxy.VoxyNatives;
 import dev.metallium.power.PowerManager;
 import net.fabricmc.loader.api.FabricLoader;
 import org.jspecify.annotations.Nullable;
@@ -74,10 +76,16 @@ public final class CompatStatus {
         if (loader.isModLoaded("voxy")) {
             GlRouting.Decision voxy = GlRouting.plan().get("voxy");
             boolean routed = voxy != null && voxy.routed() && GlRouting.hooked();
-            String state = !metal ? "on " + engineName()
+            String state = VoxyCompat.disabledForNatives() ? "disabled: macOS storage natives missing (would crash on world join)"
+                    : !metal ? "on " + engineName()
                     : routed ? "runs via metallium-gl (OpenGL 4.6 translated to Metal)"
                     : "disabled on Metal (" + (voxy == null ? "needs OpenGL 4.6" : voxy.routed() ? "metallium-gl could not hook class loading" : voxy.reason()) + ")";
-            rows.add(keyMod(loader, "voxy", "Voxy", state, !metal || routed ? Tone.OK : Tone.WARN));
+            rows.add(keyMod(loader, "voxy", "Voxy", state, VoxyCompat.disabledForNatives() ? Tone.BAD : !metal || routed ? Tone.OK : Tone.WARN));
+            String natives = VoxyNatives.statusLine();
+            if (natives != null) {
+                rows.add(Row.of("    " + natives, VoxyNatives.problems().isEmpty() ? Tone.OK : VoxyNatives.anyMissing() ? Tone.BAD : Tone.WARN));
+                if (!VoxyNatives.problems().isEmpty()) rows.add(Row.of("    " + VoxyNatives.advice(), Tone.INFO));
+            }
             List<String> missing = GlRouting.unimplementedFor("voxy");
             if (routed && !missing.isEmpty()) {
                 rows.add(Row.of("    unimplemented in metallium-gl: " + String.join(", ", missing), Tone.WARN));

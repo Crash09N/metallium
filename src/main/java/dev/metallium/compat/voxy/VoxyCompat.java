@@ -14,6 +14,7 @@ import net.minecraft.network.chat.Component;
 public final class VoxyCompat {
     public static final String MESSAGE = "Voxy needs OpenGL 4.6 and is disabled on Metal (metallium-gl runs it on Metal: see Metallium's status screen)";
     private static boolean noticeShown;
+    private static boolean disabledForNatives;
 
     private VoxyCompat() {
     }
@@ -41,13 +42,34 @@ public final class VoxyCompat {
         MetalliumRuntime.registerStatusLine(() -> "Voxy: disabled (" + MESSAGE + ")");
     }
 
+    /** Called when Voxy's init was cancelled because its storage natives are missing on this Mac. */
+    public static void onVoxyDisabledMissingNatives() {
+        disabledForNatives = true;
+        Metallium.LOGGER.warn("[Metallium] {}", missingNativesMessage());
+        MetalliumRuntime.registerStatusLine(() -> "Voxy: disabled (" + missingNativesMessage() + ")");
+    }
+
+    public static String missingNativesMessage() {
+        return "Voxy is disabled: its storage libraries have no macOS natives here, so it would crash the game on world join. "
+                + VoxyNatives.advice();
+    }
+
+    public static boolean disabledForNatives() {
+        return disabledForNatives;
+    }
+
     /** One chat message per game session, when the player joins a world. */
     public static void showNoticeOnce() {
-        if (noticeShown || !MetalliumRuntime.isMetalActive() || !isVoxyLoaded() || isRoutedThroughMetalliumGl()) {
+        if (noticeShown || !isVoxyLoaded()) {
+            return;
+        }
+        String message = disabledForNatives ? missingNativesMessage()
+                : MetalliumRuntime.isMetalActive() && !isRoutedThroughMetalliumGl() ? MESSAGE : null;
+        if (message == null) {
             return;
         }
         noticeShown = true;
         Minecraft.getInstance().gui.hud.getChat()
-                .addClientSystemMessage(Component.literal("[Metallium] " + MESSAGE).withStyle(ChatFormatting.GOLD));
+                .addClientSystemMessage(Component.literal("[Metallium] " + message).withStyle(ChatFormatting.GOLD));
     }
 }
