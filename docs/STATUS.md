@@ -119,3 +119,35 @@ Metal Performance HUD shows only ~70 displayed fps; VSync on shows 144 correctly
   handler), or a separate small present command buffer so the decision doesn't wait for frame end.
 - Do not release a presented drawable from Java before its presented handler has run: Quartz then calls the handler
   synchronously inside the (critical) `release` downcall and the JVM aborts ("wrong thread state for upcall").
+- 2026-10-19 follow-up: `-PpresentPacing=gpu` (`-Dmetallium.present.pacing=gpu`, default stays `handler`) presents
+  when the GPU finished the previous present and half a refresh period passed; the drawable blit + present go into a
+  small command buffer of their own after the frame's (the frame is copied first, so no frame waits for the display).
+  NOT yet measured on a visible display: from 01:51 the test Mac's screen was locked, and while locked every client
+  (Metal old or new pacing, and OpenGL fullscreen at ~22 fps) is throttled by macOS — Metal renders 59.6 fps with
+  every present dropped. Measure with the screen unlocked (windowed and fullscreen, 144 Hz if possible) before
+  making it the default. `bench-present:` also has `displayed_fps` now (presents with a distinct `presentedTime`);
+  windowed it still reports 142.8/s on the 60 Hz display, so it is the compositor latch, not scan-out.
+
+### Encoder count (2026-10-19)
+
+Complementary Unbound r5.6.1 (shaders bench, 854x480, exclusive GPU, AC, screen unlocked; `-PperfCounters`, and
+`-PperfTrace` logs every encoder of one submit per window with the caller that opened it):
+
+| | avg fps | p50 | render enc / submit | blit enc / submit | GPU |
+|---|---|---|---|---|---|
+| before | 435.6 | 2.26 ms | 26.6 (20.0 clear encoders) | 3.5 | 1.09 ms |
+| batched clears | 638.4 | 1.56 ms | 7.1 (0.5) | 4.0 | 0.76 ms |
+| + blit coalescing | 667.6 | 1.51 ms | 7.1 | 2.0 | 0.74 ms |
+
+- Cause: Iris clears both textures of every colortex each frame; the mipmapped ones (Complementary) were cleared with
+  one render encoder per mip level (10 each). A materialised clear now clears every pending clear of the same size in
+  one load-action encoder (up to 8 attachments) and fills levels > 0 by blit copies of level 0.
+- Consecutive copies share one blit encoder unless they touch what an earlier copy in it wrote (resources are
+  untracked). Light scene unchanged (1 render encoder per submit).
+- Not done: hoisting uploads to the start of the frame (none of the bench scenes has staged uploads; Sodium uploads
+  through mapped memory), store-action DontCare, replacing the global fence chain. Metal HUD numbers from the owner's
+  setup are needed to see which of these still matter after the clear fix.
+- Pipeline binary archive: "expecting 'fragment' stage in pipeline no. N" at save (whole archive not written that
+  session). Diagnosed, not fixed: every pipeline serialises alone; it fails as soon as two pipelines with the same
+  vertex+fragment functions and different blend state are both in the archive (Apple archiver). Restricting the
+  archive to one pipeline per fragment function and serialising adds did not remove all failures; reverted.
