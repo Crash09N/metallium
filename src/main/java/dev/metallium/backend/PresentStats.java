@@ -18,6 +18,9 @@ public final class PresentStats {
     static final AtomicLong presented = new AtomicLong();
     static final AtomicLong dropped = new AtomicLong();
     static final AtomicLong skipped = new AtomicLong();
+    static final AtomicLong displayed = new AtomicLong();
+    /** presentedTime of the last displayed present (presented handlers run on one Quartz thread). */
+    static volatile double lastPresentedTime;
     static volatile long windowHandle;
 
     private PresentStats() {
@@ -36,6 +39,14 @@ public final class PresentStats {
     /** Presents the layer dropped for a newer one before they were shown (presented handler, presentedTime 0). */
     public static long dropped() {
         return dropped.get();
+    }
+
+    /**
+     * Presents shown at a different display time than the previous shown one: frames that actually reached the screen
+     * (at most one per refresh; {@link #presented} also counts presents the compositor latched and then replaced).
+     */
+    public static long displayed() {
+        return displayed.get();
     }
 
     /** Rendered frames that were not presented (VSync off). */

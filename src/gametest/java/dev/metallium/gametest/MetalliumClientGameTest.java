@@ -65,7 +65,8 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
                 dev.metallium.backend.PresentStats.submitted(),
                 dev.metallium.backend.PresentStats.presented(),
                 dev.metallium.backend.PresentStats.dropped(),
-                dev.metallium.backend.PresentStats.skipped()};
+                dev.metallium.backend.PresentStats.skipped(),
+                dev.metallium.backend.PresentStats.displayed()};
     }
 
     private static List<Double> stopRecording() {
@@ -191,9 +192,9 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
                     fpsSamples.stream().mapToInt(Integer::intValue).average().orElse(0), fpsSamples.get(0), fpsSamples.get(fpsSamples.size() / 2)));
             line(String.format("bench: rendered frames counted=%d in %.1f s (per rendered frame via HUD hook)", frameMs.size(), seconds));
             line(String.format(java.util.Locale.ROOT,
-                    "bench-present: vsync=%s display_refresh_hz=%.1f rendered_fps=%.1f submitted_fps=%.1f presented_fps=%.1f dropped=%d skipped=%d window=%s (Metal surface counters; 0 on OpenGL)",
+                    "bench-present: vsync=%s display_refresh_hz=%.1f rendered_fps=%.1f submitted_fps=%.1f presented_fps=%.1f displayed_fps=%.1f dropped=%d skipped=%d window=%s (Metal surface counters; 0 on OpenGL)",
                     BENCH_VSYNC, refreshHz, frameMs.size() / seconds, (present1[0] - present0[0]) / seconds, (present1[1] - present0[1]) / seconds,
-                    present1[2] - present0[2], present1[3] - present0[3], String.join("|", windowStates)));
+                    (present1[4] - present0[4]) / seconds, present1[2] - present0[2], present1[3] - present0[3], String.join("|", windowStates)));
             line(String.format("bench-result: scene=%s avg_fps=%.1f low1_fps=%.1f p50_ms=%.2f p95_ms=%.2f p99_ms=%.2f max_ms=%.2f frames=%d heap_mb=%d",
                     BENCH_SCENE, avgFps, low1, pct(frameMs, 0.50), pct(frameMs, 0.95), pct(frameMs, 0.99), frameMs.get(frameMs.size() - 1), frameMs.size(), heapMb));
             if (Boolean.getBoolean("metallium.bench.power")) {

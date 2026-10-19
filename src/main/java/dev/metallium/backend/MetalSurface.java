@@ -178,8 +178,13 @@ final class MetalSurface implements GpuSurfaceBackend {
      */
     private void onPresented(final MemorySegment block, final MemorySegment drawable) {
         this.presentsInFlight.updateAndGet(n -> n > 0 ? n - 1 : 0);
-        boolean shown = drawable.address() != 0L && new MTLDrawable(drawable.address()).presentedTime() > 0.0;
+        double presentedTime = drawable.address() != 0L ? new MTLDrawable(drawable.address()).presentedTime() : 0.0;
+        boolean shown = presentedTime > 0.0;
         (shown ? PresentStats.presented : PresentStats.dropped).incrementAndGet();
+        if (shown && presentedTime > PresentStats.lastPresentedTime + 0.001) {
+            PresentStats.lastPresentedTime = presentedTime;
+            PresentStats.displayed.incrementAndGet();
+        }
     }
 
     /**
