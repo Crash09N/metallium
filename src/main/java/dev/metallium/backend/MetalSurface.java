@@ -46,7 +46,10 @@ import java.util.concurrent.locks.LockSupport;
 
 @Environment(EnvType.CLIENT)
 final class MetalSurface implements GpuSurfaceBackend {
-    private static final boolean GPU_PACING = "gpu".equals(System.getProperty("metallium.present.pacing", "handler"));
+    private static final String PACING = System.getProperty("metallium.present.pacing", "handler");
+    private static final boolean GPU_PACING = "gpu".equals(PACING);
+    /** "refresh": like "handler", plus a second present in flight once 3/4 of a refresh period passed since the last. */
+    private static final boolean REFRESH_PACING = "refresh".equals(PACING);
     private static final long PRESENT_PENDING_TIMEOUT_NS = 100_000_000L;
     private static final Set<GpuSurface.PresentMode> SUPPORTED_PRESENT_MODES = EnumSet.of(GpuSurface.PresentMode.IMMEDIATE, GpuSurface.PresentMode.FIFO, GpuSurface.PresentMode.MAILBOX);
     private final long metalView;
@@ -154,7 +157,10 @@ final class MetalSurface implements GpuSurfaceBackend {
         if (GPU_PACING) {
             ready = metalEncoder.previousPresentCompleted() && now - this.lastPresentNs >= this.refreshPeriodNs / 2;
         } else {
-            ready = this.presentsInFlight.get() < 1 || now - this.lastPresentNs >= PRESENT_PENDING_TIMEOUT_NS;
+            int inFlight = this.presentsInFlight.get();
+            long sinceLast = now - this.lastPresentNs;
+            ready = inFlight < 1 || sinceLast >= PRESENT_PENDING_TIMEOUT_NS
+                    || REFRESH_PACING && inFlight < 2 && sinceLast >= this.refreshPeriodNs * 3 / 4;
         }
         if (!ready) {
             if (drawable != null) {

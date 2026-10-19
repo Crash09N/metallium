@@ -24,7 +24,6 @@ import io.github.kokodio.metaljvm.objc.AutoreleasePool;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
-import java.util.concurrent.ConcurrentLinkedDeque;
 
 import static org.lwjgl.opengl.GL46C.*;
 
@@ -37,7 +36,8 @@ import static org.lwjgl.opengl.GL46C.*;
  * is independent of the number of draws.
  *
  * <p>Each call gets its own ICB (several MDIC calls per frame must not overwrite each other's commands before the GPU
- * executes them); ICBs return to a pool once the GPU finished the frame.
+ * executes them); ICBs come from a {@link SizeClassPool} (power-of-two capacities) and return to it once the GPU
+ * finished the frame, so a steady scene allocates none per frame.
  */
 final class IndirectCountDraws {
     private static final String MSL = """
@@ -88,8 +88,14 @@ final class IndirectCountDraws {
     record Encoded(MTLIndirectCommandBuffer buffer, long commands) {
     }
 
-    private record Pooled(MTLIndirectCommandBuffer icb, MTLBuffer arguments, int capacity) {
+    private record Icb(MTLIndirectCommandBuffer icb, MTLBuffer arguments, long bytes) {
     }
+
+    /** Diagnostics (all devices): ICBs alive, their Metal allocated size, ICB allocations so far. */
+    static final java.util.concurrent.atomic.AtomicLong ICBS_ALIVE = new java.util.concurrent.atomic.AtomicLong();
+    static final java.util.concurrent.atomic.AtomicLong ICB_BYTES_ALIVE = new java.util.concurrent.atomic.AtomicLong();
+    static final java.util.concurrent.atomic.AtomicLong ICB_ALLOCATIONS = new java.util.concurrent.atomic.AtomicLong();
+    private static volatile @org.jspecify.annotations.Nullable MTLDevice statsDevice;
 
     private final MTLDevice device;
     private final MetalHost host;
@@ -97,12 +103,18 @@ final class IndirectCountDraws {
     private final MTLComputePipelineState pipeline32;
     private final MTLComputePipelineState compactPipeline;
     private final MTLArgumentEncoder argumentEncoder;
-    private final ConcurrentLinkedDeque<Pooled> pool = new ConcurrentLinkedDeque<>();
-    private long allocated;
+    /** ICBs by capacity in commands. */
+    private final SizeClassPool<Icb> icbs;
+    /** Compaction-fallback scratch, capacity in commands (20 bytes each). */
+    private final SizeClassPool<MTLBuffer> compactBuffers;
 
     IndirectCountDraws(final MTLDevice device, final MetalHost host) {
         this.device = device;
         this.host = host;
+        statsDevice = device;
+        this.icbs = new SizeClassPool<>(1024, this::newIcb, IndirectCountDraws::freeIcb);
+        this.compactBuffers = new SizeClassPool<>(1024,
+                capacity -> device.newBuffer(capacity * 20L, MTLResourceOptions.StorageModePrivate), MTLBuffer::release);
         try (AutoreleasePool _ = AutoreleasePool.push()) {
             MTLCompileOptions options = MTLCompileOptions.alloc().init();
             options.setLanguageVersion(MTLLanguageVersion.Version3_2);
@@ -125,15 +137,7 @@ final class IndirectCountDraws {
         }
     }
 
-    private Pooled acquire(final int draws) {
-        for (var it = pool.iterator(); it.hasNext(); ) {
-            Pooled p = it.next();
-            if (p.capacity >= draws) {
-                it.remove();
-                return p;
-            }
-        }
-        int capacity = (Math.max(256, draws) + 1023) & ~1023;
+    private Icb newIcb(final int capacity) {
         MTLIndirectCommandBufferDescriptor descriptor = MTLIndirectCommandBufferDescriptor.alloc().init();
         descriptor.setCommandTypes(MTLIndirectCommandType.DrawIndexed);
         descriptor.setInheritPipelineState(true);
@@ -150,12 +154,30 @@ final class IndirectCountDraws {
         if (icb == null) {
             throw new OutOfMemoryError("metallium-gl: newIndirectCommandBuffer(" + capacity + ") failed");
         }
-        allocated += capacity;
-        dev.metallium.gl.MetalGLLog.LOGGER.info("[metallium-gl] indirect command buffer for {} draws ({} commands allocated in total)", capacity, allocated);
         MTLBuffer arguments = device.newBuffer(Math.max(16, argumentEncoder.encodedLength()), MTLResourceOptions.StorageModeShared);
         argumentEncoder.setArgumentBuffer(arguments, 0);
         argumentEncoder.setIndirectCommandBuffer(icb, 0);
-        return new Pooled(icb, arguments, capacity);
+        long bytes = icb.allocatedSize();
+        long alive = ICBS_ALIVE.incrementAndGet();
+        long aliveBytes = ICB_BYTES_ALIVE.addAndGet(bytes);
+        long total = ICB_ALLOCATIONS.incrementAndGet();
+        dev.metallium.gl.MetalGLLog.LOGGER.info("[metallium-gl] indirect command buffer for {} draws ({} MiB; {} ICBs alive, {} MiB; {} allocated so far)",
+                capacity, bytes >> 20, alive, aliveBytes >> 20, total);
+        return new Icb(icb, arguments, bytes);
+    }
+
+    private static void freeIcb(final Icb icb) {
+        ICBS_ALIVE.decrementAndGet();
+        ICB_BYTES_ALIVE.addAndGet(-icb.bytes());
+        icb.arguments().release();
+        icb.icb().release();
+    }
+
+    /** One-line pool state for diagnostics. */
+    static String stats() {
+        MTLDevice d = statsDevice;
+        return "ICBs alive=" + ICBS_ALIVE.get() + " (" + (ICB_BYTES_ALIVE.get() >> 20) + " MiB), ICB allocations=" + ICB_ALLOCATIONS.get()
+                + (d == null ? "" : ", Metal allocated=" + (d.currentAllocatedSize() >> 20) + " MiB");
     }
 
     /**
@@ -165,7 +187,8 @@ final class IndirectCountDraws {
     Encoded encode(final MTLComputeCommandEncoder encoder, final MetalGlDevice.MetalBuffer commands, final long offset, final int stride,
                    final MetalGlDevice.MetalBuffer count, final long countOffset, final int maxDraws, final MetalGlDevice.MetalBuffer indices,
                    final boolean index32, final int glPrimitive) {
-        Pooled icb = acquire(maxDraws);
+        SizeClassPool.Entry<Icb> pooled = icbs.acquire(maxDraws);
+        Icb icb = pooled.value();
         encoder.setComputePipelineState(index32 ? pipeline32 : pipeline16);
         encoder.setBuffer(commands.mtl(), offset, 0);
         encoder.setBuffer(count.mtl(), countOffset, 1);
@@ -181,7 +204,7 @@ final class IndirectCountDraws {
         encoder.useResource(icb.icb, MTLResourceUsage.Write);
         long groups = (maxDraws + 63) / 64;
         encoder.dispatchThreadgroups(new MTLSize(groups, 1, 1), new MTLSize(64, 1, 1));
-        host.releaseAfterGpu(() -> pool.add(icb));
+        host.releaseAfterGpu(() -> icbs.recycle(pooled));
         return new Encoded(icb.icb, maxDraws);
     }
 
@@ -191,7 +214,8 @@ final class IndirectCountDraws {
      */
     MTLBuffer compact(final MTLComputeCommandEncoder encoder, final MetalGlDevice.MetalBuffer commands, final long offset, final int stride,
                       final MetalGlDevice.MetalBuffer count, final long countOffset, final int maxDraws) {
-        MTLBuffer out = device.newBuffer(Math.max(20L, maxDraws * 20L), MTLResourceOptions.StorageModePrivate);
+        SizeClassPool.Entry<MTLBuffer> pooled = compactBuffers.acquire(Math.max(1, maxDraws));
+        MTLBuffer out = pooled.value();
         encoder.setComputePipelineState(compactPipeline);
         encoder.setBuffer(commands.mtl(), offset, 0);
         encoder.setBuffer(count.mtl(), countOffset, 1);
@@ -203,7 +227,7 @@ final class IndirectCountDraws {
         }
         encoder.setBuffer(out, 0, 3);
         encoder.dispatchThreadgroups(new MTLSize((maxDraws + 63) / 64, 1, 1), new MTLSize(64, 1, 1));
-        host.releaseAfterGpu(out::release);
+        host.releaseAfterGpu(() -> compactBuffers.recycle(pooled));
         return out;
     }
 

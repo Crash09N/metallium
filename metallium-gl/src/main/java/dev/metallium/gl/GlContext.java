@@ -479,21 +479,64 @@ public final class GlContext {
             if (bound2D[i] == texture) bound2D[i] = null;
         }
         bindings.forget(texture);
+        deleteAttachable(texture);
+    }
+
+    /**
+     * GL object lifetime for textures and renderbuffers: deleting one detaches it from the <em>bound</em> framebuffers
+     * only; a framebuffer that is not bound keeps the object alive (and complete) until it is re-attached or deleted.
+     */
+    private void deleteAttachable(final Texture texture) {
         detachEverywhere(texture);
+        if (texture.attachmentRefs > 0) {
+            texture.deletePending = true;
+        } else {
+            destroyStorage(texture);
+        }
+    }
+
+    private void destroyStorage(final Texture texture) {
         if (texture.store != null && !texture.external) {
             device.release(texture.store);
         }
         texture.store = null;
     }
 
+    /** Framebuffer attachment slots count their references (see {@link #deleteAttachable}). */
+    private void retainAttachment(final @Nullable Attachment attachment) {
+        if (attachment != null) {
+            attachment.texture().attachmentRefs++;
+        }
+    }
+
+    private void dropAttachment(final @Nullable Attachment attachment) {
+        if (attachment == null) {
+            return;
+        }
+        Texture texture = attachment.texture();
+        if (--texture.attachmentRefs == 0 && texture.deletePending) {
+            texture.deletePending = false;
+            destroyStorage(texture);
+        }
+    }
+
     private void detachEverywhere(final Texture texture) {
         for (Framebuffer fb : new Framebuffer[]{drawFramebuffer, readFramebuffer}) {
             if (fb == null) continue;
             for (int i = 0; i < fb.color.length; i++) {
-                if (fb.color[i] != null && fb.color[i].texture() == texture) fb.color[i] = null;
+                if (fb.color[i] != null && fb.color[i].texture() == texture) {
+                    dropAttachment(fb.color[i]);
+                    fb.color[i] = null;
+                }
             }
-            if (fb.depth != null && fb.depth.texture() == texture) fb.depth = null;
-            if (fb.stencil != null && fb.stencil.texture() == texture) fb.stencil = null;
+            if (fb.depth != null && fb.depth.texture() == texture) {
+                dropAttachment(fb.depth);
+                fb.depth = null;
+            }
+            if (fb.stencil != null && fb.stencil.texture() == texture) {
+                dropAttachment(fb.stencil);
+                fb.stencil = null;
+            }
         }
     }
 
@@ -968,10 +1011,7 @@ public final class GlContext {
             return;
         }
         if (boundRenderbuffer == rb) boundRenderbuffer = null;
-        detachEverywhere(rb);
-        if (rb.store != null) {
-            device.release(rb.store);
-        }
+        deleteAttachable(rb);
     }
 
     public int genFramebuffer() {
@@ -1012,6 +1052,14 @@ public final class GlContext {
         }
         if (drawFramebuffer == fb) drawFramebuffer = null;
         if (readFramebuffer == fb) readFramebuffer = null;
+        for (int i = 0; i < fb.color.length; i++) {
+            dropAttachment(fb.color[i]);
+            fb.color[i] = null;
+        }
+        dropAttachment(fb.depth);
+        dropAttachment(fb.stencil);
+        fb.depth = null;
+        fb.stencil = null;
     }
 
     @Nullable Framebuffer framebufferFor(final int target, final boolean[] valid) {
@@ -1052,17 +1100,28 @@ public final class GlContext {
             value = new Attachment(texture, level);
         }
         int color = attachment - GL_COLOR_ATTACHMENT0;
-        if (color >= 0 && color < MAX_COLOR_ATTACHMENTS) {
-            fb.color[color] = value;
-        } else if (attachment == GL_DEPTH_ATTACHMENT) {
-            fb.depth = value;
-        } else if (attachment == GL_STENCIL_ATTACHMENT) {
-            fb.stencil = value;
-        } else if (attachment == GL_DEPTH_STENCIL_ATTACHMENT) {
-            fb.depth = value;
-            fb.stencil = value;
-        } else {
+        boolean isColor = color >= 0 && color < MAX_COLOR_ATTACHMENTS;
+        boolean setsDepth = attachment == GL_DEPTH_ATTACHMENT || attachment == GL_DEPTH_STENCIL_ATTACHMENT;
+        boolean setsStencil = attachment == GL_STENCIL_ATTACHMENT || attachment == GL_DEPTH_STENCIL_ATTACHMENT;
+        if (!isColor && !setsDepth && !setsStencil) {
             error(GL_INVALID_ENUM);
+            return;
+        }
+        // Retain before dropping: re-attaching the same (delete-pending) texture must not release it.
+        if (isColor) {
+            retainAttachment(value);
+            dropAttachment(fb.color[color]);
+            fb.color[color] = value;
+        }
+        if (setsDepth) {
+            retainAttachment(value);
+            dropAttachment(fb.depth);
+            fb.depth = value;
+        }
+        if (setsStencil) {
+            retainAttachment(value);
+            dropAttachment(fb.stencil);
+            fb.stencil = value;
         }
     }
 
