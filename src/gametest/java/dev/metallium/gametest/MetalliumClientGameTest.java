@@ -79,6 +79,56 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
     }
 
     /**
+     * Moves the game window to the benchmark display: {@code -Dmetallium.bench.display} = index into SDL's display list
+     * or a name substring; default the display with the highest refresh rate (benchmarks must run on the owner's 144 Hz
+     * screen, not the 60 Hz main display). {@code -Dmetallium.bench.fullscreen=true} also makes it fullscreen there.
+     * Returns a description for the report (name, size, refresh).
+     */
+    private static String moveToBenchDisplay(final Minecraft client) {
+        String wanted = System.getProperty("metallium.bench.display", "");
+        java.nio.IntBuffer displays = org.lwjgl.sdl.SDLVideo.SDL_GetDisplays();
+        if (displays == null || !displays.hasRemaining()) {
+            return "unknown (SDL_GetDisplays failed)";
+        }
+        int chosen = 0;
+        float bestHz = -1f;
+        StringBuilder all = new StringBuilder();
+        for (int i = displays.position(); i < displays.limit(); i++) {
+            int id = displays.get(i);
+            String name = String.valueOf(org.lwjgl.sdl.SDLVideo.SDL_GetDisplayName(id));
+            org.lwjgl.sdl.SDL_DisplayMode mode = org.lwjgl.sdl.SDLVideo.SDL_GetCurrentDisplayMode(id);
+            float hz = mode == null ? 0f : mode.refresh_rate();
+            all.append(all.isEmpty() ? "" : ", ").append(i - displays.position()).append('=').append(name).append('@').append(hz);
+            if (wanted.isEmpty()) {
+                if (hz > bestHz) {
+                    chosen = id;
+                    bestHz = hz;
+                }
+            } else if (chosen == 0 && (wanted.matches("[0-9]+") ? Integer.parseInt(wanted) == i - displays.position()
+                    : name.toLowerCase(java.util.Locale.ROOT).contains(wanted.toLowerCase(java.util.Locale.ROOT)))) {
+                chosen = id;
+            }
+        }
+        if (chosen == 0) {
+            return "no display matches '" + wanted + "' (" + all + ")";
+        }
+        long window = client.getWindow().handle();
+        int position = org.lwjgl.sdl.SDLVideo.SDL_WINDOWPOS_CENTERED_DISPLAY(chosen);
+        org.lwjgl.sdl.SDLVideo.SDL_SetWindowPosition(window, position, position);
+        org.lwjgl.sdl.SDLVideo.SDL_SyncWindow(window);
+        boolean fullscreen = Boolean.getBoolean("metallium.bench.fullscreen");
+        if (fullscreen) {
+            client.options.fullscreen().set(true);
+            client.getWindow().setFullscreen(true);
+        }
+        org.lwjgl.sdl.SDL_DisplayMode mode = org.lwjgl.sdl.SDLVideo.SDL_GetCurrentDisplayMode(chosen);
+        return String.format(java.util.Locale.ROOT, "%s %dx%d @ %.1f Hz, fullscreen=%s, window on display %s (all: %s)",
+                org.lwjgl.sdl.SDLVideo.SDL_GetDisplayName(chosen), mode == null ? 0 : mode.w(), mode == null ? 0 : mode.h(),
+                mode == null ? 0f : mode.refresh_rate(), fullscreen,
+                org.lwjgl.sdl.SDLVideo.SDL_GetDisplayName(org.lwjgl.sdl.SDLVideo.SDL_GetDisplayForWindow(window)), all);
+    }
+
+    /**
      * Reproducible benchmark (scene = -Dmetallium.bench.scene: light | rd32 | shaders | flight): fixed seed, spectator
      * camera, VSync off, no FPS cap, chunk fade off. Waits until section building settles, then records every rendered
      * frame for BENCH_SECONDS.
@@ -102,6 +152,7 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
         }
         context.runOnClient(client -> {
             client.options.enableVsync().set(BENCH_VSYNC);
+            line("bench display: " + moveToBenchDisplay(client));
             client.options.framerateLimit().set(260); // 260 = unlimited
             client.options.chunkSectionFadeInTime().set(0.0);
             // Vanilla drops to 30 fps when there is no input for a while ("AFK"); a benchmark has no input.
