@@ -77,7 +77,7 @@ final class PostProgram implements AutoCloseable {
 
     static PostProgram compile(final String name, final String vertex, final String fragment, final List<GpuFormat> colorFormats)
             throws GlslProgramTranslator.TranslationException, UnsupportedProgramException, ShaderCompileException {
-        return compile(name, vertex, fragment, colorFormats, null, null);
+        return compile(name, vertex, fragment, colorFormats, null, null, null);
     }
 
     /** Metal's sampler-state limit per shader stage (the backend numbers textures per pipeline). */
@@ -92,6 +92,19 @@ final class PostProgram implements AutoCloseable {
     static PostProgram compile(final String name, final String vertex, final String fragment, final List<GpuFormat> colorFormats,
                                final StorageBindings.@org.jspecify.annotations.Nullable Validator validator,
                                final @org.jspecify.annotations.Nullable FixedSamplers fixedSamplers)
+            throws GlslProgramTranslator.TranslationException, UnsupportedProgramException, ShaderCompileException {
+        return compile(name, vertex, fragment, colorFormats, validator, fixedSamplers, null);
+    }
+
+    /**
+     * @param blends per colour target (same order as {@code colorFormats}): the pack's {@code blend.<program>} /
+     *               {@code blend.<program>.<buffer>} override, or {@code null} for no blending on every target (Iris's
+     *               default for fullscreen passes)
+     */
+    static PostProgram compile(final String name, final String vertex, final String fragment, final List<GpuFormat> colorFormats,
+                               final StorageBindings.@org.jspecify.annotations.Nullable Validator validator,
+                               final @org.jspecify.annotations.Nullable FixedSamplers fixedSamplers,
+                               final @org.jspecify.annotations.Nullable List<java.util.Optional<com.mojang.renderpearl.api.pipeline.BlendFunction>> blends)
             throws GlslProgramTranslator.TranslationException, UnsupportedProgramException, ShaderCompileException {
         StorageBindings storage = new StorageBindings();
         Map<Stage, String> sources = new EnumMap<>(Stage.class);
@@ -173,7 +186,14 @@ final class PostProgram implements AutoCloseable {
                 attribs.add(new BackendRenderPipeline.CreateInfo.AttribBinding(0, input.location(), element.offset(), element.format()));
             }
 
-            List<ColorTargetState> colorTargets = colorFormats.stream().map(f -> new ColorTargetState(java.util.Optional.empty(), f, ColorTargetState.WRITE_ALL)).toList();
+            List<ColorTargetState> colorTargets = new ArrayList<>();
+            for (int i = 0; i < colorFormats.size(); i++) {
+                GpuFormat format = colorFormats.get(i);
+                java.util.Optional<com.mojang.renderpearl.api.pipeline.BlendFunction> blend = blends == null || GbufferProgram.isInteger(format)
+                        ? java.util.Optional.empty() : blends.get(i);
+                colorTargets.add(new ColorTargetState(blend, format, ColorTargetState.WRITE_ALL));
+            }
+            colorTargets = List.copyOf(colorTargets);
             BackendRenderPipeline.CreateInfo info = new BackendRenderPipeline.CreateInfo(
                     "iris/" + name,
                     List.copyOf(shaders),

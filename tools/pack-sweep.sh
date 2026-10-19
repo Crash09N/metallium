@@ -4,7 +4,9 @@
 # Packs are local only (never copy them into the repo). Screenshots/logs go to RESULTS_DIR, not the repo.
 #
 # Environment overrides:
-#   PACKS="a.zip b.zip"   subset by file name (space separated; for names with spaces use PACKS_FILE, one name per line)
+#   PACKS="a.zip|Solas Shader V3.8.zip"   subset: '|'-separated file names or globs (Solas*, *Sildur*), so names with
+#                         spaces work; without '|' a single exact name is tried first, then space-separated names/globs.
+#   PACKS_FILE=list.txt   one name per line (alternative to PACKS)
 #   PACK_DIR=/Users/noah/Downloads/metallium-research/shaderpacks
 #   RESULTS_DIR=/Users/noah/Downloads/metallium-research/sweep-results/<date>
 #   REFERENCE=1           also run each pack with -Pengine=OPENGL (reference screenshot)
@@ -28,7 +30,21 @@ LIST=()
 if [ -n "${PACKS_FILE:-}" ]; then
   while IFS= read -r l; do [ -n "$l" ] && LIST+=("$l"); done < "$PACKS_FILE"
 elif [ -n "${PACKS:-}" ]; then
-  for p in $PACKS; do LIST+=("$p"); done
+  # Each entry is an exact file name or a glob inside PACK_DIR (file names may contain spaces and apostrophes).
+  add_pack() {
+    local entry="$1" f found=""
+    if [ -f "$PACK_DIR/$entry" ]; then LIST+=("$entry"); return; fi
+    for f in "$PACK_DIR"/$entry; do [ -f "$f" ] && { LIST+=("$(basename "$f")"); found=1; }; done
+    [ -n "$found" ] || LIST+=("$entry") # reported as "pack file not found" below
+  }
+  if [[ "$PACKS" == *"|"* ]]; then
+    IFS='|' read -r -a ENTRIES <<< "$PACKS"
+  elif [ -f "$PACK_DIR/$PACKS" ]; then
+    ENTRIES=("$PACKS")
+  else
+    read -r -a ENTRIES <<< "$PACKS"
+  fi
+  for p in "${ENTRIES[@]}"; do [ -n "$p" ] && add_pack "$p"; done
 else
   for z in "$PACK_DIR"/*.zip; do LIST+=("$(basename "$z")"); done
 fi
@@ -65,7 +81,7 @@ for zip in "${LIST[@]}"; do
   version="$(manifest "$zip" 4)"; licence="$(manifest "$zip" 7)"
   version="${version:-?}"; licence="${licence:-?}"
 
-  crash="no"; loaded="no"; pipeline="-"; cov="-"; missing=""; ntrans=0; nfail=0; nnotrun=""; testres="-"
+  crash="no"; loaded="no"; pipeline="-"; cov="-"; missing=""; ntrans=0; nfail=0; nnotrun=""; testres="-"; info=""; frame="-"
   if [ ! -f "$mrep" ]; then
     crash="yes (no report, gradle exit $STATUS_RUN)"
   else
@@ -80,9 +96,12 @@ for zip in "${LIST[@]}"; do
     grep -q 'Crash report saved\|Exception in thread "main"' "$mlog" && crash="yes (see $mlog)"
     ntrans="$(grep -c 'gbuffers program .* replaces' "$mlog")"
     nfail="$(grep -c 'could not be translated for Metal' "$mlog")"
-    nnotrun="$(sed -n 's/.*programs not executed: //p' "$mlog" | head -1)"
+    # DH programs (dh_terrain, dh_water, ...) only run with Distant Horizons installed, which the sweep does not load:
+    # informational, not a missing feature. Other programs that are not executed still count.
+    nnotrun="$(sed -n 's/.*programs not executed: //p' "$mlog" | head -1 | tr ',' '\n' | sed 's/^ *//' | grep -v '^dh_' | paste -sd, - | sed 's/,/, /g')"
+    grep -q 'DH programs are not executed' "$mlog" && info="DH programs skipped (DH not installed)"
     # one entry per distinct reason with a count; "failed to translate (<program>: <reason>)" collapses to the reason
-    missing="$(sed -n 's/.*Unsupported shader pack feature: //p' "$mlog" \
+    missing="$(sed -n 's/.*Unsupported shader pack feature: //p' "$mlog" | grep -v 'DH programs are not executed' \
       | sed -e 's/^[A-Za-z0-9_]*: failed to translate ([^:]*: \(.*\)); vanilla shader used.*/translation failed: \1/' \
             -e 's/^\([A-Za-z0-9_]*\): \(mipmapped.*\)/\2 [\1]/' \
       | sort | uniq -c | sort -rn \
@@ -90,20 +109,38 @@ for zip in "${LIST[@]}"; do
   fi
   shot="$RESULTS_DIR/$tag-metal-natural.png"; [ -f "$shot" ] || shot="(none)"
 
+  # Luminance/variance of the world area (tools/FrameStats.java): terrain coverage alone reads 1.00 for a black frame.
+  verdict=""
+  if [ -f "$shot" ]; then
+    frame="$("$JAVA_HOME/bin/java" tools/FrameStats.java "$shot" 2>/dev/null | sed 's/^.* mean=/mean=/')"
+    verdict="$(printf '%s' "$frame" | sed -n 's/.*verdict=//p')"
+  fi
   status="works"
   if [ "$loaded" = no ] || [[ "$crash" == yes* ]]; then status="fails"
+  elif [ "$verdict" = black ] || [ "$verdict" = uniform ]; then status="broken"; missing="${missing:+$missing; }$verdict frame"
   elif [ -n "$missing" ] || [ "$nfail" -gt 0 ] || [ -n "$nnotrun" ]; then status="partial"; fi
+  [ "$verdict" = dark ] && missing="${missing:+$missing; }mostly dark frame (check screenshot)"
   if [ "$cov" != "-" ] && awk -v c="$cov" 'BEGIN{exit !(c<0.30)}'; then
     [ "$status" = works ] && status="partial"; missing="${missing:+$missing; }low terrain coverage"
   fi
 
-  refshot=""
+  refshot=""; refnote=""
   if [ "$REFERENCE" = 1 ]; then
     echo "=== $zip on OPENGL ($(date +%H:%M:%S)) ==="
     run_one "$zip" OPENGL "$tag-opengl"
     [ -f "$RESULTS_DIR/$tag-opengl-natural.png" ] && refshot="; OpenGL reference: $RESULTS_DIR/$tag-opengl-natural.png"
+    # macOS OpenGL is 4.1: packs that need GL 4.2+ (compute shaders, #version 430, glClearTexImage, ...) fail to load
+    # in Iris on OpenGL, which then renders unshaded vanilla. Such a "reference" shows nothing about the pack.
+    grep_rep="$RESULTS_DIR/$tag-opengl-report.txt"; grep_log="$RESULTS_DIR/$tag-opengl-latest.log"
+    if [ -f "$grep_rep" ] && grep -q '^external pack (natural world): pipeline=.*VanillaRenderingPipeline' "$grep_rep"; then
+      why=""
+      [ -f "$grep_log" ] && why="$(grep -A3 -m1 'Failed to create shader rendering pipeline\|Failed to load the shaderpack' "$grep_log" \
+        | grep -v 'Failed to\|(Iris) *$' | head -1 | sed -e 's/^[[:space:]]*//' -e 's/^[a-zA-Z.]*Exception: //' | cut -c1-120)"
+      refnote="; OpenGL reference INVALID (Iris fell back to vanilla on GL 4.1${why:+: $why})"
+      refshot=""
+    fi
   fi
-  notes="pipeline ${pipeline##*.}; crash: $crash; test $testres; coverage $cov; $ntrans gbuffers programs translated, $nfail failed translation${nnotrun:+; not executed: $nnotrun}; screenshot: $shot$refshot; log: $mlog"
+  notes="pipeline ${pipeline##*.}; crash: $crash; test $testres; coverage $cov; frame $frame${info:+; info: $info}$refnote; $ntrans gbuffers programs translated, $nfail failed translation${nnotrun:+; not executed: $nnotrun}; screenshot: $shot$refshot; log: $mlog"
   echo "| $zip | $version | $licence | $status | ${missing:--} | $notes |" >> "$ROWS"
 done
 
@@ -119,9 +156,10 @@ done
   echo "- Results (screenshots, logs): $RESULTS_DIR"
   echo
   echo "## Summary"; echo
-  echo "- Packs run: $(grep -c '^| ' "$ROWS"); works: $(grep -c '| works |' "$ROWS"); partial: $(grep -c '| partial |' "$ROWS"); fails: $(grep -c '| fails |' "$ROWS")"
-  echo "- works = loaded, no crash, no unsupported-feature report; partial = renders but features reported missing/skipped; fails = not loaded or crashed."
-  echo "- Screenshots must still be looked at: coverage only detects an empty/sky-only frame, not wrong colours."
+  echo "- Packs run: $(grep -c '^| ' "$ROWS"); works: $(grep -c '| works |' "$ROWS"); partial: $(grep -c '| partial |' "$ROWS"); broken: $(grep -c '| broken |' "$ROWS"); fails: $(grep -c '| fails |' "$ROWS")"
+  echo "- works = loaded, no crash, no unsupported-feature report; partial = renders but features reported missing/skipped; broken = loaded but the frame is black or a flat colour (tools/FrameStats.java); fails = not loaded or crashed."
+  echo "- DH programs that are not executed are informational (Distant Horizons is not installed in the sweep)."
+  echo "- Screenshots must still be looked at: coverage and frame luminance only detect empty/sky-only/black frames, not wrong colours."
   echo; echo "## Table"; echo
   echo "| Pack | Version | Licence | Status | Missing features | Notes |"
   echo "|---|---|---|---|---|---|"

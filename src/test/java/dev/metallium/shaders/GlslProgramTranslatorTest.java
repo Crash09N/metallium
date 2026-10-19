@@ -229,6 +229,33 @@ class GlslProgramTranslatorTest {
     }
 
     @Test
+    void fragmentOutputsWithoutLayoutTakeTheNextFreeLocation() throws Exception {
+        String vs = """
+                #version 330 core
+                in vec3 Position;
+                void main() { gl_Position = vec4(Position, 1.0); }
+                """;
+        // superDuperVanilla composite1 (RENDERTARGETS: 4,5): one explicit location 0, one output without a layout.
+        // GL links the second to location 1; shaderc's auto-mapping put both at 0 (MSL: duplicated color(0)).
+        String fs = """
+                #version 330 core
+                out vec4 first;
+                layout(location = 0) out vec3 sceneColOut;
+                out vec4 temporalDataOut;
+                layout(location = 2) out vec4 explicitTwo;
+                void main() { sceneColOut = vec3(1.0); temporalDataOut = vec4(0.5); first = vec4(0.25); explicitTwo = vec4(0.0); }
+                """;
+        Map<Stage, GlslProgramTranslator.SpirvStage> stages = GlslProgramTranslator.compileToSpirv("composite1", sources(vs, fs));
+        try {
+            Map<String, Integer> out = locations(stages.get(Stage.FRAGMENT).spirv(), org.lwjgl.util.spvc.Spvc.SPVC_RESOURCE_TYPE_STAGE_OUTPUT);
+            assertEquals(Map.of("sceneColOut", 0, "first", 1, "temporalDataOut", 3, "explicitTwo", 2), out);
+        } finally {
+            stages.values().forEach(stage -> org.lwjgl.system.MemoryUtil.memFree(stage.spirv()));
+        }
+        compileWithMetalIfAvailable(GlslProgramTranslator.translate("composite1", sources(vs, fs)));
+    }
+
+    @Test
     void fragmentOutputsCanBeMovedToOtherAttachments() throws Exception {
         String vs = """
                 #version 330 core
