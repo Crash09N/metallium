@@ -177,12 +177,36 @@ Metal Performance HUD shows only ~70 displayed fps; VSync on shows 144 correctly
     VALID/INVALID, focus, occlusion, display, resolution, refresh, power; the bench raises and focuses the window and
     runs `caffeinate`. `-PbenchFullscreen` now resizes the framebuffer to the real fullscreen size (it rendered
     854x480 scaled up before).
-  - New opt-in `-PpresentPacing=rate` (knobs `-PpresentRate`, `-PpresentMaxInFlight`, `-PpresentDecoupled`): a time
-    budget of one present per refresh on average (credit of one interval), up to 3 presents in flight, present in a
-    command buffer of its own with a ring of 3 frame copies (so no frame waits for the display). Runs while the owner
-    was at the Mac (unfocused window) were unusable for every mode with more than one present in flight, VSync on
-    included (20 fps with ~50 ms frames), so the decision between `handler`, `refresh`, `rate` and `gpu` waits for
-    VALID runs.
+  - **New and only VSync-off pacing (the `handler`, `refresh` and `gpu` options and `-PpresentPacing` are gone):**
+    a time budget of one present per refresh on average (a credit of one period carries over), at most 3 presents in
+    flight. The drawable blit and the present go into a command buffer of their own, after a copy of the frame (ring
+    of 3 copies), so no frame waits for the display.
+  - Decisive runs (owner away, exclusive GPU, every row `bench-env: VALID`, window focused, AC power, 144 Hz Odyssey
+    G5). In fullscreen, display mode, framebuffer, main target, drawable and presented texture are all 2560x1440. In
+    the 2560x1440 windowed rows the drawable is 2560x1382 (window shrunk by macOS), scaled. 30 s settle, 20 s measure,
+    Metal HUD on.
+
+    | scene | mode | pacing | rendered fps | presented/s | present latency |
+    |---|---|---|---|---|---|
+    | Complementary Reimagined | fullscreen 2560x1440 | handler (old default) | 160.9 | 54.7 | 12.9 ms |
+    | Complementary Reimagined | fullscreen 2560x1440 | refresh (Voxy agent's option) | 157.9 | 99.8 | 13.3 ms |
+    | Complementary Reimagined | fullscreen 2560x1440 | **rate (new)** | 159.6 | **131.5** | 13.1 ms |
+    | Complementary Reimagined | fullscreen 2560x1440 | VSync on | 132.9 | 132.9 | 14.8 ms |
+    | Complementary Reimagined | windowed 2560x1440 | handler | 160.9 | 50.8 | 14.8 ms |
+    | Complementary Reimagined | windowed 2560x1440 | rate | **19.0** | 19.0 | 14.9 ms |
+    | light | fullscreen 2560x1440 | handler | 2280 | 312.6 (`presentedTime` > refresh: not scan-out) | 2.8 ms |
+    | light | fullscreen 2560x1440 | rate | 2358 | 135.0 | 3.8 ms |
+    | light | fullscreen 2560x1440 | VSync on | 131.8 | 131.8 | 14.6 ms |
+    | light | windowed 2560x1440 | rate | 1766 | 132.4 | 11.7 ms |
+
+    With VSync off, the new pacing shows about as many frames as VSync on (131.5 vs 132.9 in Complementary) and costs
+    no rendered fps. `refresh` reached 100/s; the `gpu` row was not measured (time).
+    **Open problem:** Complementary windowed in the game test runs at 19 fps with 50 ms frames, every frame
+    presented. The same 50 ms pattern showed up earlier with VSync on windowed (20 fps, owner at the Mac, invalid
+    run), and the light scene windowed with the new pacing is fine (132/s). Suspect: the game test's surface stays
+    at 854x480 because Fabric cancels resize events (`surface=854x480` in `bench-env`) while the drawable is
+    2560x1382 and the frame is 2560x1440. In a real game window the surface follows the window. Check the owner's
+    windowed Iris play first; if it shows the same thing, `bench-env` gives the sizes to compare.
   - In-game fps counter: it stays Minecraft's own number, frames rendered per second, which is what it means on
     OpenGL and in vanilla too. With VSync off, Metal renders frames beyond the display rate but shows at most one per
     refresh. The F3 screen now has a second line, `Metal present: N shown/s of M rendered/s`.

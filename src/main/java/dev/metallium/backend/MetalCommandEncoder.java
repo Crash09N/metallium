@@ -472,11 +472,6 @@ final class MetalCommandEncoder implements CommandEncoderBackend {
         pendingPresentBuffer = buffer;
     }
 
-    /** True when every present command buffer committed so far has completed on the GPU. */
-    boolean previousPresentCompleted() {
-        return presentBuffersCompleted.get() >= presentBuffersCommitted;
-    }
-
     /** Decoupled present command buffers committed but not completed (a copy slot is free while this is below the ring size). */
     int presentBuffersInFlight() {
         return (int) (presentBuffersCommitted - presentBuffersCompleted.get());
