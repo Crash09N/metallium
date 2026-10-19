@@ -60,6 +60,7 @@ final class MetalCompute implements MetalliumInterop.ExternalEncoderClient, Auto
     final MTLSamplerState linearClamp;
     final MTLSamplerState nearestClamp;
     final MTLSamplerState linearRepeat;
+    final MTLSamplerState nearestRepeat;
     final MTLSamplerState compareLinear;
     final MTLSamplerState compareNearest;
     private final Map<String, MTLComputePipelineState> clearPipelines = new HashMap<>();
@@ -73,6 +74,7 @@ final class MetalCompute implements MetalliumInterop.ExternalEncoderClient, Auto
         this.linearClamp = sampler(MTLSamplerMinMagFilter.Linear, MTLSamplerAddressMode.ClampToEdge, null);
         this.nearestClamp = sampler(MTLSamplerMinMagFilter.Nearest, MTLSamplerAddressMode.ClampToEdge, null);
         this.linearRepeat = sampler(MTLSamplerMinMagFilter.Linear, MTLSamplerAddressMode.Repeat, null);
+        this.nearestRepeat = sampler(MTLSamplerMinMagFilter.Nearest, MTLSamplerAddressMode.Repeat, null);
         this.compareLinear = sampler(MTLSamplerMinMagFilter.Linear, MTLSamplerAddressMode.ClampToEdge, MTLCompareFunction.LessEqual);
         this.compareNearest = sampler(MTLSamplerMinMagFilter.Nearest, MTLSamplerAddressMode.ClampToEdge, MTLCompareFunction.LessEqual);
         try (AutoreleasePool _ = AutoreleasePool.push()) {
@@ -213,7 +215,7 @@ final class MetalCompute implements MetalliumInterop.ExternalEncoderClient, Auto
             MetalliumInterop.releaseAfterGpu(released::release);
             zero = null;
         }
-        for (MTLSamplerState state : new MTLSamplerState[]{linearClamp, nearestClamp, linearRepeat, compareLinear, compareNearest}) {
+        for (MTLSamplerState state : new MTLSamplerState[]{linearClamp, nearestClamp, linearRepeat, nearestRepeat, compareLinear, compareNearest}) {
             MetalliumInterop.releaseAfterGpu(state::release);
         }
     }

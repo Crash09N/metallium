@@ -9,6 +9,7 @@ import io.github.kokodio.metaljvm.metal.MTLLibrary;
 import io.github.kokodio.metaljvm.metal.Metal;
 import io.github.kokodio.metaljvm.objc.AutoreleasePool;
 import org.junit.jupiter.api.Test;
+import org.lwjgl.system.MemoryUtil;
 
 import java.util.EnumMap;
 import java.util.Map;
@@ -450,6 +451,46 @@ class GlslProgramTranslatorTest {
         Program program = GlslProgramTranslator.translate("bicubic", sources);
         assertTrue(names(program.stages().get(Stage.FRAGMENT), ResourceBinding.Kind.SAMPLED_TEXTURE).contains("colortex0"));
         compileWithMetalIfAvailable(program);
+    }
+
+    @Test
+    void ownDefinitionsOfNewerBuiltinsAreRenamed() throws Exception {
+        // Bliss (#version 120, raised to 330 by Iris): float tanh(float) and float fma(float, float, float) duplicate
+        // built-ins; other overloads must still reach the built-in.
+        Map<Stage, String> sources = new EnumMap<>(Stage.class);
+        sources.put(Stage.FRAGMENT, """
+                #version 330 core
+                layout(location = 0) out vec4 color;
+                float tanh(float x){
+                	return (exp(x) - exp(-x))/(exp(x) + exp(-x));
+                }
+                float fma(float a,float b,float c){ return a * b + c; }
+                void main() { color = vec4(tanh(0.5), fma(1.0, 2.0, 3.0), tanh(vec2(0.25)).x, 1.0); }
+                """);
+        Program program = GlslProgramTranslator.translate("tanh", sources);
+        compileWithMetalIfAvailable(program);
+        String renamed = GlslProgramTranslator.renameBuiltinRedefinitions("float tanh(float x) { return x; }\nvoid main() { tanh(1.0); tanh(vec3(1.0)); }");
+        assertTrue(renamed.contains("float metallium_tanh(float x)"), renamed);
+        assertTrue(renamed.contains("vec3 metallium_tanh(vec3 a0) { return tanh(a0); }"), renamed);
+        assertTrue(renamed.contains("metallium_tanh(vec3(1.0))"), renamed);
+        // A different signature is a legal overload: left alone.
+        String overload = "float round(float x, float step) { return x; }\nvoid main() { round(1.0, 2.0); }";
+        assertEquals(overload, GlslProgramTranslator.renameBuiltinRedefinitions(overload));
+    }
+
+    @Test
+    void bindingQualifiersWorkInOldVersionsWithExtensions() throws Exception {
+        // Complementary Unbound (colored lighting): #version 330 + SSBO extension + layout(std430, binding = 0).
+        Map<Stage, String> sources = new EnumMap<>(Stage.class);
+        sources.put(Stage.FRAGMENT, """
+                #version 330 core
+                #extension GL_ARB_shader_storage_buffer_object: enable
+                struct blockData { vec4[6] packedFaceData; };
+                layout(std430, binding = 0) readonly buffer blockDataSSBO { blockData data[]; };
+                layout(location = 0) out vec4 color;
+                void main() { color = data[0].packedFaceData[1]; }
+                """);
+        GlslProgramTranslator.compileToSpirv("ssbo330", sources).values().forEach(stage -> MemoryUtil.memFree(stage.spirv()));
     }
 
     @Test

@@ -127,6 +127,23 @@ public final class MetalliumInterop {
         ((MetalRenderPass) pass).setExtraBindings(binder);
     }
 
+    /**
+     * For pipelines with more than 16 textures in a stage (Metal's sampler-state limit): the sampler each texture
+     * uniform of pipeline {@code pipelineName} is always bound with. Those textures use it as an MSL
+     * {@code constexpr sampler} (identical ones count once towards Metal's 16); the sampler passed at bind time is
+     * ignored for them. Call before compiling the
+     * pipeline; an empty map removes the entry.
+     */
+    public static void setConstexprSamplers(final String pipelineName, final java.util.Map<String, com.mojang.renderpearl.api.textures.GpuSampler> samplers) {
+        if (samplers.isEmpty()) {
+            MetalCrossShaderCompiler.CONSTEXPR_SAMPLERS.remove(pipelineName);
+            return;
+        }
+        java.util.Map<String, MetalGpuSampler> metal = new java.util.HashMap<>();
+        samplers.forEach((name, sampler) -> metal.put(name, (MetalGpuSampler) sampler));
+        MetalCrossShaderCompiler.CONSTEXPR_SAMPLERS.put(pipelineName, java.util.Map.copyOf(metal));
+    }
+
     /** Runs {@code action} once the GPU has finished every command buffer submitted so far (incl. the current one). */
     public static void releaseAfterGpu(final Runnable action) {
         require().createCommandEncoder().queueForDestroy(action);

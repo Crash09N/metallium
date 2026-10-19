@@ -688,9 +688,123 @@ public final class GlslProgramTranslator {
         return changed ? sb.toString() : source;
     }
 
+    /**
+     * Built-in functions (name -> number of genType parameters) that old ({@code #version 120}) packs define themselves
+     * because their GLSL version lacks them: Bliss has {@code float tanh(float)} and {@code float fma(float, float, float)}.
+     * Iris raises such programs to {@code #version 330}, where the definition duplicates the built-in and glslang rejects
+     * it ("'highp' : overloaded functions must have the same parameter precision qualifiers").
+     */
+    private static final Map<String, Integer> REDEFINABLE_BUILTINS = Map.of(
+            "tanh", 1, "sinh", 1, "cosh", 1, "asinh", 1, "acosh", 1, "atanh", 1, "round", 1, "roundEven", 1, "trunc", 1, "fma", 3);
+    private static final Pattern BUILTIN_REDEFINITION = Pattern.compile(
+            "\\b(float|vec[234])\\s+(" + String.join("|", REDEFINABLE_BUILTINS.keySet()) + ")\\s*\\(([^)]*)\\)\\s*\\{");
+    private static final List<String> GEN_TYPES = List.of("float", "vec2", "vec3", "vec4");
+
+    /**
+     * Renames a pack's own definitions of built-ins ({@link #REDEFINABLE_BUILTINS}) and every call of that name to
+     * {@code metallium_<name>}; overloads the pack does not define forward to the built-in, so calls with other types
+     * still reach it. Only definitions whose signature equals a built-in overload ({@code T f(T, ...)}) are renamed.
+     */
+    static String renameBuiltinRedefinitions(final String source) {
+        Map<String, java.util.Set<String>> defined = new LinkedHashMap<>();
+        Map<String, Integer> firstDefinition = new LinkedHashMap<>();
+        Matcher m = BUILTIN_REDEFINITION.matcher(source);
+        while (m.find()) {
+            String type = m.group(1);
+            String name = m.group(2);
+            String[] params = m.group(3).split(",");
+            if (params.length != REDEFINABLE_BUILTINS.get(name)) {
+                continue;
+            }
+            boolean sameType = true;
+            for (String param : params) {
+                String[] words = param.trim().split("\\s+");
+                // [const] [in] T name
+                if (words.length < 2 || !words[words.length - 2].equals(type)) {
+                    sameType = false;
+                    break;
+                }
+            }
+            if (sameType) {
+                defined.computeIfAbsent(name, k -> new java.util.LinkedHashSet<>()).add(type);
+                firstDefinition.putIfAbsent(name, m.start());
+            }
+        }
+        if (defined.isEmpty()) {
+            return source;
+        }
+        // Forwarders go right before the first renamed definition (global scope, before any use of the new name).
+        java.util.TreeMap<Integer, StringBuilder> inserts = new java.util.TreeMap<>();
+        for (Map.Entry<String, java.util.Set<String>> entry : defined.entrySet()) {
+            String name = entry.getKey();
+            int arity = REDEFINABLE_BUILTINS.get(name);
+            StringBuilder forwards = inserts.computeIfAbsent(firstDefinition.get(name), k -> new StringBuilder());
+            for (String type : GEN_TYPES) {
+                if (entry.getValue().contains(type)) {
+                    continue;
+                }
+                StringBuilder params = new StringBuilder();
+                StringBuilder args = new StringBuilder();
+                for (int i = 0; i < arity; i++) {
+                    params.append(i > 0 ? ", " : "").append(type).append(" a").append(i);
+                    args.append(i > 0 ? ", " : "").append('a').append(i);
+                }
+                // fma is a built-in only from #version 400 (or gpu_shader5): forward to the expression instead.
+                String body = name.equals("fma") ? "a0 * a1 + a2" : name + "(" + args + ")";
+                forwards.append(type).append(" metallium_").append(name).append('(').append(params).append(") { return ").append(body).append("; }\n");
+            }
+        }
+        String renamed = source;
+        // Insert from the back so earlier offsets stay valid, then rename (forwarders call the built-in by its own name).
+        StringBuilder out = new StringBuilder(source);
+        for (Map.Entry<Integer, StringBuilder> insert : inserts.descendingMap().entrySet()) {
+            out.insert(insert.getKey(), "\u0000" + insert.getValue() + "\u0001");
+        }
+        renamed = out.toString();
+        Pattern calls = Pattern.compile("\\b(" + String.join("|", defined.keySet()) + ")(\\s*\\()");
+        StringBuilder result = new StringBuilder();
+        int from = 0;
+        while (from < renamed.length()) {
+            int start = renamed.indexOf('\u0000', from);
+            int end = start < 0 ? renamed.length() : start;
+            result.append(calls.matcher(renamed.substring(from, end)).replaceAll("metallium_$1$2"));
+            if (start < 0) {
+                break;
+            }
+            int close = renamed.indexOf('\u0001', start);
+            result.append(renamed, start + 1, close);
+            from = close + 1;
+        }
+        return result.toString();
+    }
+
+    private static final Pattern VERSION_NUMBER = Pattern.compile("^\\s*#version\\s+(\\d+).*$", Pattern.MULTILINE);
+    private static final Pattern SSBO_EXTENSION = Pattern.compile("#extension\\s+GL_ARB_shader_storage_buffer_object\\b");
+    private static final Pattern BINDING_QUALIFIER = Pattern.compile("layout\\s*\\([^)]*\\bbinding\\s*=");
+
+    /**
+     * {@code layout(binding = N)} needs GLSL 4.20 or {@code GL_ARB_shading_language_420pack}; desktop drivers accept it in
+     * older versions with the SSBO/image extensions, glslang does not (Complementary Unbound's colored lighting:
+     * {@code #version 330} + {@code GL_ARB_shader_storage_buffer_object} + {@code layout(std430, binding = 0) buffer}).
+     */
+    static String enableBindingQualifiers(final String source) {
+        Matcher version = VERSION_NUMBER.matcher(source);
+        if (version.find() && Integer.parseInt(version.group(1)) < 430 && SSBO_EXTENSION.matcher(source).find()) {
+            // glslang accepts buffer blocks only from 4.30 (desktop drivers take the extension in 3.30): raise the version.
+            String line = version.group();
+            return source.substring(0, version.start()) + line.replaceFirst("\\d+", "430") + source.substring(version.end());
+        }
+        version.reset();
+        if (!version.find() || Integer.parseInt(version.group(1)) >= 420 || !BINDING_QUALIFIER.matcher(source).find()
+                || source.contains("GL_ARB_shading_language_420pack")) {
+            return source;
+        }
+        return source.substring(0, version.end()) + "\n#extension GL_ARB_shading_language_420pack : enable" + source.substring(version.end());
+    }
+
     static ByteBuffer compileToSpirv(final String programName, final Stage stage, final String glslSource) throws TranslationException {
-        String source = VULKAN_ONLY_KEYWORDS.matcher(stage == Stage.FRAGMENT ? assignFragmentOutputLocations(glslSource) : glslSource)
-                .replaceAll("metallium_$1");
+        String outputsPlaced = stage == Stage.FRAGMENT ? assignFragmentOutputLocations(glslSource) : glslSource;
+        String source = enableBindingQualifiers(renameBuiltinRedefinitions(VULKAN_ONLY_KEYWORDS.matcher(outputsPlaced).replaceAll("metallium_$1")));
         if (!VERSION.matcher(source).find()) {
             throw new TranslationException(programName + "/" + stage + ": missing #version directive");
         }
