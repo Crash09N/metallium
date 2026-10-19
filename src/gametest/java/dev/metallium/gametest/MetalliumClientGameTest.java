@@ -462,6 +462,7 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
             context.waitTicks(100);
             context.takeScreenshot("metallium-iris-external-pack");
             blockParticles(context, world, "metallium-iris-external-pack-particles");
+            blockBreaking(context, world, "metallium-iris-external-pack-breaking");
             line("external pack: still running after 100 ticks");
             // F3 / status-screen line (owner report: "Iris via Metallium adapter: shaders off" while a pack rendered).
             String status = context.computeOnClient(client -> String.join(" | ", dev.metallium.api.MetalliumRuntime.statusLines()));
@@ -1021,6 +1022,37 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
         } catch (ReflectiveOperationException e) {
             return "error: " + e;
         }
+    }
+
+    /**
+     * Block-breaking overlay (crumbling pipeline -> gbuffers_damagedblock) on stone blocks in front of the camera, for
+     * a screenshot (owner report: the breaking overlay rendered black with some packs). The progress comes from a
+     * fake breaker id, so the local player receives it like another player's mining.
+     */
+    private void blockBreaking(ClientGameTestContext context, TestSingleplayerContext world, String screenshot) {
+        net.minecraft.core.BlockPos[] placed = world.getServer().computeOnServer(server -> {
+            var player = server.getPlayerList().getPlayers().getFirst();
+            var level = (net.minecraft.server.level.ServerLevel) player.level();
+            net.minecraft.world.phys.Vec3 look = player.getLookAngle().multiply(1, 0, 1).normalize();
+            net.minecraft.core.BlockPos base = net.minecraft.core.BlockPos.containing(player.position().add(look.scale(3.0)));
+            net.minecraft.core.BlockPos[] blocks = {base, base.above(), base.offset(net.minecraft.core.BlockPos.containing(look.yRot((float) Math.PI / 2))) };
+            for (int i = 0; i < blocks.length; i++) {
+                level.setBlockAndUpdate(blocks[i], net.minecraft.world.level.block.Blocks.STONE.defaultBlockState());
+                level.destroyBlockProgress(424242 + i, blocks[i], 3 + 3 * i);
+            }
+            return blocks;
+        });
+        context.waitTicks(10);
+        clearChat(context);
+        context.takeScreenshot(screenshot);
+        world.getServer().runOnServer(server -> {
+            var level = server.getPlayerList().getPlayers().getFirst().level();
+            for (int i = 0; i < placed.length; i++) {
+                ((net.minecraft.server.level.ServerLevel) level).destroyBlockProgress(424242 + i, placed[i], -1);
+                level.setBlock(placed[i], net.minecraft.world.level.block.Blocks.AIR.defaultBlockState(), 3);
+            }
+        });
+        context.waitTicks(5);
     }
 
     /** Block-texture particles (what sprinting kicks up) in front of the camera, for a screenshot. */
