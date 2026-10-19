@@ -1063,6 +1063,10 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
             client.options.getSoundSourceOptionInstance(net.minecraft.sounds.SoundSource.MASTER).set(0.0);
             client.options.getSoundSourceOptionInstance(net.minecraft.sounds.SoundSource.MUSIC).set(0.0);
         });
+        if (Boolean.getBoolean("metallium.gametest.voxyWithoutNatives")) {
+            voxyWithoutNativesTest(context); // first: the screen checks of the default run would replace VoxyNativesScreen
+            return;
+        }
         String backend = context.computeOnClient(client -> {
             DeviceInfo info = RenderSystem.getDevice().getDeviceInfo();
             return info.backendName() + " | " + info.name() + " | " + info.driverInfo();
@@ -1369,6 +1373,7 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
                 if (row.contains("Voxy")) line("voxy status row: " + row.trim());
             }
             if (!status.contains("runs via metallium-gl")) failures.add("status screen does not show Voxy as running via metallium-gl");
+            voxyNativesCheck(status);
             line("voxy: final " + glSummary());
             line("voxy debug: " + context.computeOnClient(client -> voxyDebug()));
             line(failures.isEmpty() ? "result: PASS" : "result: FAIL " + failures);
@@ -1488,6 +1493,75 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
         } catch (ReflectiveOperationException | RuntimeException e) {
             return "unavailable: " + e;
         }
+    }
+
+    /**
+     * macOS arm64: Voxy's RocksDB / LWJGL zstd natives must come from the metallium-voxy-natives addon (no Maven natives on
+     * the game-test classpath any more) and RocksDB must have loaded its JNI library once Voxy opened its world storage.
+     */
+    private void voxyNativesCheck(String status) {
+        if (!dev.metallium.compat.voxy.VoxyNatives.isMacArm64()) {
+            line("voxy natives: not macOS arm64, skipped");
+            return;
+        }
+        ClassLoader cl = getClass().getClassLoader();
+        for (String resource : new String[] {"librocksdbjni-osx-arm64.jnilib", "macos/arm64/org/lwjgl/zstd/liblwjgl_zstd.dylib",
+                "macos/arm64/org/lwjgl/lmdb/liblwjgl_lmdb.dylib"}) {
+            java.net.URL url = cl.getResource(resource);
+            line("voxy natives: " + resource + " -> " + url);
+            if (url == null) failures.add("voxy natives: " + resource + " not found");
+            // dev: build/libs/metallium-voxy-natives-*.jar; nested (release jar and dev includes): .fabric/processedMods/metallium_voxy_natives-*
+            else if (!url.toString().contains("metallium-voxy-natives") && !url.toString().contains("metallium_voxy_natives")) failures.add("voxy natives: " + resource + " not from metallium-voxy-natives: " + url);
+        }
+        line("voxy natives: problems=" + dev.metallium.compat.voxy.VoxyNatives.problems() + " addon=" + dev.metallium.compat.voxy.VoxyNatives.addonVersion());
+        if (!dev.metallium.compat.voxy.VoxyNatives.problems().isEmpty()) failures.add("voxy natives: problems " + dev.metallium.compat.voxy.VoxyNatives.problems());
+        try {
+            java.lang.reflect.Field loaded = Class.forName("org.rocksdb.RocksDB", false, cl).getDeclaredField("libraryLoaded");
+            loaded.setAccessible(true);
+            String state = String.valueOf(((java.util.concurrent.atomic.AtomicReference<?>) loaded.get(null)).get());
+            line("voxy natives: RocksDB library state=" + state);
+            if (!"LOADED".equals(state)) failures.add("voxy natives: RocksDB JNI library not loaded (" + state + ")");
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            line("voxy natives: RocksDB state unavailable: " + e);
+            failures.add("voxy natives: RocksDB state unavailable: " + e);
+        }
+        if (!status.contains("macOS natives for Voxy's storage: present")) failures.add("voxy natives: status screen does not show the natives as present");
+    }
+
+    /**
+     * -PwithVoxy=<jar> -PvoxyWithoutNatives (macOS arm64): the addon is left out, so Voxy's RocksDB has no macOS native.
+     * Metallium must show VoxyNativesScreen before the title screen, disable Voxy, and joining a world must not crash
+     * (before: "librocksdbjni-osx-arm64.jnilib was not found inside JAR" force-crash on world join).
+     */
+    private void voxyWithoutNativesTest(ClientGameTestContext context) {
+        try {
+            String screen = context.computeOnClient(client -> String.valueOf(client.gui.screen()));
+            line("voxy without natives: screen=" + screen + " problems=" + dev.metallium.compat.voxy.VoxyNatives.problems());
+            context.takeScreenshot("metallium-voxy-natives-missing-screen");
+            if (!screen.contains("VoxyNativesScreen")) failures.add("voxy without natives: VoxyNativesScreen not shown");
+            if (!dev.metallium.compat.voxy.VoxyNatives.blocksVoxy()) failures.add("voxy without natives: blocksVoxy() false");
+            if (!dev.metallium.compat.voxy.VoxyCompat.disabledForNatives()) failures.add("voxy without natives: Voxy not disabled");
+            context.runOnClient(client -> client.gui.screen().onClose());
+            context.waitTicks(10);
+            String after = context.computeOnClient(client -> String.valueOf(client.gui.screen()));
+            line("voxy without natives: after Continue: " + after);
+            if (!after.contains("TitleScreen")) failures.add("voxy without natives: did not continue to the title screen");
+            try (TestSingleplayerContext world = context.worldBuilder().create()) {
+                world.getConnection().waitForChunksRender();
+                context.waitTicks(100);
+                clearChat(context);
+                checkTerrainVisible(context.takeScreenshot("metallium-voxy-natives-missing-world"), "world without Voxy natives");
+                String status = context.computeOnClient(client -> dev.metallium.compat.CompatStatus.text());
+                for (String row : status.split("\n")) {
+                    if (row.contains("Voxy") || row.contains("natives")) line("voxy without natives: status row: " + row.trim());
+                }
+                if (!status.contains("macOS storage natives missing")) failures.add("voxy without natives: status screen row missing");
+            }
+            line(failures.isEmpty() ? "result: PASS" : "result: FAIL " + failures);
+        } finally {
+            writeReport();
+        }
+        if (!failures.isEmpty()) throw new AssertionError(String.join("; ", failures));
     }
 
     /** Voxy's own F3 debug lines (instance + render system), via reflection; render thread only. */

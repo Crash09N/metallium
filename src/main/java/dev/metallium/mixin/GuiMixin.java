@@ -7,6 +7,7 @@ import dev.metallium.compat.CrashGuard;
 import dev.metallium.compat.OpenGlRequirements;
 import dev.metallium.screen.CrashRecoveryScreen;
 import dev.metallium.screen.NeedsOpenGlScreen;
+import dev.metallium.screen.VoxyNativesScreen;
 import net.minecraft.client.gui.Gui;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.TitleScreen;
@@ -16,7 +17,8 @@ import org.spongepowered.asm.mixin.injection.ModifyVariable;
 
 /**
  * Before the first title screen: {@link CrashRecoveryScreen} after a Metal-related crash, else {@link NeedsOpenGlScreen}
- * when a mod needs Minecraft's OpenGL backend and the player has not chosen yet (at most one of them per session).
+ * when a mod needs Minecraft's OpenGL backend and the player has not chosen yet (at most one of them per session); then,
+ * on the next title screen, {@link VoxyNativesScreen} when Voxy's storage libraries lack their macOS natives.
  */
 @Mixin(Gui.class)
 abstract class GuiMixin {
@@ -30,6 +32,9 @@ abstract class GuiMixin {
         if (screen instanceof TitleScreen && OpenGlRequirements.shouldAsk()) {
             OpenGlRequirements.markAsked();
             return new NeedsOpenGlScreen(screen, OpenGlRequirements.outcome().unanswered());
+        }
+        if (screen instanceof TitleScreen && VoxyNativesScreen.shouldShow()) {
+            return new VoxyNativesScreen(screen);
         }
         return screen;
     }

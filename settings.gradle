@@ -10,3 +10,4 @@ rootProject.name = 'metallium'
 
 include 'metallium-iris'
 include 'metallium-gl'
+include 'metallium-voxy-natives'

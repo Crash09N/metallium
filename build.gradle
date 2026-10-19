@@ -26,6 +26,9 @@ dependencies {
 	// Both are inert unless needed (see IrisSupport / GlRouting), so the one jar is safe to install anywhere.
 	include project(':metallium-gl')
 	include project(':metallium-iris')
+	// macOS arm64 natives for Voxy's bundled RocksDB / LWJGL zstd+LMDB (resources only; inert elsewhere and without Voxy).
+	// Dev runs load nested jars too, so -PvoxyWithoutNatives (game test of the missing-natives safe path) leaves it out.
+	if (!project.hasProperty('voxyWithoutNatives')) include project(':metallium-voxy-natives')
 
 	testImplementation platform('org.junit:junit-bom:5.13.4')
 	testImplementation 'org.junit.jupiter:junit-jupiter'
@@ -285,10 +288,13 @@ if (project.hasProperty('withVoxy')) {
 	dependencies {
 		gametestRuntimeOnly "maven.modrinth:sodium:${project.sodium_version}"
 		gametestRuntimeOnly files(project.property('withVoxy'))
-		// The 263 Voxy build bundles RocksDB / LWJGL-zstd without macOS natives (its storage fails on world join):
-		// dev-only natives from Maven Central so the test can create Voxy's world storage on macOS.
-		gametestRuntimeOnly 'org.rocksdb:rocksdbjni:10.2.1'
-		gametestRuntimeOnly 'org.lwjgl:lwjgl-zstd:3.4.1:natives-macos-arm64'
+		// The 263 Voxy build bundles RocksDB / LWJGL zstd+LMDB without macOS natives (its storage fails on world join):
+		// the metallium-voxy-natives addon nested in Metallium supplies them (dev runs load nested jars like the release jar,
+		// no Maven natives on the classpath). -PvoxyWithoutNatives leaves it out to test
+		// Metallium's safe path (Voxy disabled + VoxyNativesScreen instead of a crash on world join).
+	}
+	if (project.hasProperty('voxyWithoutNatives')) {
+		loom.runs.clientGameTest { vmArg '-Dmetallium.gametest.voxyWithoutNatives=true' }
 	}
 }
 
@@ -359,8 +365,9 @@ if (project.hasProperty('crashRecovery')) {
 // ./gradlew releaseJar  -> build/release/metallium-<version>.jar: the single installable alpha jar (see docs/RELEASE.md).
 tasks.register('releaseJar', Copy) {
 	group = 'build'
-	description = 'Builds the single installable Metallium jar (core + metallium-gl + metallium-iris + metal-jvm, jar-in-jar).'
+	description = 'Builds the single installable Metallium jar (core + metallium-gl + metallium-iris + metallium-voxy-natives + metal-jvm, jar-in-jar), plus the standalone metallium-voxy-natives jar.'
 	from(tasks.named('jar'))
+	from(project(':metallium-voxy-natives').tasks.named('jar'))
 	into layout.buildDirectory.dir('release')
 }
 
@@ -388,23 +395,24 @@ if (project.hasProperty('releaseJarTest')) {
 // refuse Loom dev environments (Essential: "Failed to find tiny mappings file"). Metallium is the release jar
 // (build/release/metallium-<v>.jar, added with -Dfabric.addMods, includes metallium-gl + metallium-iris), not dev classes.
 // The instance (../metallium-research/play-instance by default, or -PplayProd=<dir>) supplies the other mods. Offline user, no login.
-// Voxy's 26.3 build bundles RocksDB / LWJGL-zstd without macOS natives; the play launch adds them (local play only).
-configurations { playNatives }
-dependencies {
-	playNatives 'org.rocksdb:rocksdbjni:10.2.1'
-	playNatives 'org.lwjgl:lwjgl-zstd:3.4.1:natives-macos-arm64'
-}
+// Voxy's 26.3 build bundles RocksDB / LWJGL zstd without macOS natives; the release jar's nested metallium-voxy-natives
+// addon supplies them (no extra classpath entries, exactly like a Prism / official-launcher install).
 tasks.register('runClientProd', JavaExec) {
 	dependsOn 'releaseJar'
 	def dirProp = project.findProperty('playProd')
 	def instDir = file((dirProp instanceof String && !dirProp.isEmpty() && dirProp != 'true') ? dirProp : '../metallium-research/play-instance')
 	def rel = layout.buildDirectory.file("release/metallium-${project.version}.jar").get().asFile
 	workingDir = instDir
-	classpath = files(configurations.runtimeClasspath.filter { !it.name.startsWith('metal-jvm') }) + configurations.playNatives
+	classpath = files(configurations.runtimeClasspath.filter { !it.name.startsWith('metal-jvm') })
 	mainClass = 'net.fabricmc.loader.impl.launch.knot.KnotClient'
 	jvmArgs '--enable-native-access=ALL-UNNAMED', '-XstartOnFirstThread', '-Xmx6G', "-Dfabric.addMods=${rel}"
 	args '--username', 'Player', '--version', 'Metallium-play', '--gameDir', instDir.absolutePath,
 		'--assetsDir', "${System.getProperty('user.home')}/.gradle/caches/fabric-loom/assets", '--assetIndex', '26.3-34',
 		'--accessToken', '0', '--userType', 'legacy'
+	// -PplayWorld=<save folder>: join that singleplayer world straight from start-up (Minecraft's quick play).
+	// Known: with Animated Mojang Logo installed, quick play hangs in the world-loading screen (doWorldLoad waits for the
+	// logo overlay); remove that mod in the instance used for -PplayWorld. Launch only copies of the owner's instance.
+	def playWorld = project.findProperty('playWorld')
+	if (playWorld instanceof String && !playWorld.isEmpty() && playWorld != 'true') args '--quickPlaySingleplayer', playWorld
 	doFirst { if (!rel.exists()) throw new GradleException("missing $rel") }
 }

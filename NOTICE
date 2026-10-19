@@ -17,6 +17,10 @@ Third-party code included in this distribution:
   (metallium-iris/LICENSE). Adapted code only in the separate metallium-iris module (LGPL-3.0):
   dev.metallium.iris.post.MetalShadowRenderer is adapted from Iris's ShadowRenderer.
 
-Release jar layout: the single installable jar bundles metal-jvm, metallium-gl (Apache-2.0) and metallium-iris (LGPL-3.0)
-as separate nested jars (META-INF/jars/). The LGPL-3.0 Iris adapter is never merged into the Apache-2.0 core; its complete
+- metallium-voxy-natives (nested jar, also standalone) redistributes unmodified macOS arm64 native libraries from Maven
+  Central: RocksDB 10.2.1 (Apache-2.0, with LevelDB BSD code), LWJGL 3.4.1 zstd / LMDB bindings (BSD-3-Clause) containing
+  Zstandard (BSD-3-Clause) and LMDB (OpenLDAP Public License 2.8). Licence texts and origins: META-INF/licenses/ in that jar.
+
+Release jar layout: the single installable jar bundles metal-jvm, metallium-gl (Apache-2.0), metallium-iris (LGPL-3.0) and
+metallium-voxy-natives (natives only) as separate nested jars (META-INF/jars/). The LGPL-3.0 Iris adapter is never merged into the Apache-2.0 core; its complete
 corresponding source is the metallium-iris/ directory of https://github.com/Crash09N/metallium (see SOURCE.txt in the nested jar).
