@@ -112,6 +112,8 @@ loom.runs.clientGameTest {
 	if (project.hasProperty('shaderpackOptions')) vmArg "-Dmetallium.gametest.shaderpackOptions=${project.property('shaderpackOptions')}"
 	if (project.hasProperty('benchSeconds')) vmArg "-Dmetallium.bench.seconds=${project.property('benchSeconds')}"
 	if (project.hasProperty('benchScene')) vmArg "-Dmetallium.bench.scene=${project.property('benchScene')}"
+	// -PbenchRd=N: override the benchmark scene's render distance (default 12, rd32 scene 32).
+	if (project.hasProperty('benchRd')) vmArg "-Dmetallium.bench.renderDistance=${project.property('benchRd')}"
 	if (project.hasProperty('perfCounters')) vmArg '-Dmetallium.perfCounters=true'
 	// -PglMods=voxy (with -PwithGl): retarget these mods' GL calls to metallium-gl; -PglFailFast=false logs instead of throwing.
 	if (project.hasProperty('glMods')) vmArg "-Dmetallium.gl.mods=${project.property('glMods')}"

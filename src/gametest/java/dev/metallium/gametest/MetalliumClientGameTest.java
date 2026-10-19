@@ -89,9 +89,9 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
         }
         boolean shaders = "shaders".equals(BENCH_SCENE);
         boolean flight = "flight".equals(BENCH_SCENE);
-        int renderDistance = "rd32".equals(BENCH_SCENE) ? 32 : 12;
+        int renderDistance = Integer.getInteger("metallium.bench.renderDistance", "rd32".equals(BENCH_SCENE) ? 32 : 12);
         int settleTicks = Integer.getInteger("metallium.bench.settleTicks", flight ? 100 : 300);
-        int settleSeconds = Integer.getInteger("metallium.bench.settleSeconds", "rd32".equals(BENCH_SCENE) ? 150 : flight ? 20 : 60);
+        int settleSeconds = Integer.getInteger("metallium.bench.settleSeconds", renderDistance >= 24 ? 150 : flight ? 20 : renderDistance >= 16 ? 90 : 60);
         String pack = System.getProperty("metallium.gametest.shaderpack", "");
         if (shaders && (pack.isEmpty() || !Files.isRegularFile(Path.of(pack))
                 || !net.fabricmc.loader.api.FabricLoader.getInstance().isModLoaded("iris"))) {
