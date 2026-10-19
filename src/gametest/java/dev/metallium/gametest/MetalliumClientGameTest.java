@@ -162,16 +162,25 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
             }
 
             if (shaders) {
-                try {
-                    Path source = Path.of(pack);
-                    Path target = context.computeOnClient(client -> irisShaderpacksDirectory()).resolve(source.getFileName().toString());
-                    Files.copy(source, target, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
-                    line("bench: shader pack " + source.getFileName() + ": pipeline="
-                            + context.computeOnClient(client -> irisSelectPack(source.getFileName().toString(), true)));
-                } catch (IOException e) {
-                    throw new IllegalStateException("could not install shader pack", e);
+                // Same install as the shader pack scenario, including -PshaderpackOptions (<pack>.txt).
+                String installed = externalPack(context);
+                if (installed == null) {
+                    throw new IllegalStateException("could not install shader pack " + pack);
                 }
+                line("bench: shader pack " + installed + ": pipeline=" + context.computeOnClient(client -> irisSelectPack(installed, true)));
             }
+            // -Dmetallium.bench.window=WxH: window size (shader packs scale with the pixel count; the default game test
+            // window is 854x480, a player's fullscreen e.g. 2560x1440).
+            String window = System.getProperty("metallium.bench.window", "");
+            if (window.matches("\\d+x\\d+")) {
+                String[] wh = window.split("x");
+                context.runOnClient(client -> client.getWindow().setWindowed(Integer.parseInt(wh[0]), Integer.parseInt(wh[1])));
+                // Put the window on the display with the highest refresh rate (a large window on a small 60 Hz screen
+                // gave run-to-run swings of 2x on a two-display Mac).
+                line("bench: window display " + context.computeOnClient(client -> moveToFastestDisplay(client.getWindow().handle())));
+                context.waitTicks(20);
+            }
+            line("bench: framebuffer " + context.computeOnClient(c -> c.getWindow().getWidth() + "x" + c.getWindow().getHeight()));
             // Ticks run faster than 20/s in the game test, so settle on wall-clock time as well as ticks.
             long settleUntil = System.nanoTime() + settleSeconds * 1_000_000_000L;
             context.waitTicks(settleTicks);
@@ -283,6 +292,7 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
         context.waitTicks(40);
         clearChat(context);
         Path off = context.takeScreenshot("metallium-iris-shaders-off");
+        blockParticles(context, world, "metallium-iris-particles-off");
 
         try {
             installTestPack(context, TEST_PACK, TEST_PACK_FILES);
@@ -312,6 +322,13 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
         context.waitTicks(100); // the pack switches Sodium to Iris's extended vertex format: chunks are rebuilt
         clearChat(context);
         checkGbufferMarker(context.takeScreenshot("metallium-iris-gbufferpack"));
+        // Iris's atlasSize/gtextureSize uniforms follow the bound Sampler0 (getAlbedoTex); 0 made packs treat block
+        // particles (sprinting) as particle-atlas particles.
+        String albedo = context.computeOnClient(client -> irisAlbedoTexture());
+        line("iris gbuffers test pack: albedo texture=" + albedo);
+        if (albedo.startsWith("id 0 ") || albedo.startsWith("error")) {
+            failures.add("Metal shader pipeline does not track the albedo texture (atlasSize would be 0): " + albedo);
+        }
         // Pack loaded while the crosshair is on a block (creative, looking down): Iris's currentSelectedBlockId uniform reads
         // the block ID map on the pipeline's first frame (real-instance finding: gbuffers setup failed with an NPE).
         tryCommand(world, "gamemode creative @a");
@@ -373,6 +390,7 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
             line("shader work during external pack load: " + dev.metallium.shadercache.ShaderCacheStats.summary(dev.metallium.shadercache.ShaderCacheStats.delta(beforePack)));
             context.waitTicks(100);
             context.takeScreenshot("metallium-iris-external-pack");
+            blockParticles(context, world, "metallium-iris-external-pack-particles");
             line("external pack: still running after 100 ticks");
             // More gbuffers programs: block entities (chest, sign), weather (rain). Removed again before the
             // shaders-off comparison below.
@@ -868,6 +886,67 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
         } catch (ReflectiveOperationException e) {
             return List.of("could not read pipeline problems: " + e);
         }
+    }
+
+    /**
+     * The texture behind the active pipeline's {@code getAlbedoTex()} (what Iris's {@code atlasSize} uniform reads):
+     * "TextureAtlas WxH" when it is an atlas, else what it is. Packs use atlasSize to tell block-atlas particles
+     * (sprint/break particles) from particle-atlas ones.
+     */
+    private static String irisAlbedoTexture() {
+        try {
+            Object manager = Class.forName("net.irisshaders.iris.Iris").getMethod("getPipelineManager").invoke(null);
+            Object pipeline = manager.getClass().getMethod("getPipelineNullable").invoke(manager);
+            if (pipeline == null) {
+                return "no pipeline";
+            }
+            int id = (int) pipeline.getClass().getMethod("getAlbedoTex").invoke(pipeline);
+            Object tracker = Class.forName("net.irisshaders.iris.pbr.TextureTracker").getField("INSTANCE").get(null);
+            Object texture = tracker.getClass().getMethod("getTexture", int.class).invoke(tracker, id);
+            if (texture instanceof net.minecraft.client.renderer.texture.TextureAtlas atlas) {
+                return "TextureAtlas " + atlas.location();
+            }
+            return "id " + id + " -> " + (texture == null ? "untracked" : texture.getClass().getSimpleName());
+        } catch (ReflectiveOperationException e) {
+            return "error: " + e;
+        }
+    }
+
+    /** Moves an SDL window to the top-left of the display with the highest refresh rate; returns what it chose. */
+    private static String moveToFastestDisplay(long window) {
+        java.nio.IntBuffer displays = org.lwjgl.sdl.SDLVideo.SDL_GetDisplays();
+        if (displays == null) {
+            return "unknown (SDL_GetDisplays failed)";
+        }
+        int best = -1;
+        float bestHz = -1;
+        for (int i = 0; i < displays.remaining(); i++) {
+            int id = displays.get(displays.position() + i);
+            org.lwjgl.sdl.SDL_DisplayMode mode = org.lwjgl.sdl.SDLVideo.SDL_GetCurrentDisplayMode(id);
+            if (mode != null && mode.refresh_rate() > bestHz) {
+                bestHz = mode.refresh_rate();
+                best = id;
+            }
+        }
+        if (best < 0) {
+            return "unknown";
+        }
+        try (org.lwjgl.system.MemoryStack stack = org.lwjgl.system.MemoryStack.stackPush()) {
+            org.lwjgl.sdl.SDL_Rect bounds = org.lwjgl.sdl.SDL_Rect.malloc(stack);
+            org.lwjgl.sdl.SDLVideo.SDL_GetDisplayBounds(best, bounds);
+            org.lwjgl.sdl.SDLVideo.SDL_SetWindowPosition(window, bounds.x(), bounds.y());
+            return String.format(java.util.Locale.ROOT, "%d (%dx%d @ %.0f Hz)", best, bounds.w(), bounds.h(), bestHz);
+        }
+    }
+
+    /** Block-texture particles (what sprinting kicks up) in front of the camera, for a screenshot. */
+    private void blockParticles(ClientGameTestContext context, TestSingleplayerContext world, String screenshot) {
+        tryCommand(world, "execute as @p at @s run particle minecraft:block{block_state:\"minecraft:grass_block\"} ^ ^ ^2.5 0.4 0.3 0.4 0 300 force");
+        tryCommand(world, "execute as @p at @s run particle minecraft:block{block_state:\"minecraft:dirt\"} ^-1 ^ ^2.5 0.3 0.3 0.3 0 200 force");
+        context.waitTicks(2);
+        clearChat(context);
+        context.takeScreenshot(screenshot);
+        context.waitTicks(40); // let them die before the next screenshot
     }
 
     private static String irisSelectPack(String pack, boolean enabled) {
