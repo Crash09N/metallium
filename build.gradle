@@ -374,13 +374,19 @@ if (project.hasProperty('releaseJarTest')) {
 // refuse Loom dev environments (Essential: "Failed to find tiny mappings file"). Metallium is the release jar
 // (build/release/metallium-<v>.jar, added with -Dfabric.addMods, includes metallium-gl + metallium-iris), not dev classes.
 // The instance (../metallium-research/play-instance by default, or -PplayProd=<dir>) supplies the other mods. Offline user, no login.
+// Voxy's 26.3 build bundles RocksDB / LWJGL-zstd without macOS natives; the play launch adds them (local play only).
+configurations { playNatives }
+dependencies {
+	playNatives 'org.rocksdb:rocksdbjni:10.2.1'
+	playNatives 'org.lwjgl:lwjgl-zstd:3.4.1:natives-macos-arm64'
+}
 tasks.register('runClientProd', JavaExec) {
 	dependsOn 'releaseJar'
 	def dirProp = project.findProperty('playProd')
 	def instDir = file((dirProp instanceof String && !dirProp.isEmpty() && dirProp != 'true') ? dirProp : '../metallium-research/play-instance')
 	def rel = layout.buildDirectory.file("release/metallium-${project.version}.jar").get().asFile
 	workingDir = instDir
-	classpath = files(configurations.runtimeClasspath.filter { !it.name.startsWith('metal-jvm') })
+	classpath = files(configurations.runtimeClasspath.filter { !it.name.startsWith('metal-jvm') }) + configurations.playNatives
 	mainClass = 'net.fabricmc.loader.impl.launch.knot.KnotClient'
 	jvmArgs '--enable-native-access=ALL-UNNAMED', '-XstartOnFirstThread', '-Xmx6G', "-Dfabric.addMods=${rel}"
 	args '--username', 'Player', '--version', 'Metallium-play', '--gameDir', instDir.absolutePath,
