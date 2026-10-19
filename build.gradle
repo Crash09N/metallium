@@ -151,6 +151,9 @@ loom.runs.clientGameTest {
 	// -PshaderCache=false disables it; delete that directory for a cold run.
 	vmArg "-Dmetallium.shaderCache.dir=${layout.buildDirectory.get().asFile}/run/metallium-shader-cache"
 	if (project.hasProperty('shaderCache')) vmArg "-Dmetallium.shaderCache=${project.property('shaderCache')}"
+	// -PsimulateArchiveFailure: the binary archive writer pretends Apple's archiver rejects one pipeline pair (tests the rebuild path).
+	if (project.hasProperty('simulateArchiveFailure')) vmArg '-Dmetallium.shaderCache.simulateArchiveFailure=true'
+	if (project.hasProperty('logArchiveMisses')) vmArg '-Dmetallium.shaderCache.logMisses=true'
 	// -PbenchVsync: run the benchmark with VSync on (default off) to compare presented vs rendered frames.
 	if (project.hasProperty('benchVsync')) vmArg '-Dmetallium.bench.vsync=true'
 	// -PbenchDisplay=<index or name substring>: display for the benchmark window (default: highest refresh rate).
