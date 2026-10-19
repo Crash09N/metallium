@@ -129,6 +129,97 @@ final class PhysicsScenario {
         line.accept("physics: status after " + scene + ": " + context.computeOnClient(c -> String.join(" | ", dev.metallium.api.MetalliumRuntime.statusLines())));
     }
 
+    private static Object field(final Object target, final String name) throws ReflectiveOperationException {
+        for (Class<?> c = target.getClass(); c != null; c = c.getSuperclass()) {
+            for (java.lang.reflect.Field f : c.getDeclaredFields()) {
+                if (f.getName().equals(name) || f.getName().endsWith("$" + name)) {
+                    f.setAccessible(true);
+                    return f.get(target);
+                }
+            }
+        }
+        throw new NoSuchFieldException(name);
+    }
+
+    private static Object call(final Object target, final String name) throws ReflectiveOperationException {
+        java.lang.reflect.Method m = target.getClass().getMethod(name);
+        m.setAccessible(true);
+        return m.invoke(target);
+    }
+
+    /** Liquid compute output: particle count and the indirect draw arguments the compute shaders wrote. */
+    private void liquidProbe(final ClientGameTestContext context) {
+        line.accept("physics: liquid probe " + context.computeOnClient(client -> {
+            try {
+                Object mod = Class.forName("net.diebuddies.physics.PhysicsMod")
+                        .getMethod("getInstance", net.minecraft.client.multiplayer.ClientLevel.class).invoke(null, client.level);
+                Object system = call(call(mod, "getPhysicsWorld"), "getLiquidComputeSystem");
+                if (system == null) return "no liquid system";
+                Object indirect = call(system, "indirectDrawBuffer");
+                return "hasParticles=" + call(system, "hasParticles") + " renderable=" + call(system, "hasRenderableParticles")
+                        + " arena=" + call(system, "particleArenaSize") + " indirectArgs="
+                        + (indirect == null ? "null" : java.util.Arrays.toString(GpuProbe.ints((com.mojang.renderpearl.api.buffers.GpuBuffer) indirect, 5)));
+            } catch (Throwable t) {
+                return "failed: " + (t.getCause() != null ? t.getCause() : t);
+            }
+        }));
+    }
+
+    private static Object mainRenderer(final net.minecraft.client.Minecraft client) throws ReflectiveOperationException {
+        return field(client.levelRenderer, "mainRenderer");
+    }
+
+    /** Volumetric smoke: how much the compute passes wrote into the density volumes. */
+    private void smokeProbe(final ClientGameTestContext context) {
+        line.accept("physics: smoke probe " + context.computeOnClient(client -> {
+            try {
+                Object volume = field(field(mainRenderer(client), "smokeVolumeRenderer"), "smokeVolume");
+                if (volume == null) return "no volume effect";
+                Object targets = field(volume, "volumeTargets");
+                if (targets == null) return "no volume targets";
+                StringBuilder out = new StringBuilder();
+                for (String name : new String[] {"densityAccTextures", "densityTextures"}) {
+                    Object[] textures = (Object[]) field(targets, name);
+                    com.mojang.renderpearl.api.textures.GpuTexture t = (com.mojang.renderpearl.api.textures.GpuTexture) textures[0];
+                    long nonZero = 0;
+                    long sum = 0;
+                    for (int z = 0; z < t.getDepthOrLayers(); z += Math.max(1, t.getDepthOrLayers() / 8)) {
+                        long[] stats = GpuProbe.textureStats(t, z);
+                        nonZero += stats[0];
+                        sum += stats[1];
+                    }
+                    out.append(name).append("[0] ").append(t.getFormat()).append(' ').append(t.getWidth(0)).append('x').append(t.getHeight(0))
+                            .append('x').append(t.getDepthOrLayers()).append(": nonzero=").append(nonZero).append(" sum=").append(sum).append("; ");
+                }
+                return out.toString();
+            } catch (Throwable t) {
+                return "failed: " + (t.getCause() != null ? t.getCause() : t);
+            }
+        }));
+    }
+
+    /** FFT ocean renderer state (is it running, did it disable itself). */
+    private void oceanProbe(final ClientGameTestContext context) {
+        line.accept("physics: ocean probe " + context.computeOnClient(client -> {
+            try {
+                Object fft = field(mainRenderer(client), "fftOceanRenderer");
+                if (fft == null) return "no FFT ocean renderer";
+                Object physicsMod = Class.forName("net.diebuddies.physics.PhysicsMod")
+                        .getMethod("getInstance", net.minecraft.client.multiplayer.ClientLevel.class).invoke(null, client.level);
+                Object oceanWorld = null;
+                try {
+                    oceanWorld = call(call(physicsMod, "getPhysicsWorld"), "getOceanWorld");
+                } catch (ReflectiveOperationException ignored) {
+                    // name differs
+                }
+                return "simulation=" + field(fft, "simulation") + " unavailable=" + field(fft, "unavailable") + " lastFrame="
+                        + field(fft, "lastSimulationFrame") + " time=" + field(fft, "simulationTime") + " oceanWorld=" + oceanWorld;
+            } catch (Throwable t) {
+                return "failed: " + (t.getCause() != null ? t.getCause() : t);
+            }
+        }));
+    }
+
     /** Physics Mod's static config field (closed source: reached by name, test code only). */
     private void setConfig(final String field, final Object value) {
         try {
@@ -181,6 +272,24 @@ final class PhysicsScenario {
         context.waitTicks(100);
         context.takeScreenshot("physics-" + tag + "-liquid-later");
         status(context, "liquid");
+        liquidProbe(context);
+        // Diagnostic: Physics Mod 3.2.5 never calls LiquidComputeSystem.prepareRender (the only writer of the indirect
+        // draw arguments). Call it once here to see whether the rest of the GPU liquid pipeline renders on Metal.
+        line.accept("physics: liquid prepareRender (diagnostic) " + context.computeOnClient(client -> {
+            try {
+                Object mod = Class.forName("net.diebuddies.physics.PhysicsMod")
+                        .getMethod("getInstance", net.minecraft.client.multiplayer.ClientLevel.class).invoke(null, client.level);
+                Object system = call(call(mod, "getPhysicsWorld"), "getLiquidComputeSystem");
+                int indexCount = (int) call(field(field(mainRenderer(client), "liquidDeferredRenderer"), "instancedRenderer"), "getIndexCount");
+                system.getClass().getMethod("prepareRender", int.class).invoke(system, indexCount);
+                return "indexCount=" + indexCount;
+            } catch (Throwable t) {
+                return "failed: " + (t.getCause() != null ? t.getCause() : t);
+            }
+        }));
+        context.waitTicks(3);
+        liquidProbe(context);
+        context.takeScreenshot("physics-" + tag + "-liquid-prepared");
         benchFeature(context, "liquid", "liquidPhysics");
         command(world, "setblock 28 -60 8 minecraft:campfire");
         command(world, "setblock 32 -60 8 minecraft:campfire");
@@ -193,41 +302,19 @@ final class PhysicsScenario {
         benchFeature(context, "smoke", "smokeVolumetricPhysics");
     }
 
-    /** FFT ocean: a natural world, above the nearest ocean. */
+    /**
+     * FFT ocean, volumetric smoke: whether Metallium makes them available, and whether this Physics Mod build can show
+     * them at all (its free build compiles some feature gates to a constant {@code false}).
+     */
     private void oceanScene(final ClientGameTestContext context, final String tag) {
         setConfig("oceanPhysics", true);
         setConfig("oceanRenderer", 1);
         line.accept("physics: FFT ocean availability (null = available)=" + context.computeOnClient(c ->
                 String.valueOf(callStatic("net.diebuddies.render.fft.FftOceanRenderer", "fftAvailabilityReason"))));
-        try (TestSingleplayerContext world = context.worldBuilder().setUseConsistentSettings(false)
-                .adjustSettings(state -> state.setSeed(System.getProperty("metallium.gametest.oceanSeed", "metallium-forest"))).create()) {
-            world.getConnection().waitForChunksRender();
-            closeForeignScreens(context);
-            net.minecraft.core.BlockPos ocean = world.getServer().computeOnServer(server -> {
-                var found = server.overworld().findClosestBiome3d(b -> b.is(net.minecraft.tags.BiomeTags.IS_OCEAN),
-                        net.minecraft.core.BlockPos.ZERO, 6400, 32, 64);
-                return found == null ? null : found.getFirst();
-            });
-            line.accept("physics: nearest ocean " + ocean);
-            if (ocean == null) return;
-            for (String command : new String[] {"time set 6000", "gamerule advance_time false", "weather clear", "gamemode spectator @a",
-                    "tp @p " + ocean.getX() + " 72 " + ocean.getZ() + " 0 25"}) {
-                command(world, command);
-            }
-            context.waitTicks(20);
-            world.getConnection().waitForChunksRender();
-            context.waitTicks(200);
-            context.takeScreenshot("physics-" + tag + "-ocean");
-            context.waitTicks(40);
-            context.takeScreenshot("physics-" + tag + "-ocean-later");
-            command(world, "weather thunder");
-            context.waitTicks(200);
-            context.takeScreenshot("physics-" + tag + "-ocean-storm");
-            status(context, "ocean");
-            command(world, "weather clear");
-            benchFeature(context, "ocean", "oceanRenderer");
-            line.accept("physics: ocean scene done");
-        }
+        line.accept("physics: mod gates: areVolumetricSmokePhysicsEnabled=" + callStatic("net.diebuddies.config.ConfigClient", "areVolumetricSmokePhysicsEnabled")
+                + " areSmokePhysicsEnabled=" + callStatic("net.diebuddies.config.ConfigClient", "areSmokePhysicsEnabled")
+                + " areFireVfxEnabled=" + callStatic("net.diebuddies.config.ConfigClient", "areFireVfxEnabled")
+                + " areOceanPhysicsEnabled=" + callStatic("net.diebuddies.config.ConfigClient", "areOceanPhysicsEnabled"));
     }
 
     private void command(final TestSingleplayerContext world, final String command) {
