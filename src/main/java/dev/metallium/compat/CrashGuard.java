@@ -53,6 +53,27 @@ public final class CrashGuard {
         boolean metal;
         /** Start-up finished ({@code Minecraft}'s constructor returned). */
         boolean started;
+        /** When start-up finished (ms since epoch), 0 if it never did. */
+        long startedAt;
+        /** Last heartbeat (ms since epoch); after a SIGKILL this is roughly when the session ended. */
+        long lastAlive;
+    }
+
+    /** A session that ran this long after start-up without crash evidence is not blamed on Metallium when it left a marker. */
+    static final long RAN_FINE_MS = 5 * 60_000L;
+    private static final long HEARTBEAT_MS = 30_000L;
+
+    /**
+     * Pure decision (unit-tested): should the marker survive an orderly JVM shutdown (shutdown hook)? Only when
+     * Minecraft wrote a crash report this session (its crash path ends in {@code System.exit(-1)}, which looks orderly to a hook).
+     */
+    static boolean keepMarkerOnShutdown(final boolean crashReportWritten) {
+        return crashReportWritten;
+    }
+
+    /** Pure decision (unit-tested): the previous session ran for at least {@link #RAN_FINE_MS} after start-up finished. */
+    static boolean ranFine(final Marker m) {
+        return m.started && m.startedAt > 0 && m.lastAlive - m.startedAt >= RAN_FINE_MS;
     }
 
     /**
@@ -73,6 +94,8 @@ public final class CrashGuard {
     private static @Nullable Recovery recovery;
     private static @Nullable Marker current;
     private static boolean dismissed;
+    private static volatile boolean crashReportWritten;
+    private static boolean hookInstalled;
 
     private CrashGuard() {
     }
@@ -111,8 +134,54 @@ public final class CrashGuard {
         }
         current = new Marker();
         current.start = System.currentTimeMillis();
+        current.lastAlive = current.start;
         current.engine = dev.metallium.MetalliumConfig.INSTANCE.engine == null ? "?" : dev.metallium.MetalliumConfig.INSTANCE.engine.name();
         writeMarker();
+        installShutdownHook();
+    }
+
+    /**
+     * JVM shutdown hook: System.exit(0), Cmd+Q / window close (they end in a normal return from main), SIGTERM, SIGINT and
+     * SIGHUP all run it, and they are user quits, so the marker is removed. Not run on SIGKILL, power loss or JVM aborts
+     * (hs_err): there the marker stays. A written crash report keeps it (Minecraft exits with -1 through System.exit).
+     */
+    private static void installShutdownHook() {
+        if (hookInstalled) return;
+        hookInstalled = true;
+        Thread hook = new Thread(() -> {
+            if (!keepMarkerOnShutdown(crashReportWritten)) {
+                markCleanShutdown();
+            }
+        }, "metallium-session-marker");
+        try {
+            Runtime.getRuntime().addShutdownHook(hook);
+        } catch (IllegalStateException e) {
+            return; // already shutting down
+        }
+        Thread beat = new Thread(() -> {
+            while (true) {
+                try {
+                    Thread.sleep(HEARTBEAT_MS);
+                } catch (InterruptedException e) {
+                    return;
+                }
+                heartbeat();
+            }
+        }, "metallium-session-heartbeat");
+        beat.setDaemon(true);
+        beat.start();
+    }
+
+    private static synchronized void heartbeat() {
+        if (current != null) {
+            current.lastAlive = System.currentTimeMillis();
+            writeMarker();
+        }
+    }
+
+    /** Minecraft saved a crash report: this session ends as a crash even if the JVM exits through System.exit. */
+    public static void noteCrashReport() {
+        crashReportWritten = true;
     }
 
     /** Pending crash recovery (safe mode this session), or null. */
@@ -156,12 +225,17 @@ public final class CrashGuard {
         init();
         if (current != null && !current.started) {
             current.started = true;
+            current.startedAt = System.currentTimeMillis();
+            current.lastAlive = current.startedAt;
             writeMarker();
         }
     }
 
     /** Clean shutdown: the marker goes away. */
     public static synchronized void markCleanShutdown() {
+        if (keepMarkerOnShutdown(crashReportWritten)) {
+            return;
+        }
         try {
             Files.deleteIfExists(dir().resolve("session.json"));
         } catch (IOException e) {
@@ -198,6 +272,14 @@ public final class CrashGuard {
         candidates.addAll(newest(gameDir, "hs_err_pid", ".log", previous.start));
         candidates.addAll(newest(gameDir.resolve("crash-reports"), "crash-", ".txt", previous.start));
         boolean crashWritten = !candidates.isEmpty();
+        if (ranFine(previous) && !crashWritten) {
+            // Ran for minutes after start-up with no crash report / hs_err: killed by the user (SIGKILL, force quit,
+            // power loss), not a Metal start-up problem. Rotated logs are too weak as evidence here.
+            Metallium.LOGGER.info("[metallium] previous session ended without a clean shutdown after {} min of normal running,"
+                    + " no crash report or JVM error log: treated as a user kill, staying on Metal",
+                    (previous.lastAlive - previous.startedAt) / 60_000L);
+            return null;
+        }
         candidates.addAll(newest(gameDir.resolve("logs"), "", ".log.gz", previous.start));
         for (Path file : candidates) {
             String text = read(file);

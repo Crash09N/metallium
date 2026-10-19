@@ -328,6 +328,14 @@ if (project.hasProperty('withBetterF3')) {
 	}
 }
 
+// ./gradlew runClientGameTest -PsessionExit=normal|sigterm|crash  -> ends the session that way at the title screen (see tools/check-session-exit.sh).
+if (project.hasProperty('sessionExit')) {
+	loom.runs.clientGameTest {
+		vmArg "-Dmetallium.gametest.sessionExit=${project.property('sessionExit')}"
+		vmArg '-Dmetallium.crashRecovery=on'
+	}
+}
+
 // ./gradlew runClientGameTest -PwithGl -PcrashRecovery  → simulates "the last session crashed in a metallium-gl-routed
 // mod": seeds a session marker and a crash report into the run directory, so this run must start on OpenGL and show the
 // crash-recovery screen before the title screen.

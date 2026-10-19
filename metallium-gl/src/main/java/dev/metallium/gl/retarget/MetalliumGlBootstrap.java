@@ -135,9 +135,20 @@ public final class MetalliumGlBootstrap {
         throw new NoSuchFieldException(type.getName() + "." + name);
     }
 
+    /** Short F3 line (also shown by BetterF3): which mods are translated and whether any GL function is missing. */
     private static String statusLine() {
         if (optIn == null || optIn.mods().isEmpty()) {
             return null;
+        }
+        long missing = MetalGLLog.unimplementedCalls().size();
+        return "metallium-gl: " + optIn.mods().size() + " mods translated"
+                + (missing == 0 ? "" : ", " + missing + " GL functions missing");
+    }
+
+    /** Detailed counters for logs and game tests (too long for F3). */
+    public static String diagnostics() {
+        if (optIn == null || optIn.mods().isEmpty()) {
+            return "metallium-gl: inactive";
         }
         long missing = MetalGLLog.unimplementedCalls().size();
         return "metallium-gl: " + optIn.mods().size() + " mod(s), " + CLASSES.get() + " classes / " + CALL_SITES.get()
