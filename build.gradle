@@ -183,6 +183,10 @@ loom.runs.clientGameTest {
 		environmentVariable 'MTL_HUD_LOG_ENABLED', '1'
 	}
 	if (project.hasProperty('presentPacing')) vmArg "-Dmetallium.present.pacing=${project.property('presentPacing')}"
+	// -PpresentRate=1.5 -PpresentMaxInFlight=3 -PpresentDecoupled=false: knobs of -PpresentPacing=rate (A/B tests).
+	if (project.hasProperty('presentRate')) vmArg "-Dmetallium.present.rate=${project.property('presentRate')}"
+	if (project.hasProperty('presentMaxInFlight')) vmArg "-Dmetallium.present.maxInFlight=${project.property('presentMaxInFlight')}"
+	if (project.hasProperty('presentDecoupled')) vmArg "-Dmetallium.present.decoupled=${project.property('presentDecoupled')}"
 }
 
 // ./gradlew runClientGameTest -PwithSodium  → runs the game tests with Sodium loaded.

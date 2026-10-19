@@ -55,6 +55,8 @@ final class MetalSurface implements GpuSurfaceBackend {
     private static final boolean RATE_PACING = "rate".equals(PACING);
     private static final double PRESENT_RATE = Double.parseDouble(System.getProperty("metallium.present.rate", "1.0"));
     private static final int MAX_PRESENTS_IN_FLIGHT = Integer.getInteger("metallium.present.maxInFlight", 3);
+    /** "rate": drawable blit + present in a command buffer of their own (frame copied first), like "gpu". */
+    private static final boolean RATE_DECOUPLED = !"false".equals(System.getProperty("metallium.present.decoupled", "true"));
     private static final long PRESENT_PENDING_TIMEOUT_NS = 100_000_000L;
     private static final Set<GpuSurface.PresentMode> SUPPORTED_PRESENT_MODES = EnumSet.of(GpuSurface.PresentMode.IMMEDIATE, GpuSurface.PresentMode.FIFO, GpuSurface.PresentMode.MAILBOX);
     private final long metalView;
@@ -167,7 +169,8 @@ final class MetalSurface implements GpuSurfaceBackend {
         if (GPU_PACING) {
             ready = metalEncoder.previousPresentCompleted() && now - this.lastPresentNs >= this.refreshPeriodNs / 2;
         } else if (RATE_PACING) {
-            ready = now >= this.nextPresentNs && this.presentsInFlight.get() < MAX_PRESENTS_IN_FLIGHT;
+            ready = now >= this.nextPresentNs && this.presentsInFlight.get() < MAX_PRESENTS_IN_FLIGHT
+                    && (!RATE_DECOUPLED || metalEncoder.presentBuffersInFlight() < MetalCommandEncoder.PRESENT_COPIES);
         } else {
             int inFlight = this.presentsInFlight.get();
             long sinceLast = now - this.lastPresentNs;
@@ -189,7 +192,7 @@ final class MetalSurface implements GpuSurfaceBackend {
             this.nextPresentNs = Math.max(this.nextPresentNs, now - interval) + interval;
             PresentStats.submitted.incrementAndGet();
             PresentStats.submitTimes.add(now);
-            if (GPU_PACING) {
+            if (GPU_PACING || RATE_PACING && RATE_DECOUPLED) {
                 metalEncoder.presentTextureToDrawableDecoupled(drawable, textureView, this.presentedHandler);
             } else {
                 metalEncoder.presentTextureToDrawable(drawable, textureView, this.presentedHandler);

@@ -63,9 +63,12 @@ final class MetalCommandEncoder implements CommandEncoderBackend {
     /** Native handles the open blit encoder reads / writes (untracked resources: copies in one encoder may overlap). */
     private final LongArrayList blitReads = new LongArrayList();
     private final LongArrayList blitWrites = new LongArrayList();
-    /** VSync off: copy of the presented frame, read by the separate present command buffer. */
-    @Nullable
-    private MTLTexture presentCopy;
+    /**
+     * VSync off: copies of presented frames, read by the separate present command buffers; a ring so that up to
+     * {@link #PRESENT_COPIES} decoupled presents can be in flight on the GPU (slot = present index modulo the ring).
+     */
+    static final int PRESENT_COPIES = 3;
+    private final MTLTexture[] presentCopies = new MTLTexture[PRESENT_COPIES];
     @Nullable
     private MTLCommandBuffer pendingPresentBuffer;
     @Nullable
@@ -444,8 +447,9 @@ final class MetalCommandEncoder implements CommandEncoderBackend {
      * VSync off: the frame is copied (inside the frame's command buffer, fence-ordered) and the drawable blit + present
      * go into a small command buffer of their own, committed right after the frame's. Nothing waits for that one: the
      * drawable blit cannot start before the display returns the drawable, and the frame fence or the frame's
-     * completion depending on it throttled rendering to the display rate. Callers present again only after
-     * {@link #previousPresentCompleted()}, so one copy texture suffices.
+     * completion depending on it throttled rendering to the display rate. Callers keep fewer than
+     * {@link #PRESENT_COPIES} present buffers in flight ({@link #presentBuffersInFlight()}), so a copy slot is never
+     * overwritten while its present still reads it.
      */
     void presentTextureToDrawableDecoupled(final CAMetalDrawable drawable, final GpuTextureView textureView, final long presentedHandler) {
         prepareForPresent(textureView);
@@ -473,6 +477,11 @@ final class MetalCommandEncoder implements CommandEncoderBackend {
         return presentBuffersCompleted.get() >= presentBuffersCommitted;
     }
 
+    /** Decoupled present command buffers committed but not completed (a copy slot is free while this is below the ring size). */
+    int presentBuffersInFlight() {
+        return (int) (presentBuffersCommitted - presentBuffersCompleted.get());
+    }
+
     private void commitPendingPresent() {
         MTLCommandBuffer buffer = pendingPresentBuffer;
         if (buffer == null) {
@@ -491,7 +500,8 @@ final class MetalCommandEncoder implements CommandEncoderBackend {
     }
 
     private MTLTexture presentCopy(final MTLTexture source) {
-        MTLTexture copy = presentCopy;
+        int slot = (int) (presentBuffersCommitted % PRESENT_COPIES);
+        MTLTexture copy = presentCopies[slot];
         if (copy != null && copy.width() == source.width() && copy.height() == source.height() && copy.pixelFormat() == source.pixelFormat()) {
             return copy;
         }
@@ -508,7 +518,7 @@ final class MetalCommandEncoder implements CommandEncoderBackend {
         descriptor.setHazardTrackingMode(MTLHazardTrackingMode.Untracked);
         copy = MetalUtilities.nonNil(device.metalDevice().newTexture(descriptor), "newTextureWithDescriptor:");
         descriptor.release();
-        presentCopy = copy;
+        presentCopies[slot] = copy;
         return copy;
     }
 
@@ -847,9 +857,11 @@ final class MetalCommandEncoder implements CommandEncoderBackend {
             lastPresentBuffer.release();
             lastPresentBuffer = null;
         }
-        if (presentCopy != null) {
-            presentCopy.release();
-            presentCopy = null;
+        for (int i = 0; i < PRESENT_COPIES; i++) {
+            if (presentCopies[i] != null) {
+                presentCopies[i].release();
+                presentCopies[i] = null;
+            }
         }
         transientMemory.close();
         device.queueResourceRelease(fence);
