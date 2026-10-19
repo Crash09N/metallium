@@ -196,6 +196,19 @@ if (project.hasProperty('instance')) {
 	tasks.matching { it.name == 'deleteGameTestRunDir' }.configureEach { enabled = false }
 }
 
+// ./gradlew :runClient -Pplay[=dir]  → play the real instance by hand (tools/make-run-instance.sh <src> play-instance):
+// its mods load from <dir>/mods, plus the dev Metallium, metallium-iris and metallium-gl. Default dir: metallium-research/play-instance (outside the repo; never commit instance data).
+if (project.hasProperty('play')) {
+	dependencies {
+		localRuntime project(':metallium-iris')
+		if (!project.hasProperty('withGl')) localRuntime project(':metallium-gl')
+	}
+	def dir = project.property('play')
+	loom.runs.client {
+		runDir((dir instanceof String && !dir.isEmpty() && dir != 'true') ? dir : '../metallium-research/play-instance')
+	}
+}
+
 // Mod-compat game-test variants (Sodium + the mod; one Minecraft run each):
 //   ./gradlew runClientGameTest -PwithReGlass | -PwithCullLeaves | -PwithMoreCulling
 // Cull Leaves and More Culling are mutually exclusive in one run.
