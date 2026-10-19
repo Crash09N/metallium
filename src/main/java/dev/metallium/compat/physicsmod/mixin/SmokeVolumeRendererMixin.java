@@ -11,15 +11,16 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 /**
- * Volumetric smoke needs GPU compute (Vulkan, or OpenGL 4.3, probed with raw GL calls that abort on Metal). On Metal it
- * is reported unsupported, as on macOS OpenGL 4.1; the regular smoke particles still render. Interop by name only.
+ * Volumetric smoke needs GPU compute (Vulkan, or OpenGL 4.3 probed with raw GL calls). On Metal with metallium-gl
+ * routing Physics Mod ({@link PhysicsModCompat#gpuCompute()}) the mod's OpenGL compute path runs translated; without it
+ * the feature is reported unsupported (as on macOS OpenGL 4.1) instead of aborting. Interop by name only.
  */
 @Pseudo
 @Mixin(targets = "net.diebuddies.render.SmokeVolumeRenderer", remap = false)
 public abstract class SmokeVolumeRendererMixin {
     @Inject(method = "supportsVolumetricSmoke", at = @At("HEAD"), cancellable = true)
     private static void metallium$noComputeOnMetal(final CallbackInfoReturnable<Boolean> cir) {
-        if (PhysicsModCompat.metal()) {
+        if (PhysicsModCompat.metal() && !PhysicsModCompat.gpuCompute()) {
             cir.setReturnValue(false);
         }
     }

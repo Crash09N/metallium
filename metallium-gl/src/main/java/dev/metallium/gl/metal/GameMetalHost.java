@@ -112,4 +112,20 @@ public final class GameMetalHost implements MetalHost {
         }
         return engine instanceof MTLTexture texture ? texture : null;
     }
+
+    @Override
+    public io.github.kokodio.metaljvm.metal.@Nullable MTLBuffer engineBuffer(final Object engine) {
+        if (engine instanceof com.mojang.renderpearl.api.buffers.GpuBuffer buffer && !buffer.isClosed()) {
+            return MetalliumInterop.metalBuffer(buffer);
+        }
+        return MetalHost.super.engineBuffer(engine);
+    }
+
+    @Override
+    public long engineBufferSize(final Object engine) {
+        if (engine instanceof com.mojang.renderpearl.api.buffers.GpuBuffer buffer) {
+            return buffer.size();
+        }
+        return MetalHost.super.engineBufferSize(engine);
+    }
 }

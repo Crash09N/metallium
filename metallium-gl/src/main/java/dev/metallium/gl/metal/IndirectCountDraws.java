@@ -167,8 +167,8 @@ final class IndirectCountDraws {
                    final boolean index32, final int glPrimitive) {
         Pooled icb = acquire(maxDraws);
         encoder.setComputePipelineState(index32 ? pipeline32 : pipeline16);
-        encoder.setBuffer(commands.buffer, offset, 0);
-        encoder.setBuffer(count.buffer, countOffset, 1);
+        encoder.setBuffer(commands.mtl(), offset, 0);
+        encoder.setBuffer(count.mtl(), countOffset, 1);
         try (Arena arena = Arena.ofConfined()) {
             MemorySegment params = arena.allocate(16);
             params.setAtIndex(ValueLayout.JAVA_INT, 0, maxDraws);
@@ -176,7 +176,7 @@ final class IndirectCountDraws {
             params.setAtIndex(ValueLayout.JAVA_INT, 2, metalPrimitive(glPrimitive));
             encoder.setBytes(params, 16, 2);
         }
-        encoder.setBuffer(indices.buffer, 0, 3);
+        encoder.setBuffer(indices.mtl(), 0, 3);
         encoder.setBuffer(icb.arguments, 0, 4);
         encoder.useResource(icb.icb, MTLResourceUsage.Write);
         long groups = (maxDraws + 63) / 64;
@@ -193,8 +193,8 @@ final class IndirectCountDraws {
                       final MetalGlDevice.MetalBuffer count, final long countOffset, final int maxDraws) {
         MTLBuffer out = device.newBuffer(Math.max(20L, maxDraws * 20L), MTLResourceOptions.StorageModePrivate);
         encoder.setComputePipelineState(compactPipeline);
-        encoder.setBuffer(commands.buffer, offset, 0);
-        encoder.setBuffer(count.buffer, countOffset, 1);
+        encoder.setBuffer(commands.mtl(), offset, 0);
+        encoder.setBuffer(count.mtl(), countOffset, 1);
         try (Arena arena = Arena.ofConfined()) {
             MemorySegment params = arena.allocate(16);
             params.setAtIndex(ValueLayout.JAVA_INT, 0, maxDraws);

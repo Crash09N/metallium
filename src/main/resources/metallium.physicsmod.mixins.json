@@ -7,6 +7,7 @@
   ],
   "client": [
     "LiquidComputeSupportMixin",
+    "OceanComputeBackendMixin",
     "PhysicsDebugOverlayMixin",
     "PhysicsRenderUtilMixin",
     "SmokeVolumeRendererMixin"

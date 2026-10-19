@@ -249,6 +249,8 @@ if (project.hasProperty('withPhysics')) {
 	}
 	loom.runs.clientGameTest {
 		vmArg '-Dmetallium.gametest.mode=physics'
+		// -PphysicsBench: FPS of each GPU feature scene with the feature on and off (run under gpu-lock.sh --exclusive)
+		if (project.hasProperty('physicsBench')) vmArg '-Dmetallium.gametest.physicsBench=true'
 	}
 }
 
