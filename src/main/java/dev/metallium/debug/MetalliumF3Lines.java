@@ -24,6 +24,12 @@ public final class MetalliumF3Lines {
     public static List<String> lines() {
         List<String> result = new ArrayList<>();
         result.add(mainLine());
+        if (MetalliumRuntime.isMetalActive()) {
+            String present = dev.metallium.backend.PresentStats.f3Line();
+            if (present != null) {
+                result.add(present);
+            }
+        }
         result.addAll(MetalliumRuntime.statusLines());
         return result;
     }
