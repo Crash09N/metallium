@@ -19,9 +19,19 @@ public final class PresentStats {
     static final AtomicLong dropped = new AtomicLong();
     static final AtomicLong skipped = new AtomicLong();
     static final AtomicLong displayed = new AtomicLong();
+    /** Sum over reported presents of (presented handler time - present submit time), for the mean present latency. */
+    static final AtomicLong handlerLatencyNs = new AtomicLong();
+    static final java.util.concurrent.ConcurrentLinkedQueue<Long> submitTimes = new java.util.concurrent.ConcurrentLinkedQueue<>();
     /** presentedTime of the last displayed present (presented handlers run on one Quartz thread). */
     static volatile double lastPresentedTime;
     static volatile long windowHandle;
+    /** Sizes at the last present (drawable, layer drawableSize, presented texture, configured surface), for benches. */
+    static volatile String sizes = "none";
+
+    /** Drawable / layer / presented texture / surface sizes at a recent present ("none" before the first). */
+    public static String sizes() {
+        return sizes;
+    }
 
     private PresentStats() {
     }
@@ -49,9 +59,49 @@ public final class PresentStats {
         return displayed.get();
     }
 
+    /** Sum of submit-to-presented-handler times in ns over all reported presents (see {@link #presented}, {@link #dropped}). */
+    public static long handlerLatencyNs() {
+        return handlerLatencyNs.get();
+    }
+
     /** Rendered frames that were not presented (VSync off). */
     public static long skipped() {
         return skipped.get();
+    }
+
+    private static long lineNs;
+    private static long lineSubmitted;
+    private static long lineSkipped;
+    private static long lineDisplayed;
+    private static String line;
+
+    /**
+     * F3 line (render thread), refreshed once a second: frames shown on the display per second next to frames rendered
+     * per second. With VSync off the game (and Minecraft's own fps counter) renders as fast as it can; at most about
+     * one frame per display refresh can be shown, the others are rendered but not presented. Null on OpenGL.
+     */
+    public static String f3Line() {
+        if (windowHandle == 0L) {
+            return null;
+        }
+        long now = System.nanoTime();
+        if (line == null || now - lineNs >= 1_000_000_000L) {
+            long sub = submitted.get();
+            long skip = skipped.get();
+            long disp = displayed.get();
+            if (lineNs != 0L) {
+                double s = (now - lineNs) / 1e9;
+                line = String.format(java.util.Locale.ROOT, "Metal present: %.0f shown/s of %.0f rendered/s",
+                        (disp - lineDisplayed) / s, (sub - lineSubmitted + skip - lineSkipped) / s);
+            } else {
+                line = "Metal present: measuring";
+            }
+            lineNs = now;
+            lineSubmitted = sub;
+            lineSkipped = skip;
+            lineDisplayed = disp;
+        }
+        return line;
     }
 
     /**

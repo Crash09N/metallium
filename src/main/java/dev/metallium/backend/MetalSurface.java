@@ -46,11 +46,8 @@ import java.util.concurrent.locks.LockSupport;
 
 @Environment(EnvType.CLIENT)
 final class MetalSurface implements GpuSurfaceBackend {
-    private static final String PACING = System.getProperty("metallium.present.pacing", "handler");
-    private static final boolean GPU_PACING = "gpu".equals(PACING);
-    /** "refresh": like "handler", plus a second present in flight once 3/4 of a refresh period passed since the last. */
-    private static final boolean REFRESH_PACING = "refresh".equals(PACING);
-    private static final long PRESENT_PENDING_TIMEOUT_NS = 100_000_000L;
+    /** VSync off: at most this many presents not yet reported by their presented handler (the layer has 3 drawables). */
+    private static final int MAX_PRESENTS_IN_FLIGHT = 3;
     private static final Set<GpuSurface.PresentMode> SUPPORTED_PRESENT_MODES = EnumSet.of(GpuSurface.PresentMode.IMMEDIATE, GpuSurface.PresentMode.FIFO, GpuSurface.PresentMode.MAILBOX);
     private final long metalView;
     private final CAMetalLayer metalLayer;
@@ -59,7 +56,8 @@ final class MetalSurface implements GpuSurfaceBackend {
     /** Presents not yet reported by their drawable's presented handler (shown or dropped). */
     private final AtomicInteger presentsInFlight = new AtomicInteger();
     private final long presentedHandler = presentedHandlerBlock(this);
-    private long lastPresentNs;
+    /** VSync off: earliest time of the next present (a credit of at most one refresh period carries over). */
+    private long nextPresentNs;
     private long refreshPeriodNs = 1_000_000_000L / 60;
     private long refreshCheckedNs;
     private boolean displaySync = true;
@@ -122,8 +120,11 @@ final class MetalSurface implements GpuSurfaceBackend {
         this.pendingPresentEncoder = metalEncoder;
         CAMetalDrawable drawable = this.prefetcher.take();
         if (drawable != null && !matchesSize(drawable)) {
-            drawable.release(); // acquired before a resize
-            drawable = null;
+            // Acquired before a resize, or the layer's drawable size differs from the configured one (SDL's Metal
+            // view sets the drawable size from the window's pixel size; a window larger than the screen gets shrunk
+            // by macOS). Present it anyway (the present blit scales): rejecting it skipped EVERY present while the
+            // sizes disagreed (2026-10-19, 2560x1440 bench window: 0 presents in 30 s).
+            logSizeMismatchOnce(drawable);
         }
         if (this.displaySync) {
             // vsync (FIFO): acquiring the drawable on the render thread is the frame pacing.
@@ -138,30 +139,22 @@ final class MetalSurface implements GpuSurfaceBackend {
         }
         // No vsync (mailbox): a CAMetalLayer only hands drawables back at the display refresh, so a blocking
         // nextDrawable() would cap the frame rate at the refresh rate. A helper thread acquires drawables; a rendered
-        // frame is presented only when a drawable is ready and the previous present is out of the way, otherwise the
-        // drawable blit is skipped (the frame itself is still rendered), like a mailbox swapchain dropping frames.
-        // "Out of the way" (-Dmetallium.present.pacing):
-        //  - "handler" (default): the previous present's presented handler ran (100 ms safety valve). Suspected cause
-        //    of the owner's ~70 shown fps on a 144 Hz display: the next present can only follow a refresh after the
-        //    handler. More presents in flight measured worse (2026-10-18, see docs/STATUS.md).
-        //  - "gpu": the GPU finished the previous present's own command buffer and half a refresh period has passed.
-        //    The present goes into a separate command buffer (MetalCommandEncoder#presentTextureToDrawableDecoupled)
-        //    so no frame waits for the display. Not measured on a visible display yet (screen was locked).
+        // frame is presented when a drawable is ready and the present budget allows it, otherwise the drawable blit is
+        // skipped (the frame itself is still rendered), like a mailbox swapchain dropping frames.
+        // Budget: one present per display refresh on average (a credit of one period carries over, so frames that
+        // arrive a little late still fill every refresh), at most 3 presents in flight. The drawable blit + present go
+        // into a small command buffer of their own after a copy of the frame (ring of 3 copies), so no frame waits
+        // for the display. Until 2026-10-19 a present had to wait for the previous present's presented handler,
+        // ~13-17 ms after its submit, which capped presents at ~50/s whenever frames took a few ms (owner: 168 fps
+        // rendered, Metal HUD 65-77). Measurements: docs/STATUS.md.
         long now = System.nanoTime();
         if (now - this.refreshCheckedNs > 1_000_000_000L) {
             this.refreshCheckedNs = now;
             float hz = PresentStats.displayRefreshHz();
             this.refreshPeriodNs = hz > 1f ? (long) (1e9 / hz) : 1_000_000_000L / 60;
         }
-        boolean ready;
-        if (GPU_PACING) {
-            ready = metalEncoder.previousPresentCompleted() && now - this.lastPresentNs >= this.refreshPeriodNs / 2;
-        } else {
-            int inFlight = this.presentsInFlight.get();
-            long sinceLast = now - this.lastPresentNs;
-            ready = inFlight < 1 || sinceLast >= PRESENT_PENDING_TIMEOUT_NS
-                    || REFRESH_PACING && inFlight < 2 && sinceLast >= this.refreshPeriodNs * 3 / 4;
-        }
+        boolean ready = now >= this.nextPresentNs && this.presentsInFlight.get() < MAX_PRESENTS_IN_FLIGHT
+                && metalEncoder.presentBuffersInFlight() < MetalCommandEncoder.PRESENT_COPIES;
         if (!ready) {
             if (drawable != null) {
                 this.prefetcher.putBack(drawable);
@@ -172,13 +165,11 @@ final class MetalSurface implements GpuSurfaceBackend {
         }
         if (drawable != null) {
             this.presentsInFlight.incrementAndGet();
-            this.lastPresentNs = now;
+            this.nextPresentNs = Math.max(this.nextPresentNs, now - this.refreshPeriodNs) + this.refreshPeriodNs;
             PresentStats.submitted.incrementAndGet();
-            if (GPU_PACING) {
-                metalEncoder.presentTextureToDrawableDecoupled(drawable, textureView, this.presentedHandler);
-            } else {
-                metalEncoder.presentTextureToDrawable(drawable, textureView, this.presentedHandler);
-            }
+            PresentStats.submitTimes.add(now);
+            recordSizes(drawable, textureView);
+            metalEncoder.presentTextureToDrawableDecoupled(drawable, textureView, this.presentedHandler);
             drawable.release();
         } else {
             PresentStats.skipped.incrementAndGet();
@@ -194,8 +185,9 @@ final class MetalSurface implements GpuSurfaceBackend {
      */
     private void present(final MetalCommandEncoder encoder, final CAMetalDrawable drawable, final GpuTextureView textureView, final long now) {
         this.presentsInFlight.incrementAndGet();
-        this.lastPresentNs = now;
         PresentStats.submitted.incrementAndGet();
+        PresentStats.submitTimes.add(now);
+        recordSizes(drawable, textureView);
         encoder.presentTextureToDrawable(drawable, textureView, this.presentedHandler);
         drawable.release();
     }
@@ -206,6 +198,10 @@ final class MetalSurface implements GpuSurfaceBackend {
      */
     private void onPresented(final MemorySegment block, final MemorySegment drawable) {
         this.presentsInFlight.updateAndGet(n -> n > 0 ? n - 1 : 0);
+        Long submittedNs = PresentStats.submitTimes.poll(); // handlers arrive in present order
+        if (submittedNs != null) {
+            PresentStats.handlerLatencyNs.addAndGet(System.nanoTime() - submittedNs);
+        }
         double presentedTime = drawable.address() != 0L ? new MTLDrawable(drawable.address()).presentedTime() : 0.0;
         boolean shown = presentedTime > 0.0;
         (shown ? PresentStats.presented : PresentStats.dropped).incrementAndGet();
@@ -249,6 +245,38 @@ final class MetalSurface implements GpuSurfaceBackend {
                 drawable.retain();
             }
             return drawable;
+        }
+    }
+
+    private boolean sizeMismatchLogged;
+    private long sizesRecordedNs;
+
+    /** Twice a second: drawable, layer and presented-texture sizes for the bench (render size must equal display size). */
+    private void recordSizes(final CAMetalDrawable drawable, final GpuTextureView textureView) {
+        long now = System.nanoTime();
+        if (now - this.sizesRecordedNs < 500_000_000L) {
+            return;
+        }
+        this.sizesRecordedNs = now;
+        try (AutoreleasePool _ = AutoreleasePool.push()) {
+            MTLTexture texture = drawable.texture();
+            CGSize layer = this.metalLayer.drawableSize();
+            PresentStats.sizes = "drawable=" + texture.width() + "x" + texture.height()
+                    + " layer=" + (long) layer.width() + "x" + (long) layer.height()
+                    + " presented_texture=" + textureView.getWidth(0) + "x" + textureView.getHeight(0)
+                    + " surface=" + this.width + "x" + this.height;
+        }
+    }
+
+    private void logSizeMismatchOnce(final CAMetalDrawable drawable) {
+        if (this.sizeMismatchLogged) {
+            return;
+        }
+        this.sizeMismatchLogged = true;
+        try (AutoreleasePool _ = AutoreleasePool.push()) {
+            MTLTexture texture = drawable.texture();
+            dev.metallium.Metallium.LOGGER.info("[metallium] drawable {}x{} differs from the configured surface {}x{}; presenting scaled",
+                    texture.width(), texture.height(), this.width, this.height);
         }
     }
 
