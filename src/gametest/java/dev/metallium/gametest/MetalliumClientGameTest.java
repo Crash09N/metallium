@@ -118,7 +118,13 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
             tryCommand(world, "weather clear");
             // Raise the render distance only after the initial load (waitForChunksRender at a high RD times out).
             int rd = renderDistance;
-            context.runOnClient(client -> client.options.renderDistance().set(rd));
+            // The server sends chunks within the player's *requested* view distance (ChunkMap.getPlayerViewDistance =
+            // clamp(ServerPlayer.requestedViewDistance, 2, serverViewDistance)), which only changes when the client
+            // broadcasts its options. Without broadcastOptions() every RD loaded the same chunks (2616 sections).
+            context.runOnClient(client -> {
+                client.options.renderDistance().set(rd);
+                client.options.broadcastOptions();
+            });
             // The integrated server caps the view distance independently of the client option.
             world.getServer().runOnServer(server -> {
                 server.getPlayerList().setViewDistance(rd);
@@ -148,6 +154,7 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
             while (System.nanoTime() < settleUntil) {
                 context.waitTicks(20);
             }
+            waitForRenderDistanceLoaded(context, rd);
             if (!flight) {
                 checkTerrainVisible(context.takeScreenshot("metallium-bench-view-" + BENCH_SCENE), "bench view");
             }
@@ -1282,6 +1289,38 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
             }
         });
         line(scene + ": sodium " + stats);
+    }
+
+    /**
+     * Benchmark: waits until the client really holds the chunks of render distance {@code rd} (the server sends a disc
+     * of about pi*rd^2 columns) and section building is done, so a higher RD is a heavier scene. Logs the loaded chunk
+     * count; fails the benchmark if it stays far below the expected disc (the RD was not applied).
+     */
+    private void waitForRenderDistanceLoaded(ClientGameTestContext context, int rd) {
+        int expected = (int) (Math.PI * rd * rd);
+        int timeoutSeconds = Integer.getInteger("metallium.bench.loadTimeoutSeconds", 240);
+        long start = System.nanoTime();
+        int last = -1;
+        int stableSeconds = 0;
+        int loaded = 0;
+        boolean built = false;
+        while ((System.nanoTime() - start) / 1e9 < timeoutSeconds) {
+            loaded = context.computeOnClient(client -> client.level.getChunkSource().getLoadedChunksCount());
+            built = context.computeOnClient(client -> client.levelRenderer.hasRenderedAllSections());
+            stableSeconds = loaded == last ? stableSeconds + 1 : 0;
+            last = loaded;
+            if (loaded >= expected * 0.8 && built && stableSeconds >= 3) {
+                break;
+            }
+            context.waitTicks(20);
+        }
+        int effective = context.computeOnClient(client -> client.options.getEffectiveRenderDistance());
+        line(String.format(java.util.Locale.ROOT,
+                "bench: render distance %d (effective %d): loaded chunks=%d (expected ~%d), sections built=%s, after %.0f s",
+                rd, effective, loaded, expected, built, (System.nanoTime() - start) / 1e9));
+        if (loaded < expected * 0.5) {
+            throw new AssertionError("render distance " + rd + " not loaded: " + loaded + " chunks, expected ~" + expected);
+        }
     }
 
     private void measure(ClientGameTestContext context, String scene) {
