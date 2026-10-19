@@ -216,10 +216,6 @@ final class MetalDevice implements GpuDeviceBackend {
         return 0L;
     }
 
-    long getTimestampNow() {
-        return System.nanoTime();
-    }
-
     @Override
     public @NonNull DeviceInfo getDeviceInfo() {
         return this.deviceInfo;

@@ -33,6 +33,8 @@ final class BetterF3Scenario {
             context.waitTicks(100);
             context.runOnClient(client -> client.debugEntries.setOverlayVisible(true));
             context.waitTicks(60); // BetterF3 slides its text in
+            // Default F3 profile (no vanilla gpu_utilization entry): Metallium's BetterF3 compat makes vanilla measure it.
+            MetalliumClientGameTest.checkGpuUtilization(context, "betterf3", line, failures);
             context.takeScreenshot("betterf3-f3");
             List<String> rendered = context.computeOnClient(client -> betterF3Lines());
             for (String l : rendered) line.accept("betterf3 F3: " + l);
@@ -42,6 +44,12 @@ final class BetterF3Scenario {
             String all = String.join("\n", rendered);
             for (String needle : expected) {
                 if (!all.contains(needle)) failures.add("betterf3: F3 lines lack \"" + needle + "\"");
+            }
+            String gpuLine = rendered.stream().filter(l -> l.startsWith("GPU Utilization")).findFirst().orElse(null);
+            if (gpuLine == null) {
+                failures.add("betterf3: no \"GPU Utilization\" line");
+            } else if (backend.startsWith("Metal") && !gpuLine.matches(".*\\d+%.*")) {
+                failures.add("betterf3: GPU Utilization shows no percentage: " + gpuLine);
             }
             for (String status : dev.metallium.api.MetalliumRuntime.statusLines()) {
                 if (!all.contains(status)) failures.add("betterf3: status line missing from BetterF3 F3: " + status);
