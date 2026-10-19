@@ -71,4 +71,21 @@ class GlRoutingTest {
 
         assertEquals(GlRouting.Status.NEEDS_METALLIUM_GL, decide(NATIVE, Map.of(), Set.of("nat"), Map.of(), true, false, true).status());
     }
+
+    @Test
+    void voxyIsRoutedAutomaticallyAsAWholeOnMetal() {
+        assertTrue(GlRouting.WHOLE_MOD.contains("voxy"));
+        GlRouting.Decision auto = GlRouting.decideWholeMod("voxy", Set.of(), Map.of(), true, true, true);
+        assertEquals(GlRouting.Status.ROUTED, auto.status());
+        assertTrue(auto.automatic());
+        assertTrue(auto.allClasses());
+        assertEquals(GlRouting.Status.NEEDS_METALLIUM_GL, GlRouting.decideWholeMod("voxy", Set.of(), Map.of(), true, false, true).status());
+        assertEquals(GlRouting.Status.AUTO_ROUTING_OFF, GlRouting.decideWholeMod("voxy", Set.of(), Map.of(), false, true, true).status());
+        assertEquals(GlRouting.Status.OPENGL_ENGINE, GlRouting.decideWholeMod("voxy", Set.of(), Map.of(), true, true, false).status());
+        assertEquals(GlRouting.Status.OPTED_OUT, GlRouting.decideWholeMod("voxy", Set.of(), Map.of("voxy", ModOverride.NATIVE), true, true, true).status());
+        // explicit requests route even with automatic routing off or without Metal (calls then fall back to OpenGL)
+        GlRouting.Decision listed = GlRouting.decideWholeMod("voxy", Set.of("voxy"), Map.of(), false, true, false);
+        assertEquals(GlRouting.Status.ROUTED, listed.status());
+        assertFalse(listed.automatic());
+    }
 }

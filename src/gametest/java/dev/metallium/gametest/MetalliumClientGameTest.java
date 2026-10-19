@@ -84,12 +84,20 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
      */
     private void benchmark(ClientGameTestContext context, String backend) {
         line("mode: benchmark, scene=" + BENCH_SCENE + ", seed=" + BENCH_SEED + ", seconds=" + BENCH_SECONDS);
-        if (!BENCH_SCENE.matches("light|rd32|shaders|flight")) {
+        if (!BENCH_SCENE.matches("light|rd32|shaders|flight|voxy")) {
             throw new IllegalArgumentException("unknown bench scene " + BENCH_SCENE);
         }
         boolean shaders = "shaders".equals(BENCH_SCENE);
         boolean flight = "flight".equals(BENCH_SCENE);
-        int renderDistance = Integer.getInteger("metallium.bench.renderDistance", "rd32".equals(BENCH_SCENE) ? 32 : 12);
+        // voxy (-PwithVoxy=<jar> -PwithGl -PglMods=voxy): Voxy ingests the chunks loaded at vanilla rd 32, then the vanilla
+        // distance drops to metallium.bench.voxyRd (default 4), so most of the view is Voxy's LODs.
+        boolean voxy = "voxy".equals(BENCH_SCENE);
+        if (voxy && !net.fabricmc.loader.api.FabricLoader.getInstance().isModLoaded("voxy")) {
+            line("bench: SKIPPED voxy scene (needs -PwithVoxy=<jar>)");
+            line("result: SKIP");
+            return;
+        }
+        int renderDistance = Integer.getInteger("metallium.bench.renderDistance", "rd32".equals(BENCH_SCENE) || voxy ? 32 : 12);
         int settleTicks = Integer.getInteger("metallium.bench.settleTicks", flight ? 100 : 300);
         int settleSeconds = Integer.getInteger("metallium.bench.settleSeconds", renderDistance >= 24 ? 150 : flight ? 20 : renderDistance >= 16 ? 90 : 60);
         String pack = System.getProperty("metallium.gametest.shaderpack", "");
@@ -133,7 +141,8 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
             // Camera: above the terrain at the origin so the view shows land to the horizon, not mostly sky.
             String cameraSetting = System.getProperty("metallium.bench.camera", "");
             int surface = context.computeOnClient(client -> client.level.getHeight(net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING, 0, 0));
-            String camera = !cameraSetting.isEmpty() ? cameraSetting : "0 " + (surface + 25) + " 0 " + (flight ? "-90 10" : "110 15");
+            String camera = !cameraSetting.isEmpty() ? cameraSetting : voxy ? "0 " + (surface + 60) + " 0 110 20"
+                    : "0 " + (surface + 25) + " 0 " + (flight ? "-90 10" : "110 15");
             line("bench: surface y at origin=" + surface + ", camera=" + camera);
             tryCommand(world, "tp @a " + camera);
 
@@ -155,6 +164,18 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
                 context.waitTicks(20);
             }
             waitForRenderDistanceLoaded(context, rd);
+            if (voxy) {
+                String voxyDistance = System.getProperty("metallium.bench.voxyDistance", "");
+                if (!voxyDistance.isEmpty()) {
+                    line("bench: voxy sectionRenderDistance=" + voxyDistance + " -> "
+                            + context.computeOnClient(c -> voxySetDistance(Float.parseFloat(voxyDistance))));
+                }
+                int voxyRd = Integer.getInteger("metallium.bench.voxyRd", 4);
+                context.runOnClient(client -> client.options.renderDistance().set(voxyRd));
+                context.waitTicks(400);
+                line("bench: voxy (vanilla rd " + voxyRd + ") " + glSummary());
+                line("bench: voxy debug: " + context.computeOnClient(client -> voxyDebug()));
+            }
             if (!flight) {
                 checkTerrainVisible(context.takeScreenshot("metallium-bench-view-" + BENCH_SCENE), "bench view");
             }
@@ -203,6 +224,9 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
                     present1[2] - present0[2], present1[3] - present0[3], String.join("|", windowStates)));
             line(String.format("bench-result: scene=%s avg_fps=%.1f low1_fps=%.1f p50_ms=%.2f p95_ms=%.2f p99_ms=%.2f max_ms=%.2f frames=%d heap_mb=%d",
                     BENCH_SCENE, avgFps, low1, pct(frameMs, 0.50), pct(frameMs, 0.95), pct(frameMs, 0.99), frameMs.get(frameMs.size() - 1), frameMs.size(), heapMb));
+            if (voxy) {
+                line("bench: voxy after measurement " + glSummary()); // counters minus the pre-measurement line = the 30 s window
+            }
             if (Boolean.getBoolean("metallium.bench.power")) {
                 powerBench(context);
             }
@@ -606,6 +630,20 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
     }
 
     /** Copies -Dmetallium.gametest.shaderpack (a local pack, never in the repository) into the run's pack folder. */
+    /** Combination tests (DH / Voxy / Bobby + -PwithIris -Pshaderpack=...): activates the external pack, if any. */
+    private void comboShaderPack(ClientGameTestContext context, String scene) {
+        if (!net.fabricmc.loader.api.FabricLoader.getInstance().isModLoaded("iris")) {
+            return;
+        }
+        String external = externalPack(context);
+        if (external == null) {
+            return;
+        }
+        line(scene + ": shader pack " + external + ": pipeline=" + context.computeOnClient(client -> irisSelectPack(external, true)));
+        context.waitTicks(100);
+        context.takeScreenshot("metallium-" + scene + "-pack");
+    }
+
     private String externalPack(ClientGameTestContext context) {
         String external = System.getProperty("metallium.gametest.shaderpack", "");
         if (external.isEmpty()) {
@@ -866,14 +904,18 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
         line("sodium loaded: " + net.fabricmc.loader.api.FabricLoader.getInstance().isModLoaded("sodium"));
         line("iris loaded: " + net.fabricmc.loader.api.FabricLoader.getInstance().isModLoaded("iris")
                 + ", adapter: " + net.fabricmc.loader.api.FabricLoader.getInstance().isModLoaded("metallium-iris"));
-        for (String mod : new String[] {"distanthorizons", "voxy", "reglass", "cullleaves", "moreculling"}) {
+        for (String mod : new String[] {"distanthorizons", "voxy", "bobby", "reglass", "cullleaves", "moreculling"}) {
             line(mod + " loaded: " + net.fabricmc.loader.api.FabricLoader.getInstance().isModLoaded(mod));
         }
         if (dev.metallium.compat.CrashGuard.recovery() != null) {
             crashRecoveryRun(context, backend);
             return;
         }
-        if ("physics".equals(System.getProperty("metallium.gametest.mode"))) {
+        // Physics Mod combined with an LOD mod: the LOD scenario runs and adds physicsInWorld (instead of PhysicsScenario).
+        boolean lodCombo = net.fabricmc.loader.api.FabricLoader.getInstance().isModLoaded("distanthorizons")
+                || net.fabricmc.loader.api.FabricLoader.getInstance().isModLoaded("voxy")
+                || net.fabricmc.loader.api.FabricLoader.getInstance().isModLoaded("bobby");
+        if ("physics".equals(System.getProperty("metallium.gametest.mode")) && !lodCombo) {
             try {
                 new PhysicsScenario(this::line, failures).run(context, backend);
                 line(failures.isEmpty() ? "result: PASS" : "result: FAIL " + failures);
@@ -909,6 +951,10 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
         String expected = System.getProperty("metallium.gametest.expectBackend", "");
         if (net.fabricmc.loader.api.FabricLoader.getInstance().isModLoaded("distanthorizons")) {
             distantHorizonsTest(context);
+            return;
+        }
+        if (net.fabricmc.loader.api.FabricLoader.getInstance().isModLoaded("bobby")) {
+            bobbyTest(context);
             return;
         }
         if (Boolean.getBoolean("metallium.gametest.voxyScenario") || net.fabricmc.loader.api.FabricLoader.getInstance().isModLoaded("voxy")
@@ -1067,6 +1113,7 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
         context.waitTicks(60);
         context.takeScreenshot("metallium-dh-far-lods-high");
         line("dh: final state: " + context.computeOnClient(client -> dhState()));
+        physicsInWorld(context, world, "dh");
     }
 
     /**
@@ -1082,6 +1129,7 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
             context.waitTicks(SETTLE_TICKS);
             checkTerrainVisible(context.takeScreenshot("metallium-natural-world"), "natural world");
             measure(context, "natural world");
+            comboShaderPack(context, "dh");
             distantHorizonsScenario(context, world);
             line(failures.isEmpty() ? "result: PASS" : "result: FAIL " + failures);
         } catch (Throwable t) {
@@ -1109,6 +1157,7 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
             tryCommand(world, "time set 6000");
             tryCommand(world, "gamerule advance_time false");
             context.runOnClient(client -> client.options.renderDistance().set(16));
+            comboShaderPack(context, "voxy");
             for (int i = 1; i <= 3; i++) {
                 context.waitTicks(400);
                 line("voxy: ingest phase " + (i * 20) + " s, " + glSummary());
@@ -1120,6 +1169,7 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
             clearChat(context);
             checkTerrainVisible(context.takeScreenshot("metallium-voxy-lods-rd4"), "voxy LODs (vanilla rd 4)");
             measure(context, "voxy rd4");
+            physicsInWorld(context, world, "voxy");
             tryCommand(world, "tp @a 0 220 0 210 30");
             context.waitTicks(200);
             context.takeScreenshot("metallium-voxy-lods-high");
@@ -1127,6 +1177,11 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
             context.waitTicks(200);
             context.takeScreenshot("metallium-voxy-lods-top");
             f3Screenshot(context);
+            String status = context.computeOnClient(client -> dev.metallium.compat.CompatStatus.text());
+            for (String row : status.split("\n")) {
+                if (row.contains("Voxy")) line("voxy status row: " + row.trim());
+            }
+            if (!status.contains("runs via metallium-gl")) failures.add("status screen does not show Voxy as running via metallium-gl");
             line("voxy: final " + glSummary());
             line("voxy debug: " + context.computeOnClient(client -> voxyDebug()));
             line(failures.isEmpty() ? "result: PASS" : "result: FAIL " + failures);
@@ -1138,6 +1193,114 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
         }
         writeReport();
         Runtime.getRuntime().halt(failures.isEmpty() ? 0 : 1);
+    }
+
+    /**
+     * Bobby (-PwithBobby; client-side chunk cache): loads a natural world at render + server view distance 16, then
+     * drops the server's view distance to 4. The server unloads the chunks beyond 4; Bobby keeps them on the client, so
+     * the terrain must stay visible to distance 16 (without Bobby: only 4). With -PwithVoxy routed through metallium-gl
+     * the same run also checks Voxy's LODs over Bobby's cached chunks (vanilla rd 4 at the end). Halts like the DH test.
+     */
+    private void bobbyTest(ClientGameTestContext context) {
+        boolean voxy = net.fabricmc.loader.api.FabricLoader.getInstance().isModLoaded("voxy")
+                && System.getProperty("metallium.gl.routedMods", "").contains("voxy");
+        try {
+            TestSingleplayerContext world = context.worldBuilder().setUseConsistentSettings(false)
+                    .adjustSettings(state -> state.setSeed(System.getProperty("metallium.gametest.seed", "metallium"))).create();
+            world.getConnection().waitForChunksRender();
+            tryCommand(world, "gamemode spectator @a");
+            tryCommand(world, "tp @a 0 129 0 110 20");
+            tryCommand(world, "time set 6000");
+            tryCommand(world, "gamerule advance_time false");
+            context.runOnClient(client -> client.options.renderDistance().set(16));
+            world.getServer().runOnServer(server -> server.getPlayerList().setViewDistance(16));
+            comboShaderPack(context, "bobby");
+            context.waitTicks(600);
+            clearChat(context);
+            int before = context.computeOnClient(client -> client.level.getChunkSource().getLoadedChunksCount());
+            line("bobby: server 16: " + chunkStats(context));
+            context.takeScreenshot("metallium-bobby-server16");
+            sodiumStats(context, "bobby server16");
+            world.getServer().runOnServer(server -> server.getPlayerList().setViewDistance(4));
+            context.waitTicks(400);
+            clearChat(context);
+            line("bobby: server 4: " + chunkStats(context));
+            int after = context.computeOnClient(client -> client.level.getChunkSource().getLoadedChunksCount());
+            // Without Bobby the client drops to the server's 9x9 area; Bobby keeps the chunks it had.
+            if (after < before * 0.9 || after <= 81) failures.add("bobby: client chunks dropped from " + before + " to " + after);
+            // Judged by looking (snowy terrain fools the coverage heuristic); not a failure criterion here.
+            checkTerrainVisible(context.takeScreenshot("metallium-bobby-server4"), "bobby cached chunks (server view distance 4)", false);
+            measure(context, "bobby server4");
+            if (voxy) {
+                line("bobby+voxy: " + glSummary());
+                line("bobby+voxy debug: " + context.computeOnClient(client -> voxyDebug()));
+                context.runOnClient(client -> client.options.renderDistance().set(4));
+                context.waitTicks(400);
+                clearChat(context);
+                checkTerrainVisible(context.takeScreenshot("metallium-bobby-voxy-rd4"), "voxy LODs over Bobby's chunks (vanilla rd 4)");
+                measure(context, "bobby+voxy rd4");
+                line("bobby+voxy: final " + glSummary());
+            }
+            physicsInWorld(context, world, "bobby");
+            line(failures.isEmpty() ? "result: PASS" : "result: FAIL " + failures);
+        } catch (Throwable t) {
+            line("result: FAIL " + t);
+            writeReport();
+            Runtime.getRuntime().halt(1);
+        }
+        writeReport();
+        Runtime.getRuntime().halt(failures.isEmpty() ? 0 : 1);
+    }
+
+    /**
+     * Physics Mod on top of an LOD / shader-pack world (-PwithPhysics with -PwithVoxy / -PwithDH / -PwithIris): a brick
+     * wall in front of the camera is destroyed (debris), a zombie is killed (ragdoll) and TNT explodes, with screenshots.
+     */
+    private void physicsInWorld(ClientGameTestContext context, TestSingleplayerContext world, String tag) {
+        if (!net.fabricmc.loader.api.FabricLoader.getInstance().isModLoaded("physicsmod")) {
+            return;
+        }
+        tryCommand(world, "gamemode creative @a");
+        tryCommand(world, "gamerule spawn_monsters false");
+        tryCommand(world, "execute as @p at @s run tp @s ~ ~ ~ ~ 10");
+        tryCommand(world, "execute as @p at @s run fill ^-2 ^-2 ^5 ^2 ^1 ^6 minecraft:bricks");
+        context.waitTicks(40);
+        clearChat(context);
+        context.takeScreenshot("metallium-" + tag + "-physics-wall");
+        tryCommand(world, "execute as @p at @s run fill ^-2 ^-2 ^5 ^2 ^1 ^6 minecraft:air destroy");
+        context.waitTicks(6);
+        context.takeScreenshot("metallium-" + tag + "-physics-debris");
+        tryCommand(world, "kill @e[type=item]");
+        tryCommand(world, "execute as @p at @s run summon minecraft:zombie ^ ^-1 ^4 {NoAI:1b}");
+        context.waitTicks(20);
+        tryCommand(world, "kill @e[type=zombie]");
+        context.waitTicks(6);
+        context.takeScreenshot("metallium-" + tag + "-physics-ragdoll");
+        tryCommand(world, "execute as @p at @s run summon minecraft:tnt ^ ^-1 ^6 {fuse:1}");
+        context.waitTicks(8);
+        context.takeScreenshot("metallium-" + tag + "-physics-explosion");
+        context.waitTicks(40);
+        measure(context, tag + " + physics");
+        line(tag + " + physics: done, " + glSummary());
+    }
+
+    /** Client chunk count (Bobby's cached chunks included) and vanilla's visible sections. */
+    private static String chunkStats(ClientGameTestContext context) {
+        return context.computeOnClient(client -> "client chunks=" + client.level.getChunkSource().getLoadedChunksCount()
+                + " vanilla visibleSections=" + client.levelRenderer.visibleSections().size()
+                + " rd=" + client.options.getEffectiveRenderDistance());
+    }
+
+    /** Sets Voxy's LOD distance (VoxyConfig.sectionRenderDistance) via reflection; returns the value read back. */
+    private static String voxySetDistance(float distance) {
+        try {
+            Class<?> config = Class.forName("me.cortex.voxy.client.config.VoxyConfig");
+            Object instance = config.getField("CONFIG").get(null);
+            config.getField("sectionRenderDistance").setFloat(instance, distance);
+            return String.valueOf(config.getField("sectionRenderDistance").getFloat(instance));
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            return "unavailable: " + e;
+        }
     }
 
     /** Voxy's own F3 debug lines (instance + render system), via reflection; render thread only. */

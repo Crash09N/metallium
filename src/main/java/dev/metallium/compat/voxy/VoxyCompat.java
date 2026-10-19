@@ -12,7 +12,7 @@ import net.minecraft.network.chat.Component;
  * Voxy's renderer initialisation (see {@code VoxyClientMixin}) so the game starts, and tells the player once.
  */
 public final class VoxyCompat {
-    public static final String MESSAGE = "Voxy needs OpenGL 4.6 and is disabled on Metal";
+    public static final String MESSAGE = "Voxy needs OpenGL 4.6 and is disabled on Metal (metallium-gl runs it on Metal: see Metallium's status screen)";
     private static boolean noticeShown;
 
     private VoxyCompat() {

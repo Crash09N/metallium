@@ -5,7 +5,8 @@
   "mixins": [
   ],
   "client": [
-    "MinecraftRenderWrapperMixin"
+    "MinecraftRenderWrapperMixin",
+    "DhIrisEngineMixin"
   ],
   "injectors": {
     "defaultRequire": 1

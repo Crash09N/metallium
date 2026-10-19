@@ -72,7 +72,16 @@ public final class CompatStatus {
             rows.add(keyMod(loader, "distanthorizons", "Distant Horizons", metal ? "native on Metal (no shader packs)" : "on " + engineName(), Tone.OK));
         }
         if (loader.isModLoaded("voxy")) {
-            rows.add(keyMod(loader, "voxy", "Voxy", metal ? "disabled on Metal (needs OpenGL 4.6)" : "on " + engineName(), metal ? Tone.WARN : Tone.OK));
+            GlRouting.Decision voxy = GlRouting.plan().get("voxy");
+            boolean routed = voxy != null && voxy.routed() && GlRouting.hooked();
+            String state = !metal ? "on " + engineName()
+                    : routed ? "runs via metallium-gl (OpenGL 4.6 translated to Metal)"
+                    : "disabled on Metal (" + (voxy == null ? "needs OpenGL 4.6" : voxy.routed() ? "metallium-gl could not hook class loading" : voxy.reason()) + ")";
+            rows.add(keyMod(loader, "voxy", "Voxy", state, !metal || routed ? Tone.OK : Tone.WARN));
+            List<String> missing = GlRouting.unimplementedFor("voxy");
+            if (routed && !missing.isEmpty()) {
+                rows.add(Row.of("    unimplemented in metallium-gl: " + String.join(", ", missing), Tone.WARN));
+            }
         }
         boolean gl = loader.isModLoaded(GlRouting.GL_MOD_ID);
         rows.add(Row.of("metallium-gl: " + (gl ? "installed" + (GlRouting.hooked() ? ", class loading hooked" : "") : "not installed")
