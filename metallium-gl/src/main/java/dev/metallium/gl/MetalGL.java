@@ -596,6 +596,10 @@ public final class MetalGL {
         gl().renderbufferStorage(target, internalformat, width, height);
     }
 
+    public static void glGetTexImage(final int target, final int level, final int format, final int type, final long pixels) {
+        gl().getTexImage(target, level, format, type, pixels);
+    }
+
     public static void glReadPixels(final int x, final int y, final int width, final int height, final int format, final int type, final ByteBuffer pixels) {
         gl().readPixels(x, y, width, height, format, type, pixels);
     }

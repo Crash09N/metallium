@@ -21,7 +21,8 @@ public final class MetalliumIrisMixinPlugin implements IMixinConfigPlugin {
 
     @Override
     public boolean shouldApplyMixin(final String targetClassName, final String mixinClassName) {
-        return true;
+        // The release jar always ships this adapter; without a supported Iris (and Sodium) every mixin stays off.
+        return dev.metallium.compat.IrisSupport.adapterUsable();
     }
 
     @Override

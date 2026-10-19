@@ -48,3 +48,8 @@ jar {
 tasks.matching { it.name.startsWith('runClient') || it.name.startsWith('runServer') }.configureEach {
 	enabled = false
 }
+
+// LGPL-3.0 source availability: the nested jar carries a pointer to the corresponding source.
+jar {
+	from(rootProject.file('metallium-iris/SOURCE.txt'))
+}

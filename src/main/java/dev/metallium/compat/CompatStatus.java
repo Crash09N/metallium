@@ -62,7 +62,7 @@ public final class CompatStatus {
         rows.add(Row.of("Key mods", Tone.HEADER));
         rows.add(keyMod(loader, "sodium", "Sodium", metal ? "on Metal (Metallium's Sodium draw backend)" : "on " + engineName(), Tone.OK));
         if (loader.isModLoaded("iris")) {
-            boolean adapter = loader.isModLoaded("metallium-iris");
+            boolean adapter = loader.isModLoaded("metallium-iris") && IrisSupport.adapterUsable();
             rows.add(keyMod(loader, "iris", "Iris", adapter ? (metal ? "on Metal via the Metallium Iris adapter" : "adapter installed; Metal inactive")
                     : "no Metallium Iris adapter: Metallium uses OpenGL", adapter ? Tone.OK : Tone.WARN));
         } else {

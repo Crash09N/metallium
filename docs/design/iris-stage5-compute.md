@@ -112,13 +112,41 @@ and `image.` directives.
 - Bliss v2.1.2 with `LPV_ENABLED`: setup and shadowcomp computes run; several other programs fail on stage-3 limits
   (9 draw buffers, >16 samplers) and glslang's precision-qualifier overload check.
 
-**Decision for the owner:** hide `MC_OS_MAC` from packs on Metal by default? Packs use it as "Apple OpenGL 4.1" and
-disable compute/voxel features (Complementary) or apply GL driver workarounds. On Metal the former are wrong, the
-latter mostly unnecessary. Currently opt-in (`-Dmetallium.iris.hideMacOs=true`).
+**`MC_OS_MAC` (owner decision 2026-10-18):** hidden from packs on Metal by default (packs see `MC_OS_UNKNOWN`):
+packs use it as "Apple OpenGL 4.1" and disable compute/voxel features. Config `irisHideMacOs = false` (or
+`-Dmetallium.iris.hideMacOs=false`, game test `-PirisHideMacOs=false`) restores it.
+
+### Photon / Bliss / Unbound follow-up (2026-10-18)
+
+- **Custom textures** (`CustomTextures`, like Iris's `CustomTextureManager`): `texture.<stage>.<sampler>` PNG /
+  `minecraft:` resource / lightmap overrides per stage (also reported through `getTextureOverrides`), raw
+  `customtexN` / `customTexture.<name>` textures (1D as 2D, 2D, 3D; data converted by the core `RawTexels` with GL
+  unpack rules: row alignment 4, RGB widened to RGBA, normalised type conversion, BGR swizzle) and `texture.noise`.
+  Blur/clamp flags pick the sampler; bound in fullscreen, gbuffer and compute passes. Backend samplers now wrap R like U.
+- **`size.buffer.<colortexN>`**: absolute or relative buffer sizes (`PostTargets.size`).
+- **More than 16 textures in one pass** (Bliss's composite4): Metal has 16 sampler states per stage. Textures whose
+  sampler is fixed (colortex/depthtex/noise/custom; not mipmapped or integer buffers, not shadow maps) move to the
+  end of the binding list and are compiled as MSL `constexpr sampler`s (`MetalliumInterop.setConstexprSamplers`,
+  per pipeline name, part of the MSL cache key). Metal counts identical constexpr samplers once (verified: 16 bound +
+  2 identical constexpr = 17 fails, 2 bound + 18 identical constexpr compiles). Textures at index >= 16 are bound
+  without a sampler state.
+- **More than 8 gbuffer outputs** (Bliss: colortex1,2,7,8,9,11,14,15): programs without fragment outputs do not count,
+  colortex0 (vanilla fallbacks) is only added when it fits, outputs without attachment become plain globals, and
+  outputs a program never assigns get an empty write mask.
+- **Translator**: packs' own definitions of built-ins newer than their `#version` (`float tanh(float)`,
+  `fma`) are renamed (glslang: "'highp' : overloaded functions must have the same parameter precision qualifiers");
+  `#version 330` sources with `GL_ARB_shader_storage_buffer_object` are raised to 430, other pre-4.20 sources with
+  `binding` qualifiers get `GL_ARB_shading_language_420pack` (Unbound's colored lighting SSBO).
+- Test pack `metallium-texpack` (game test `metallium-iris-texpack`): PNG override with repeat, raw RGB16F 3D texture,
+  custom noise, `size.buffer`, an 18-texture pass that also passes textures to a function; all 1.00.
+- Results (M3 Max, game test with `-Pshaderpack`): Photon v1.3b renders (volumetric clouds, shadows, night lights);
+  Bliss v2.1.2 renders day scenes like Iris on OpenGL, but its night sky shows a noisy terrain-like pattern and rain
+  streaks are too strong (OpenGL reference: dark-blue sky, faint rain) - open; Complementary Unbound r5.6.1 with the
+  owner's settings (`COLORED_LIGHTING=512`) runs colored lighting without the "not supported on Apple" notice.
 
 ## Not supported yet
 
-- Custom textures (`texture.<stage>.<sampler>`, incl. 3D `.dat`), `size.buffer.*` (Photon), shadowcolor mipmaps.
+- Shadowcolor mipmaps; PBR suffixes (`_n`/`_s`) on `minecraft:` custom textures; Bliss night sky / rain (above).
 - Image formats Metal cannot read-write (only write) are not checked up front (Metal validation would reject the pipeline).
 - More than 5 SSBOs or 16 images in one render program; geometry shaders (voxelization in `.gsh`).
 - Memory barriers between draws inside one render pass (fragment writes read by later draws of the same pass).

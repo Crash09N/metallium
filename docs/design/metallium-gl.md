@@ -295,6 +295,31 @@ Not done / known limits:
 - Shadow / translucent / SSAO passes run (no errors) but were not checked pixel by pixel.
 - Diagnostics: `-PglTrace=N -PglTraceAfter=S` logs device operations, `-PglDump=n,...` texture statistics after them.
 
+## 12b. Engine objects behind Minecraft's GL backend types (Physics Mod GPU compute)
+
+Mods written against Minecraft's OpenGL backend cast renderpearl objects to `GlTexture`, `GlTextureView`, `GlBuffer`
+and `GlSampler` (or to their own Mixin accessor interfaces on those classes, e.g. Physics Mod's
+`((GlBufferAccessor) buffer).physicsmod$getHandle()`) and use the GL names with GL calls: a compute shader fills a
+renderpearl buffer that the mod then draws from with `RenderPass.drawIndexedIndirect`, or writes a 3D texture that a
+renderpearl pass samples.
+
+- **Stand-ins** (`GlShadowObjects`, `MetalGLInterop.shadow`): in retargeted code every `CHECKCAST` to one of the four
+  types, and to types in Mixin packages, gets `shadow(obj, "type")` inserted before it. On Metal an engine object
+  becomes a stand-in of the GL type (cached per engine object): `GlTexture`/`GlTextureView` built with their
+  GL-free constructors around the metallium-gl name of the same Metal texture; `GlBuffer` and `GlSampler` allocated
+  without constructor (Unsafe) with `handle`/`id` set. Accessor interfaces are resolved at run time (an interface that
+  one of the four classes implements). On OpenGL the call returns the object unchanged.
+- **Engine buffers by GL name** (`GlExternalBuffers`): the Metal buffer is resolved at each use (Metallium may swap
+  dynamic buffers' backing); GPU access only (SSBO, copies, clears, pixel-pack target), never released by GL.
+- **Engine 3D / 2D-array textures**: external textures keep their Metal type (`GL_TEXTURE_3D`, `GL_TEXTURE_2D_ARRAY`,
+  real pixel format incl. `R32UI`/`R32I`); layered image bindings, sampling in compute, clears and readbacks cover all
+  slices / layers; glGetTexImage into a pixel-pack buffer is a GPU copy. A unit holds one texture of any of these
+  targets (the last bound).
+- **Metal detail found on the way**: texture atomics only work on textures created with `ShaderAtomic` usage; without
+  it, atomics on a 3D texture land in slice 0. Integer storage textures must be created with it.
+- Tests: `GlEngineResourcesTest` (3D R32UI atomics + clear + readback; 2D array layered store, sampler2DArray,
+  pack-buffer readback into an engine buffer).
+
 ## 13. Performance notes
 
 Per draw: one pipeline-cache lookup (string key; to be replaced by a packed key), state set on the encoder, uniform bytes

@@ -37,6 +37,12 @@ public final class MetalliumConfig {
     /** FPS cap for Balanced (and Automatic on battery). Low Power uses min(this, 30). */
     public int batteryFpsLimit = 60;
     /**
+     * With Iris on Metal, shader packs do not see {@code MC_OS_MAC} (they use it to mean "Apple OpenGL 4.1: no compute,
+     * images or SSBOs" and switch features off, e.g. Complementary's colored lighting). Metal supports those features.
+     * Set to false to give packs the real OS macro again.
+     */
+    public boolean irisHideMacOs = true;
+    /**
      * Answers to "this mod needs OpenGL" ({@code dev.metallium.compat.OpenGlRequirements}), by mod id. Missing = ask
      * before the next title screen (and use OpenGL until answered).
      */
