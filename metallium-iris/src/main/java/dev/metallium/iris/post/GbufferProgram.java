@@ -88,6 +88,12 @@ final class GbufferProgram implements AutoCloseable {
     final int normalMatrix;
     final int modelViewInverse;
     final int projectionInverse;
+    /**
+     * Reads a uniform that depends on the bound albedo texture ({@code atlasSize}, {@code gtextureSize},
+     * {@code gtextureId}): vanilla binds {@code Sampler0} after {@code setPipeline}, so the blocks are uploaded again
+     * when it changes (Iris's GL path evaluates uniforms at draw time).
+     */
+    final boolean readsAlbedo;
     /** Stage 5: storage images/SSBOs outside the renderpearl binding table (bound per draw). */
     StorageBindings storage = new StorageBindings();
 
@@ -104,6 +110,8 @@ final class GbufferProgram implements AutoCloseable {
         this.normalMatrix = uniforms.location("iris_NormalMat", net.irisshaders.iris.gl.uniform.UniformType.MAT3).orElse(-1);
         this.modelViewInverse = uniforms.location("iris_ModelViewMatInverse", net.irisshaders.iris.gl.uniform.UniformType.MAT4).orElse(-1);
         this.projectionInverse = uniforms.location("iris_ProjMatInverse", net.irisshaders.iris.gl.uniform.UniformType.MAT4).orElse(-1);
+        this.readsAlbedo = blocks.values().stream().anyMatch(block ->
+                block.find("atlasSize") != null || block.find("gtextureSize") != null || block.find("gtextureId") != null);
     }
 
     /**
