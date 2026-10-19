@@ -367,43 +367,82 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
     }
 
     /**
-     * External pack, local player model (entity_translucent pipeline -> gbuffers_entities / gbuffers_hand): third person
-     * (F5) from behind, then first person with the empty hand. The player's skin must be visible: the body/hand area must
-     * not be mostly near-white (white texture / overlay) nor show the sky through it. Same scene with -Pengine=OPENGL.
+     * External pack, local player model (entity_translucent pipeline -> gbuffers_entities(_translucent) / gbuffers_hand):
+     * third person (F5) from behind with the morning sun behind the camera (owner report: "in F5, looking away from the
+     * sun I can kinda look through the skin"), then first person with the empty hand. The skin must be visible:
+     * the body/hand area must not be mostly near-white (white texture / overlay), and the body must hide what is behind
+     * it: the same view with the player invisible is the background, and only a small part of the body area may match
+     * it. (A sky-blue colour count is only logged: the default skin's cyan shirt reads as sky-blue in daylight; that made
+     * the 2026-10-19 sweep fail BSL on Metal and OpenGL alike.) Same scene with -Pengine=OPENGL.
      */
     private void playerModelScene(ClientGameTestContext context, TestSingleplayerContext world) {
         tryCommand(world, "gamemode creative @a");
         tryCommand(world, "clear @a");
-        tryCommand(world, "execute as @p at @s run tp @s ~ ~ ~ ~ 10");
+        tryCommand(world, "time set 1500"); // sun low in the east
+        tryCommand(world, "execute as @p at @s run tp @s ~ ~ ~ 90 10"); // facing west: away from the sun
         tryCommand(world, "execute as @p at @s run summon minecraft:mannequin ^1.5 ^ ^2 {profile:{texture:\"minecraft:entity/player/slim/alex\",model:\"slim\"}}");
         tryCommand(world, "execute as @p at @s run summon minecraft:mannequin ^-1.5 ^ ^2 {profile:{texture:\"minecraft:entity/player/wide/steve\"}}");
         context.runOnClient(client -> client.options.setCameraType(net.minecraft.client.CameraType.THIRD_PERSON_BACK));
-        context.waitTicks(40);
+        context.waitTicks(60);
         clearChat(context);
         Path third = context.takeScreenshot("metallium-iris-external-pack-player-f5");
+        // Background: the local player is not rendered while invisible (isInvisibleTo(self)).
+        tryCommand(world, "effect give @p minecraft:invisibility infinite 0 true");
+        context.waitTicks(10);
+        clearChat(context);
+        Path background = context.takeScreenshot("metallium-iris-external-pack-player-f5-background");
+        tryCommand(world, "effect clear @p minecraft:invisibility");
         context.runOnClient(client -> client.options.setCameraType(net.minecraft.client.CameraType.FIRST_PERSON));
         context.waitTicks(20);
         clearChat(context);
         Path first = context.takeScreenshot("metallium-iris-external-pack-player-hand");
         tryCommand(world, "kill @e[type=minecraft:mannequin]");
         tryCommand(world, "execute as @p at @s run tp @s ~ ~ ~ ~ 0");
+        tryCommand(world, "time set 6000");
         tryCommand(world, "gamemode spectator @a");
         try {
             java.awt.image.BufferedImage body = javax.imageio.ImageIO.read(third.toFile());
+            java.awt.image.BufferedImage behind = javax.imageio.ImageIO.read(background.toFile());
             java.awt.image.BufferedImage hand = javax.imageio.ImageIO.read(first.toFile());
-            // Third person from behind: the body is the central column of the screen; first person: the right arm
-            // reaches into the lower right corner.
-            double[] bodyStats = paleAndSkyFraction(body, 0.47, 0.75, 0.47, 0.53);
+            // Third person from behind: the body is the central column of the screen (torso + legs); first person:
+            // the right arm reaches into the lower right corner.
+            double[] bodyStats = paleAndSkyFraction(body, 0.50, 0.75, 0.48, 0.52);
             double[] handStats = paleAndSkyFraction(hand, 0.72, 0.95, 0.70, 0.90);
-            line(String.format("external pack player model: f5 body near-white=%.2f sky-blue=%.2f; first-person hand near-white=%.2f sky-blue=%.2f",
-                    bodyStats[0], bodyStats[1], handStats[0], handStats[1]));
-            if (bodyStats[0] > 0.35 || handStats[0] > 0.35 || bodyStats[1] > 0.20) {
-                failures.add(String.format("player model looks white/untextured or see-through with the external pack (f5 %.2f near-white, %.2f sky; hand %.2f near-white)",
-                        bodyStats[0], bodyStats[1], handStats[0]));
+            double seeThrough = regionMatch(body, behind, 0.50, 0.75, 0.48, 0.52, 12);
+            line(String.format("external pack player model: f5 body near-white=%.2f sky-blue=%.2f matches-background=%.2f; first-person hand near-white=%.2f sky-blue=%.2f",
+                    bodyStats[0], bodyStats[1], seeThrough, handStats[0], handStats[1]));
+            if (bodyStats[0] > 0.35 || handStats[0] > 0.35 || seeThrough > 0.25) {
+                failures.add(String.format("player model looks white/untextured or see-through with the external pack (f5 %.2f near-white, %.2f like the background; hand %.2f near-white)",
+                        bodyStats[0], seeThrough, handStats[0]));
             }
         } catch (IOException e) {
             failures.add("could not analyse player model screenshots: " + e);
         }
+    }
+
+    /** Fraction of pixels in a screen rectangle whose colour equals the other image's within {@code tolerance} per channel. */
+    private static double regionMatch(java.awt.image.BufferedImage a, java.awt.image.BufferedImage b, double fromY, double toY, double fromX, double toX, int tolerance) {
+        int w = Math.min(a.getWidth(), b.getWidth());
+        int h = Math.min(a.getHeight(), b.getHeight());
+        int total = 0;
+        int same = 0;
+        for (int y = (int) (h * fromY); y < (int) (h * toY); y += 2) {
+            for (int x = (int) (w * fromX); x < (int) (w * toX); x += 2) {
+                int pa = a.getRGB(x, y);
+                int pb = b.getRGB(x, y);
+                boolean match = true;
+                for (int shift = 0; shift <= 16; shift += 8) {
+                    if (Math.abs(((pa >> shift) & 0xFF) - ((pb >> shift) & 0xFF)) > tolerance) {
+                        match = false;
+                    }
+                }
+                total++;
+                if (match) {
+                    same++;
+                }
+            }
+        }
+        return (double) same / Math.max(1, total);
     }
 
     /** Fractions of {near-white (all channels > 200, low saturation), sky-like blue} pixels in a screen rectangle. */
