@@ -217,6 +217,9 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
                     present1[2] - present0[2], present1[3] - present0[3], String.join("|", windowStates)));
             line(String.format("bench-result: scene=%s avg_fps=%.1f low1_fps=%.1f p50_ms=%.2f p95_ms=%.2f p99_ms=%.2f max_ms=%.2f frames=%d heap_mb=%d",
                     BENCH_SCENE, avgFps, low1, pct(frameMs, 0.50), pct(frameMs, 0.95), pct(frameMs, 0.99), frameMs.get(frameMs.size() - 1), frameMs.size(), heapMb));
+            if (voxy) {
+                line("bench: voxy after measurement " + glSummary()); // counters minus the pre-measurement line = the 30 s window
+            }
             if (Boolean.getBoolean("metallium.bench.power")) {
                 powerBench(context);
             }
@@ -802,7 +805,11 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
             crashRecoveryRun(context, backend);
             return;
         }
-        if ("physics".equals(System.getProperty("metallium.gametest.mode"))) {
+        // Physics Mod combined with an LOD mod: the LOD scenario runs and adds physicsInWorld (instead of PhysicsScenario).
+        boolean lodCombo = net.fabricmc.loader.api.FabricLoader.getInstance().isModLoaded("distanthorizons")
+                || net.fabricmc.loader.api.FabricLoader.getInstance().isModLoaded("voxy")
+                || net.fabricmc.loader.api.FabricLoader.getInstance().isModLoaded("bobby");
+        if ("physics".equals(System.getProperty("metallium.gametest.mode")) && !lodCombo) {
             try {
                 new PhysicsScenario(this::line, failures).run(context, backend);
                 line(failures.isEmpty() ? "result: PASS" : "result: FAIL " + failures);
@@ -1000,6 +1007,7 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
         context.waitTicks(60);
         context.takeScreenshot("metallium-dh-far-lods-high");
         line("dh: final state: " + context.computeOnClient(client -> dhState()));
+        physicsInWorld(context, world, "dh");
     }
 
     /**
@@ -1055,6 +1063,7 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
             clearChat(context);
             checkTerrainVisible(context.takeScreenshot("metallium-voxy-lods-rd4"), "voxy LODs (vanilla rd 4)");
             measure(context, "voxy rd4");
+            physicsInWorld(context, world, "voxy");
             tryCommand(world, "tp @a 0 220 0 210 30");
             context.waitTicks(200);
             context.takeScreenshot("metallium-voxy-lods-high");
@@ -1062,6 +1071,11 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
             context.waitTicks(200);
             context.takeScreenshot("metallium-voxy-lods-top");
             f3Screenshot(context);
+            String status = context.computeOnClient(client -> dev.metallium.compat.CompatStatus.text());
+            for (String row : status.split("\n")) {
+                if (row.contains("Voxy")) line("voxy status row: " + row.trim());
+            }
+            if (!status.contains("runs via metallium-gl")) failures.add("status screen does not show Voxy as running via metallium-gl");
             line("voxy: final " + glSummary());
             line("voxy debug: " + context.computeOnClient(client -> voxyDebug()));
             line(failures.isEmpty() ? "result: PASS" : "result: FAIL " + failures);
@@ -1116,6 +1130,7 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
                 measure(context, "bobby+voxy rd4");
                 line("bobby+voxy: final " + glSummary());
             }
+            physicsInWorld(context, world, "bobby");
             line(failures.isEmpty() ? "result: PASS" : "result: FAIL " + failures);
         } catch (Throwable t) {
             line("result: FAIL " + t);
@@ -1124,6 +1139,38 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
         }
         writeReport();
         Runtime.getRuntime().halt(failures.isEmpty() ? 0 : 1);
+    }
+
+    /**
+     * Physics Mod on top of an LOD / shader-pack world (-PwithPhysics with -PwithVoxy / -PwithDH / -PwithIris): a brick
+     * wall in front of the camera is destroyed (debris), a zombie is killed (ragdoll) and TNT explodes, with screenshots.
+     */
+    private void physicsInWorld(ClientGameTestContext context, TestSingleplayerContext world, String tag) {
+        if (!net.fabricmc.loader.api.FabricLoader.getInstance().isModLoaded("physicsmod")) {
+            return;
+        }
+        tryCommand(world, "gamemode creative @a");
+        tryCommand(world, "gamerule spawn_monsters false");
+        tryCommand(world, "execute as @p at @s run tp @s ~ ~ ~ ~ 10");
+        tryCommand(world, "execute as @p at @s run fill ^-2 ^-2 ^5 ^2 ^1 ^6 minecraft:bricks");
+        context.waitTicks(40);
+        clearChat(context);
+        context.takeScreenshot("metallium-" + tag + "-physics-wall");
+        tryCommand(world, "execute as @p at @s run fill ^-2 ^-2 ^5 ^2 ^1 ^6 minecraft:air destroy");
+        context.waitTicks(6);
+        context.takeScreenshot("metallium-" + tag + "-physics-debris");
+        tryCommand(world, "kill @e[type=item]");
+        tryCommand(world, "execute as @p at @s run summon minecraft:zombie ^ ^-1 ^4 {NoAI:1b}");
+        context.waitTicks(20);
+        tryCommand(world, "kill @e[type=zombie]");
+        context.waitTicks(6);
+        context.takeScreenshot("metallium-" + tag + "-physics-ragdoll");
+        tryCommand(world, "execute as @p at @s run summon minecraft:tnt ^ ^-1 ^6 {fuse:1}");
+        context.waitTicks(8);
+        context.takeScreenshot("metallium-" + tag + "-physics-explosion");
+        context.waitTicks(40);
+        measure(context, tag + " + physics");
+        line(tag + " + physics: done, " + glSummary());
     }
 
     /** Client chunk count (Bobby's cached chunks included) and vanilla's visible sections. */

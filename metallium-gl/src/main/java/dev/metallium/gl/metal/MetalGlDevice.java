@@ -204,6 +204,9 @@ public final class MetalGlDevice implements GlDevice {
     /** MDI-count calls executed as an ICB / through the per-slot fallback (diagnostics: status line, tests). */
     public static final java.util.concurrent.atomic.AtomicLong ICB_CALLS = new java.util.concurrent.atomic.AtomicLong();
     public static final java.util.concurrent.atomic.AtomicLong SLOT_FALLBACK_CALLS = new java.util.concurrent.atomic.AtomicLong();
+    /** CPU-encoded draws of the per-slot fallback (one per maxdrawcount slot), and CPU time spent in drawIndirect. */
+    public static final java.util.concurrent.atomic.AtomicLong SLOT_FALLBACK_DRAWS = new java.util.concurrent.atomic.AtomicLong();
+    public static final java.util.concurrent.atomic.AtomicLong INDIRECT_ENCODE_NS = new java.util.concurrent.atomic.AtomicLong();
 
     /** -Dmetallium.gl.icbTextures=false:textured MDI-count draws use the per-slot fallback (A/B benchmark). */
     private static final boolean ICB_TEXTURES = !"false".equals(System.getProperty("metallium.gl.icbTextures"));
@@ -776,6 +779,15 @@ public final class MetalGlDevice implements GlDevice {
 
     @Override
     public void drawIndirect(final DrawOp op, final IndirectDraws draws) {
+        long start = System.nanoTime();
+        try {
+            drawIndirect0(op, draws);
+        } finally {
+            INDIRECT_ENCODE_NS.addAndGet(System.nanoTime() - start);
+        }
+    }
+
+    private void drawIndirect0(final DrawOp op, final IndirectDraws draws) {
         if (GlTrace.on()) GlTrace.log("drawIndirect " + GlTrace.draw(op) + " draws=" + draws.drawCount() + " stride=" + draws.stride()
                 + (draws.countBuffer() != null ? " gpuCount(last)=" + Integer.toUnsignedString(MemoryUtil.memGetInt(MemoryUtil.memAddress(draws.countBuffer().contents()) + draws.countOffset())) : "")
                 + " firstCmd=" + GlTrace.command(draws.commands(), draws.offset()));
@@ -800,6 +812,7 @@ public final class MetalGlDevice implements GlDevice {
                 indirectCount = new IndirectCountDraws(device, host);
             }
             SLOT_FALLBACK_CALLS.incrementAndGet();
+            SLOT_FALLBACK_DRAWS.addAndGet(draws.drawCount());
             MTLBuffer compacted = indirectCount.compact(computeEncoder(), commands, draws.offset(), draws.stride(), count, draws.countOffset(),
                     draws.drawCount());
             MTLRenderCommandEncoder encoder = prepareDraw(op, false);
