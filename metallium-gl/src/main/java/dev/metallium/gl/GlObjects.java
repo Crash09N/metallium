@@ -113,6 +113,10 @@ final class GlObjects {
         boolean external;
         /** A texture view (glTextureView): the texture whose storage it shares. */
         @Nullable Texture viewOf;
+        /** Framebuffer attachment slots referencing this texture/renderbuffer (GL keeps a deleted object alive while attached). */
+        int attachmentRefs;
+        /** glDelete* ran while still attached to a framebuffer: storage is released when the last attachment drops it. */
+        boolean deletePending;
 
         Texture(final int name) {
             this.name = name;

@@ -183,6 +183,53 @@ class GlContextTest {
         assertEquals(0, MetalGL.glGetInteger(GL_DRAW_FRAMEBUFFER_BINDING));
     }
 
+    /**
+     * Voxy's resize (fullscreen toggle crash, 2026-10-19): it deletes the colour textures of a framebuffer that is not
+     * bound, then re-creates and re-attaches the depth texture and checks completeness before re-attaching colour. In
+     * GL a deleted texture stays alive while a framebuffer that is not bound still references it.
+     */
+    @Test
+    void deletedTextureStaysAliveWhileAttachedToUnboundFramebuffer() {
+        int fbo = MetalGL4.glCreateFramebuffers();
+        int colour = MetalGL4.glCreateTextures(GL_TEXTURE_2D);
+        MetalGL4.glTextureStorage2D(colour, 1, GL_RGBA8, 16, 16);
+        int depth = MetalGL4.glCreateTextures(GL_TEXTURE_2D);
+        MetalGL4.glTextureStorage2D(depth, 1, GL_DEPTH24_STENCIL8, 16, 16);
+        MetalGL4.glNamedFramebufferTexture(fbo, GL_COLOR_ATTACHMENT0, colour, 0);
+        MetalGL4.glNamedFramebufferTexture(fbo, GL_DEPTH_STENCIL_ATTACHMENT, depth, 0);
+        assertEquals(GL_FRAMEBUFFER_COMPLETE, MetalGL4.glCheckNamedFramebufferStatus(fbo, GL_FRAMEBUFFER));
+
+        int releasedBefore = device.released.size();
+        MetalGL.glDeleteTextures(colour);
+        MetalGL.glDeleteTextures(depth);
+        assertFalse(MetalGL.glIsTexture(colour), "the name is gone at once");
+        assertEquals(releasedBefore, device.released.size(), "storage lives on while attached");
+        int newDepth = MetalGL4.glCreateTextures(GL_TEXTURE_2D);
+        MetalGL4.glTextureStorage2D(newDepth, 1, GL_DEPTH24_STENCIL8, 32, 24);
+        MetalGL4.glNamedFramebufferTexture(fbo, GL_DEPTH_STENCIL_ATTACHMENT, newDepth, 0);
+        assertEquals(releasedBefore + 1, device.released.size(), "old depth released once both slots dropped it");
+        assertEquals(GL_FRAMEBUFFER_COMPLETE, MetalGL4.glCheckNamedFramebufferStatus(fbo, GL_FRAMEBUFFER),
+                "old colour (still referenced) + new depth of another size: complete in GL 4.3+");
+        int newColour = MetalGL4.glCreateTextures(GL_TEXTURE_2D);
+        MetalGL4.glTextureStorage2D(newColour, 1, GL_RGBA8, 32, 24);
+        MetalGL4.glNamedFramebufferTexture(fbo, GL_COLOR_ATTACHMENT0, newColour, 0);
+        assertEquals(releasedBefore + 2, device.released.size(), "old colour released when replaced");
+        assertEquals(GL_FRAMEBUFFER_COMPLETE, MetalGL4.glCheckNamedFramebufferStatus(fbo, GL_FRAMEBUFFER));
+        assertEquals(GL_NO_ERROR, MetalGL.glGetError());
+
+        // Deleting the framebuffer drops its references; deleting an attached texture of the bound framebuffer detaches it.
+        MetalGL.glDeleteTextures(newColour);
+        assertEquals(releasedBefore + 2, device.released.size());
+        MetalGL.glDeleteFramebuffers(fbo);
+        assertEquals(releasedBefore + 3, device.released.size());
+        int bound = MetalGL.glGenFramebuffers();
+        MetalGL.glBindFramebuffer(GL_FRAMEBUFFER, bound);
+        MetalGL.glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_TEXTURE_2D, newDepth, 0);
+        MetalGL.glDeleteTextures(newDepth);
+        assertEquals(releasedBefore + 4, device.released.size());
+        assertEquals(GL_FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT, MetalGL.glCheckFramebufferStatus(GL_FRAMEBUFFER));
+    }
+
     @Test
     void shadersCompileWithInfoLog() {
         int shader = MetalGL.glCreateShader(GL_FRAGMENT_SHADER);
