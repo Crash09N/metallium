@@ -72,11 +72,17 @@ cache (`$DARWIN_USER_CACHE_DIR/net.java.openjdk.java/com.apple.metal`), shared b
   the translator classes; stale environments deleted). Entries: magic + format + length + CRC32, atomic writes, LRU size
   cap 1 GiB. `-Dmetallium.shaderCache=false` disables, `.maxMB=`, `.dir=` override.
 - SPIR-V→MSL (SPIRV-Cross) and GLSL→SPIR-V (shaderc, Iris adapter / metallium-gl) results cached by content hash.
-- Metal binary archive `pipelines.mtlarchive`: pipeline states are looked up with `FailOnBinaryArchiveMiss`, misses
-  added and the archive re-serialized (every 20 s / on close). The archive file is also a metallib: it is opened as an
-  `MTLLibrary`, and functions found there skip the MSL compile entirely (entry points get unique content-derived names
-  `mtl_vs_/mtl_fs_<key>` so all stages share one namespace). Crash marker discards an archive that was in use when the
-  game died; a pipeline that fails with archive functions is rebuilt from source and the archive dropped.
+- Metal binary archive, one segment per session (`pipelines-<time>.mtlarchive`): pipeline states are looked up with
+  `FailOnBinaryArchiveMiss` in all segments; misses are added (exactly once per full-descriptor key) to this session's
+  fresh archive, written every 20 s / on close. Never appended to a loaded archive: Metal then re-serializes it at
+  several times its size (standalone test 755 KB + 1 pipeline = 2.2 MB; Iris game test 9.9 -> 115 MB per warm
+  session) and moves the source file on an unchanged serialize. Reset after 24 segments or half the cache cap. Each
+  segment file is also a metallib: opened as an `MTLLibrary`, functions found there skip the MSL compile entirely
+  (entry points get unique content-derived names `mtl_vs_/mtl_fs_<key>`). Crash marker discards the segments; a
+  pipeline that fails with archive functions is rebuilt from source and the archive dropped. If the archiver rejects
+  the session archive, it is rebuilt off-lock from the retained descriptors, bisecting out the culprits
+  (`pipelines.excluded`, compiled at load from then on); `-PsimulateArchiveFailure` exercises that path,
+  `-PlogArchiveMisses` logs every miss.
 - Attachment-layout variants built lazily on the render thread are recorded and built on the compile thread next time.
 - `compilePipeline` now builds the pipeline state on renderpearl's worker thread (`Pending` only returns it).
 
@@ -163,7 +169,11 @@ Complementary Unbound r5.6.1 (shaders bench, 854x480, exclusive GPU, AC, screen 
 - Not done: hoisting uploads to the start of the frame (none of the bench scenes has staged uploads; Sodium uploads
   through mapped memory), store-action DontCare, replacing the global fence chain. Metal HUD numbers from the owner's
   setup are needed to see which of these still matter after the clear fix.
-- Pipeline binary archive: "expecting 'fragment' stage in pipeline no. N" at save (whole archive not written that
-  session). Diagnosed, not fixed: every pipeline serialises alone; it fails as soon as two pipelines with the same
-  vertex+fragment functions and different blend state are both in the archive (Apple archiver). Restricting the
-  archive to one pipeline per fragment function and serialising adds did not remove all failures; reverted.
+- Pipeline binary archive "expecting 'fragment' stage in pipeline no. N" (2026-10-18 22:13 to 10-19 03:43 only):
+  not reproducible since, on current code or on 11210cc (the commit of a failing run), cold Metallium cache and cold
+  macOS Metal compiler cache, nor in standalone Swift tests (same functions + different blend/write mask/formats,
+  concurrent adds, functions from the archive library). The exact functions that failed then
+  (`mtl_vs_f71ece…`/`mtl_fs_231d29…`, old key) serialize fine now, so the cause was outside Metallium (state of
+  Apple's archiver / compiler service). Now handled: the archive is rebuilt without the culprits (above), no more
+  lost archives. Found on the way: the archive grew several-fold per warm session (append path, above; the owner's
+  play instance had 178 MiB) and some pipelines missed every warm session; both gone with segments.
