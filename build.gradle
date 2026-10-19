@@ -22,6 +22,11 @@ dependencies {
 
 	include(implementation("io.github.kokodio:metal-jvm:${project.metal_jvm_version}"))
 
+	// Release jar: metallium-gl (Apache-2.0) and the Iris adapter (LGPL-3.0, stays a separate nested jar) are jar-in-jar.
+	// Both are inert unless needed (see IrisSupport / GlRouting), so the one jar is safe to install anywhere.
+	include project(':metallium-gl')
+	include project(':metallium-iris')
+
 	testImplementation platform('org.junit:junit-bom:5.13.4')
 	testImplementation 'org.junit.jupiter:junit-jupiter'
 	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
@@ -107,11 +112,14 @@ loom.runs.clientGameTest {
 	// directory at runtime only; never commit third-party packs.
 	if (project.hasProperty('shaderpack')) vmArg "-Dmetallium.gametest.shaderpack=${project.property('shaderpack')}"
 	// -PshaderpackOptions=COLORED_LIGHTING=128,FOO=1: pack options for that pack (written to Iris's <pack>.txt).
-	// -PirisHideMacOs: packs do not see MC_OS_MAC on Metal (they gate compute/voxel features on it; see iris-stage5-compute.md)
-	if (project.hasProperty('irisHideMacOs')) vmArg '-Dmetallium.iris.hideMacOs=true'
+	// -PirisHideMacOs=false: packs see MC_OS_MAC on Metal again (hidden by default, config irisHideMacOs; they gate
+	// compute/voxel features on it; see iris-stage5-compute.md). -PirisHideMacOs alone = true.
+	if (project.hasProperty('irisHideMacOs')) vmArg "-Dmetallium.iris.hideMacOs=${project.property('irisHideMacOs') ?: 'true'}"
 	if (project.hasProperty('shaderpackOptions')) vmArg "-Dmetallium.gametest.shaderpackOptions=${project.property('shaderpackOptions')}"
 	if (project.hasProperty('benchSeconds')) vmArg "-Dmetallium.bench.seconds=${project.property('benchSeconds')}"
 	if (project.hasProperty('benchScene')) vmArg "-Dmetallium.bench.scene=${project.property('benchScene')}"
+	// -PbenchRd=N: override the benchmark scene's render distance (default 12, rd32 scene 32).
+	if (project.hasProperty('benchRd')) vmArg "-Dmetallium.bench.renderDistance=${project.property('benchRd')}"
 	if (project.hasProperty('perfCounters')) vmArg '-Dmetallium.perfCounters=true'
 	// -PperfTrace (with -PperfCounters): log every encoder of one submit per counter window and why it was opened.
 	if (project.hasProperty('perfTrace')) vmArg '-Dmetallium.perfTrace=true'
@@ -243,6 +251,8 @@ if (project.hasProperty('withPhysics')) {
 	}
 	loom.runs.clientGameTest {
 		vmArg '-Dmetallium.gametest.mode=physics'
+		// -PphysicsBench: FPS of each GPU feature scene with the feature on and off (run under gpu-lock.sh --exclusive)
+		if (project.hasProperty('physicsBench')) vmArg '-Dmetallium.gametest.physicsBench=true'
 	}
 }
 
@@ -264,4 +274,32 @@ if (project.hasProperty('crashRecovery')) {
 					'\tat dev.metallium.gametest.gl.RawGlQuads.render(RawGlQuads.java:1)\n'
 		}
 	}
+}
+
+// ./gradlew releaseJar  -> build/release/metallium-<version>.jar: the single installable alpha jar (see docs/RELEASE.md).
+tasks.register('releaseJar', Copy) {
+	group = 'build'
+	description = 'Builds the single installable Metallium jar (core + metallium-gl + metallium-iris + metal-jvm, jar-in-jar).'
+	from(tasks.named('jar'))
+	into layout.buildDirectory.dir('release')
+}
+
+// ./gradlew runClientGameTest -PreleaseJarTest  -> runs the game test against build/release/metallium-<version>.jar installed as a
+// mod (jar-in-jar metallium-gl + metallium-iris included) instead of the dev classes of the root project and subprojects.
+// -PreleaseJarSodium / -PreleaseJarIris add Sodium (+ Iris) as ordinary mods next to the jar.
+if (project.hasProperty('releaseJarTest')) {
+	def releaseJarFile = layout.buildDirectory.file("release/metallium-${project.version}.jar").get().asFile
+	if (project.hasProperty('releaseJarSodium') || project.hasProperty('releaseJarIris')) {
+		dependencies {
+			gametestRuntimeOnly "maven.modrinth:sodium:${project.sodium_version}"
+			if (project.hasProperty('releaseJarIris')) gametestRuntimeOnly "maven.modrinth:iris:${project.iris_version}"
+		}
+	}
+	afterEvaluate {
+		def mainClasses = sourceSets.main.output.files
+		sourceSets.gametest.runtimeClasspath = sourceSets.gametest.output +
+				configurations.gametestRuntimeClasspath.filter { f -> !mainClasses.contains(f) } +
+				files(releaseJarFile)
+	}
+	tasks.matching { it.name == 'runClientGameTest' }.configureEach { dependsOn 'releaseJar' }
 }

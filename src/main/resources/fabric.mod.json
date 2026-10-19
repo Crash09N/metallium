@@ -29,7 +29,14 @@
     "java": ">=25"
   },
   "recommends": {
-    "sodium": ">=0.9.2"
+    "sodium": ">=0.9.2 <0.10"
+  },
+  "suggests": {
+    "iris": ">=1.11.6 <1.12"
+  },
+  "conflicts": {
+    "sodium": "<0.9.2",
+    "iris": ["<1.11.6", ">=1.12"]
   },
   "breaks": {
     "metallum": "*",

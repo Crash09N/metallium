@@ -16,8 +16,9 @@ import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodType;
 
 /**
- * GPU liquid simulation probes non-Vulkan devices with raw OpenGL calls (aborts on Metal). On Metal the probe answers
- * "unsupported" with the mod's own public {@code Availability(boolean, String)} record. Interop by name only.
+ * GPU liquid simulation probes non-Vulkan devices with raw OpenGL calls. On Metal with metallium-gl routing Physics Mod
+ * ({@link PhysicsModCompat#gpuCompute()}) the probe and the OpenGL compute path run translated; without it the probe
+ * answers "unsupported" (the mod's own public {@code Availability(boolean, String)} record) instead of aborting.
  */
 @Pseudo
 @Mixin(targets = "net.diebuddies.physics.liquid.compute.LiquidComputeSupport", remap = false)
@@ -27,7 +28,7 @@ public abstract class LiquidComputeSupportMixin {
 
     @Inject(method = "query", at = @At("HEAD"), cancellable = true)
     private static void metallium$noComputeOnMetal(final GpuDeviceBackend backend, final CallbackInfoReturnable<Object> cir) {
-        if (!PhysicsModCompat.metal()) return;
+        if (!PhysicsModCompat.metal() || PhysicsModCompat.gpuCompute()) return;
         try {
             if (metallium$unsupported == null) {
                 Class<?> type = Class.forName(AVAILABILITY, false, LiquidComputeSupportMixin.class.getClassLoader());

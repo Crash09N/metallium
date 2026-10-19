@@ -52,4 +52,14 @@ public interface MetalHost {
     default @Nullable MTLTexture engineTexture(final Object engine, final boolean write) {
         return engine instanceof MTLTexture texture ? texture : null;
     }
+
+    /** The Metal buffer currently behind an engine buffer (Minecraft's {@code GpuBuffer} in game), or null. */
+    default io.github.kokodio.metaljvm.metal.@Nullable MTLBuffer engineBuffer(final Object engine) {
+        return engine instanceof io.github.kokodio.metaljvm.metal.MTLBuffer buffer ? buffer : null;
+    }
+
+    /** Size in bytes of an engine buffer, or -1 if {@code engine} is not one. */
+    default long engineBufferSize(final Object engine) {
+        return engine instanceof io.github.kokodio.metaljvm.metal.MTLBuffer buffer ? buffer.length() : -1;
+    }
 }

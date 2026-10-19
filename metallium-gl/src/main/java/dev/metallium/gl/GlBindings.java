@@ -155,8 +155,9 @@ final class GlBindings {
             gl.error(GL_INVALID_VALUE);
             return;
         }
-        if (layered || layer != 0) {
-            MetalGLLog.unsupported("glBindImageTexture layered/layer");
+        // 3D / 2D-array textures bind all layers (layered); one layer of them is not supported (the whole texture binds).
+        if (!layered && texture.target != GL_TEXTURE_2D) {
+            MetalGLLog.unsupported("glBindImageTexture of one layer (layer " + layer + ") of a layered texture");
         }
         TexFormat view = TexFormat.fromInternalFormat(format);
         if (texture.format != null && view != null && view != texture.format) {

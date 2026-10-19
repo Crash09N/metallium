@@ -16,3 +16,7 @@ Third-party code included in this distribution:
 - Iris (https://github.com/IrisShaders/Iris), Copyright (c) IrisShaders contributors, LGPL-3.0
   (metallium-iris/LICENSE). Adapted code only in the separate metallium-iris module (LGPL-3.0):
   dev.metallium.iris.post.MetalShadowRenderer is adapted from Iris's ShadowRenderer.
+
+Release jar layout: the single installable jar bundles metal-jvm, metallium-gl (Apache-2.0) and metallium-iris (LGPL-3.0)
+as separate nested jars (META-INF/jars/). The LGPL-3.0 Iris adapter is never merged into the Apache-2.0 core; its complete
+corresponding source is the metallium-iris/ directory of https://github.com/Crash09N/metallium (see SOURCE.txt in the nested jar).

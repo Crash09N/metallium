@@ -97,6 +97,15 @@ public final class MetalliumInterop {
     }
 
     /**
+     * The Metal buffer currently behind a Metallium {@link com.mojang.renderpearl.api.buffers.GpuBuffer} (for GPU-side use
+     * by external encoders, e.g. a mod's compute shader writing a buffer that renderpearl then draws from). Resolve it at
+     * each use: CPU writes to a dynamic buffer may swap its backing.
+     */
+    public static io.github.kokodio.metaljvm.metal.MTLBuffer metalBuffer(final com.mojang.renderpearl.api.buffers.GpuBuffer buffer) {
+        return ((MetalGpuBuffer) buffer).metalBuffer();
+    }
+
+    /**
      * Commits everything encoded so far in the current frame and waits until the GPU finished it (synchronous GL
      * readbacks). Expensive: only for rare, explicit waits. Encoding then continues in a new command buffer.
      */
@@ -126,6 +135,23 @@ public final class MetalliumInterop {
     public static void setDrawBindings(final com.mojang.renderpearl.backend.api.RenderPassBackend pass,
                                        final java.util.function.@Nullable Consumer<io.github.kokodio.metaljvm.metal.MTLRenderCommandEncoder> binder) {
         ((MetalRenderPass) pass).setExtraBindings(binder);
+    }
+
+    /**
+     * For pipelines with more than 16 textures in a stage (Metal's sampler-state limit): the sampler each texture
+     * uniform of pipeline {@code pipelineName} is always bound with. Those textures use it as an MSL
+     * {@code constexpr sampler} (identical ones count once towards Metal's 16); the sampler passed at bind time is
+     * ignored for them. Call before compiling the
+     * pipeline; an empty map removes the entry.
+     */
+    public static void setConstexprSamplers(final String pipelineName, final java.util.Map<String, com.mojang.renderpearl.api.textures.GpuSampler> samplers) {
+        if (samplers.isEmpty()) {
+            MetalCrossShaderCompiler.CONSTEXPR_SAMPLERS.remove(pipelineName);
+            return;
+        }
+        java.util.Map<String, MetalGpuSampler> metal = new java.util.HashMap<>();
+        samplers.forEach((name, sampler) -> metal.put(name, (MetalGpuSampler) sampler));
+        MetalCrossShaderCompiler.CONSTEXPR_SAMPLERS.put(pipelineName, java.util.Map.copyOf(metal));
     }
 
     /** Runs {@code action} once the GPU has finished every command buffer submitted so far (incl. the current one). */
