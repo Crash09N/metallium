@@ -237,6 +237,7 @@ final class MetalRenderPass implements RenderPassBackend {
             throw new UnsupportedOperationException("Metal backend does not support triangle fan multiDrawIndexed");
         }
 
+        long perfStart = PerfCounters.ENABLED ? System.nanoTime() : 0L;
         MetalGpuBuffer nativeIndexBuffer = (MetalGpuBuffer) indexBuffer;
         MTLRenderCommandEncoder enc = renderEncoder();
         bindDrawState(enc);
@@ -253,6 +254,19 @@ final class MetalRenderPass implements RenderPassBackend {
             long firstIndexOffset = offsets.get(ValueLayout.JAVA_LONG, i * 8L);
             int baseVertex = vertices.get(ValueLayout.JAVA_INT, i * 4L);
             enc.drawIndexedPrimitives(primitiveType, indexCount, indexType, indexBufferHandle, firstIndexOffset, 1, baseVertex, 0);
+        }
+        if (PerfCounters.ENABLED) {
+            PerfCounters.multiDraws++;
+            PerfCounters.subDraws += drawCount;
+            PerfCounters.multiDrawNs += System.nanoTime() - perfStart;
+            // Diagnostic: sub-draws that continue the previous one (same index offset, next vertex range for quads).
+            for (int i = 1; i < drawCount; i++) {
+                if (offsets.get(ValueLayout.JAVA_LONG, i * 8L) == offsets.get(ValueLayout.JAVA_LONG, (i - 1) * 8L)
+                        && vertices.get(ValueLayout.JAVA_INT, i * 4L) == vertices.get(ValueLayout.JAVA_INT, (i - 1) * 4L)
+                        + counts.get(ValueLayout.JAVA_INT, (i - 1) * 4L) / 6 * 4) {
+                    PerfCounters.contiguousSubDraws++;
+                }
+            }
         }
     }
 

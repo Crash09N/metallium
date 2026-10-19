@@ -89,9 +89,11 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
         }
         boolean shaders = "shaders".equals(BENCH_SCENE);
         boolean flight = "flight".equals(BENCH_SCENE);
-        int renderDistance = "rd32".equals(BENCH_SCENE) ? 32 : 12;
+        int renderDistance = Integer.getInteger("metallium.bench.rd", "rd32".equals(BENCH_SCENE) ? 32 : 12);
         int settleTicks = Integer.getInteger("metallium.bench.settleTicks", flight ? 100 : 300);
-        int settleSeconds = Integer.getInteger("metallium.bench.settleSeconds", "rd32".equals(BENCH_SCENE) ? 150 : flight ? 20 : 60);
+        int settleSeconds = Integer.getInteger("metallium.bench.settleSeconds",
+                renderDistance >= 32 ? 150 : renderDistance >= 16 ? 90 : flight ? 20 : 60);
+        line("bench: render distance=" + renderDistance);
         String pack = System.getProperty("metallium.gametest.shaderpack", "");
         if (shaders && (pack.isEmpty() || !Files.isRegularFile(Path.of(pack))
                 || !net.fabricmc.loader.api.FabricLoader.getInstance().isModLoaded("iris"))) {
@@ -112,6 +114,8 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
                 .create()) {
             world.getConnection().waitForChunksRender();
             tryCommand(world, "gamerule spawn_monsters false");
+            // Spectators must still make the server generate and send chunks beyond the spawn area.
+            tryCommand(world, "gamerule spectators_generate_chunks true");
             tryCommand(world, "gamemode spectator @a");
             tryCommand(world, "time set 6000");
             tryCommand(world, "gamerule advance_time false");
@@ -151,6 +155,8 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
             if (!flight) {
                 checkTerrainVisible(context.takeScreenshot("metallium-bench-view-" + BENCH_SCENE), "bench view");
             }
+            line("bench: client render distance option=" + context.computeOnClient(c -> c.options.renderDistance().get())
+                    + ", server view distance=" + world.getServer().computeOnServer(s -> s.getPlayerList().getViewDistance()));
             sodiumStats(context, "bench");
 
             List<Integer> fpsSamples = new ArrayList<>();

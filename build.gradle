@@ -112,6 +112,13 @@ loom.runs.clientGameTest {
 	if (project.hasProperty('shaderpackOptions')) vmArg "-Dmetallium.gametest.shaderpackOptions=${project.property('shaderpackOptions')}"
 	if (project.hasProperty('benchSeconds')) vmArg "-Dmetallium.bench.seconds=${project.property('benchSeconds')}"
 	if (project.hasProperty('benchScene')) vmArg "-Dmetallium.bench.scene=${project.property('benchScene')}"
+	// -PbenchRd=16: override the scene's render distance; -PbenchSettleSeconds=N: wall-clock settle time before recording.
+	// -Pterrain=key=value,key2=value2: Metallium terrain options as -Dmetallium.terrain.<key>=<value> (A/B benchmarks).
+	if (project.hasProperty('terrain')) {
+		project.property('terrain').toString().split(',').each { opt -> if (!opt.isEmpty()) vmArg "-Dmetallium.terrain.${opt}" }
+	}
+	if (project.hasProperty('benchRd')) vmArg "-Dmetallium.bench.rd=${project.property('benchRd')}"
+	if (project.hasProperty('benchSettleSeconds')) vmArg "-Dmetallium.bench.settleSeconds=${project.property('benchSettleSeconds')}"
 	if (project.hasProperty('perfCounters')) vmArg '-Dmetallium.perfCounters=true'
 	// -PglMods=voxy (with -PwithGl): retarget these mods' GL calls to metallium-gl; -PglFailFast=false logs instead of throwing.
 	if (project.hasProperty('glMods')) vmArg "-Dmetallium.gl.mods=${project.property('glMods')}"
