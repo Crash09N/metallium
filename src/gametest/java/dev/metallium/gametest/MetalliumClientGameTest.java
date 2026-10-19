@@ -1441,10 +1441,46 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
                 failures.add("Sodium draw backend label not Metal: " + label);
             }
         }
-        context.runOnClient(client -> client.debugEntries.setOverlayVisible(true));
+        // Vanilla's "GPU: xx%" entry is not in the default F3 profile; enable it for the screenshot and check the value.
+        var gpuEntry = net.minecraft.client.gui.components.debug.DebugScreenEntries.GPU_UTILIZATION;
+        var previousStatus = context.computeOnClient(client -> client.debugEntries.getStatus(gpuEntry));
+        context.runOnClient(client -> {
+            client.debugEntries.setStatus(gpuEntry, net.minecraft.client.gui.components.debug.DebugScreenEntryStatus.IN_OVERLAY);
+            client.debugEntries.setOverlayVisible(true);
+        });
         context.waitTicks(20);
+        checkGpuUtilization(context, "vanilla F3");
         context.takeScreenshot("metallium-f3");
-        context.runOnClient(client -> client.debugEntries.setOverlayVisible(false));
+        context.runOnClient(client -> {
+            client.debugEntries.setOverlayVisible(false);
+            client.debugEntries.setStatus(gpuEntry, previousStatus);
+        });
+    }
+
+    /**
+     * Samples {@code Minecraft.getGpuUtilization()} (vanilla F3 "GPU: xx%", also read by BetterF3) for ~1 s while it is
+     * being measured; on Metal the median must be plausible (0 < x <= 100). Reports the samples on every backend.
+     */
+    static String checkGpuUtilization(ClientGameTestContext context, String where, java.util.function.Consumer<String> line, List<String> failures) {
+        double[] samples = new double[10];
+        for (int i = 0; i < samples.length; i++) {
+            context.waitTicks(2);
+            samples[i] = context.computeOnClient(client -> client.getGpuUtilization());
+        }
+        double[] sorted = samples.clone();
+        java.util.Arrays.sort(sorted);
+        double median = sorted[sorted.length / 2];
+        String summary = String.format(java.util.Locale.ROOT, "gpu utilization (%s): median %.1f%% samples %s", where, median, java.util.Arrays.toString(samples));
+        line.accept(summary);
+        boolean metal = context.computeOnClient(client -> RenderSystem.getDevice().getDeviceInfo().backendName().equals("Metal"));
+        if (metal && !(median > 0.0 && median <= 100.0)) {
+            failures.add(String.format(java.util.Locale.ROOT, "%s: GPU utilization not plausible on Metal (median %.1f%%)", where, median));
+        }
+        return summary;
+    }
+
+    private void checkGpuUtilization(ClientGameTestContext context, String where) {
+        checkGpuUtilization(context, where, this::line, failures);
     }
 
     private static boolean backendIsMetal(ClientGameTestContext context) {
