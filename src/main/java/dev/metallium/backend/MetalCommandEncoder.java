@@ -63,6 +63,16 @@ final class MetalCommandEncoder implements CommandEncoderBackend {
     /** Native handles the open blit encoder reads / writes (untracked resources: copies in one encoder may overlap). */
     private final LongArrayList blitReads = new LongArrayList();
     private final LongArrayList blitWrites = new LongArrayList();
+    /** VSync off: copy of the presented frame, read by the separate present command buffer. */
+    @Nullable
+    private MTLTexture presentCopy;
+    @Nullable
+    private MTLCommandBuffer pendingPresentBuffer;
+    @Nullable
+    private MTLCommandBuffer lastPresentBuffer;
+    private long presentBuffersCommitted;
+    private final java.util.concurrent.atomic.AtomicLong presentBuffersCompleted = new java.util.concurrent.atomic.AtomicLong();
+    private final long presentCompletedBlock = ObjCBlock.withRunnable(presentBuffersCompleted::incrementAndGet);
     private final Long2ObjectOpenHashMap<ArrayDeque<MTLBuffer>> dynamicBackingPool = new Long2ObjectOpenHashMap<>();
 
     MetalCommandEncoder(final MetalDevice device) {
@@ -190,6 +200,7 @@ final class MetalCommandEncoder implements CommandEncoderBackend {
             submitSemaphores[slot].drainPermits();
             commandBuffer.addCompletedHandler(submitSignalBlocks[slot]);
             commandBuffer.commit();
+            commitPendingPresent();
 
             toClose = inFlight[slot];
             inFlight[slot] = new InFlight(currentSubmitIndex, commandBuffer);
@@ -427,6 +438,78 @@ final class MetalCommandEncoder implements CommandEncoderBackend {
     void presentTextureToDrawable(final CAMetalDrawable drawable, final GpuTextureView textureView, final long presentedHandler) {
         MTLCommandBuffer commandBuffer = prepareForPresent(textureView);
         MetalUtilities.encodePresentTextureToDrawable(commandBuffer, drawable, ((MetalGpuTexture) textureView.texture()).metalTexture(), fence, presentedHandler);
+    }
+
+    /**
+     * VSync off: the frame is copied (inside the frame's command buffer, fence-ordered) and the drawable blit + present
+     * go into a small command buffer of their own, committed right after the frame's. Nothing waits for that one: the
+     * drawable blit cannot start before the display returns the drawable, and the frame fence or the frame's
+     * completion depending on it throttled rendering to the display rate. Callers present again only after
+     * {@link #previousPresentCompleted()}, so one copy texture suffices.
+     */
+    void presentTextureToDrawableDecoupled(final CAMetalDrawable drawable, final GpuTextureView textureView, final long presentedHandler) {
+        prepareForPresent(textureView);
+        MTLTexture source = ((MetalGpuTexture) textureView.texture()).metalTexture();
+        MTLTexture copy = presentCopy(source);
+        MTLBlitCommandEncoder blit = blitFor(source.handle(), copy.handle());
+        blit.copyFromTexture(source, 0, 0, new MTLOrigin(0, 0, 0), new MTLSize(copy.width(), copy.height(), 1),
+                copy, 0, 0, new MTLOrigin(0, 0, 0));
+        endEncoder();
+        MTLCommandBuffer buffer;
+        try (AutoreleasePool _ = AutoreleasePool.push()) {
+            buffer = MetalUtilities.nonNil(device.commandQueue.commandBuffer(), "commandBuffer");
+            buffer.retain();
+        }
+        MetalUtilities.encodePresentTextureToDrawable(buffer, drawable, copy, fence, presentedHandler, false);
+        buffer.addCompletedHandler(presentCompletedBlock);
+        if (pendingPresentBuffer != null) {
+            pendingPresentBuffer.release(); // never committed (cannot happen: submit() commits it)
+        }
+        pendingPresentBuffer = buffer;
+    }
+
+    /** True when every present command buffer committed so far has completed on the GPU. */
+    boolean previousPresentCompleted() {
+        return presentBuffersCompleted.get() >= presentBuffersCommitted;
+    }
+
+    private void commitPendingPresent() {
+        MTLCommandBuffer buffer = pendingPresentBuffer;
+        if (buffer == null) {
+            return;
+        }
+        pendingPresentBuffer = null;
+        buffer.commit(); // after the frame's buffer: its fence wait sees the frame's copy
+        presentBuffersCommitted++;
+        MTLCommandBuffer previous = lastPresentBuffer;
+        lastPresentBuffer = buffer;
+        if (previous != null) {
+            // Released a few submits later, like frame buffers: dropping a drawable's last reference before its
+            // presented handler ran makes Quartz run the handler inside the release call (JVM abort).
+            queueForDestroy(previous::release);
+        }
+    }
+
+    private MTLTexture presentCopy(final MTLTexture source) {
+        MTLTexture copy = presentCopy;
+        if (copy != null && copy.width() == source.width() && copy.height() == source.height() && copy.pixelFormat() == source.pixelFormat()) {
+            return copy;
+        }
+        if (copy != null) {
+            queueForDestroy(copy::release);
+        }
+        MTLTextureDescriptor descriptor = MTLTextureDescriptor.alloc().init();
+        descriptor.setTextureType(MTLTextureType.Type2D);
+        descriptor.setPixelFormat(source.pixelFormat());
+        descriptor.setWidth(source.width());
+        descriptor.setHeight(source.height());
+        descriptor.setUsage(MTLTextureUsage.ShaderRead);
+        descriptor.setStorageMode(MTLStorageMode.Private);
+        descriptor.setHazardTrackingMode(MTLHazardTrackingMode.Untracked);
+        copy = MetalUtilities.nonNil(device.metalDevice().newTexture(descriptor), "newTextureWithDescriptor:");
+        descriptor.release();
+        presentCopy = copy;
+        return copy;
     }
 
     private MTLCommandBuffer prepareForPresent(final GpuTextureView textureView) {
@@ -753,6 +836,20 @@ final class MetalCommandEncoder implements CommandEncoderBackend {
         if (commandBuffer != null) {
             commandBuffer.release();
             commandBuffer = null;
+        }
+        if (pendingPresentBuffer != null) {
+            pendingPresentBuffer.release();
+            pendingPresentBuffer = null;
+        }
+        if (lastPresentBuffer != null) {
+            // Its completed handler is an upcall: let it run before the JVM can shut down.
+            lastPresentBuffer.waitUntilCompleted();
+            lastPresentBuffer.release();
+            lastPresentBuffer = null;
+        }
+        if (presentCopy != null) {
+            presentCopy.release();
+            presentCopy = null;
         }
         transientMemory.close();
         device.queueResourceRelease(fence);
