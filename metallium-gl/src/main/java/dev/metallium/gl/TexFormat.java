@@ -20,9 +20,12 @@ public enum TexFormat {
     RG32F(8, 2, Kind.FLOAT),
     RGBA32F(16, 4, Kind.FLOAT),
     DEPTH32F(4, 1, Kind.DEPTH),
-    DEPTH32F_STENCIL8(8, 2, Kind.DEPTH_STENCIL);
+    DEPTH32F_STENCIL8(8, 2, Kind.DEPTH_STENCIL),
+    /** Integer formats: storage images (atomics) and texelFetch; no filtering, no client conversion. */
+    R32UI(4, 1, Kind.UINT),
+    R32I(4, 1, Kind.SINT);
 
-    public enum Kind { UNORM8, HALF, FLOAT, DEPTH, DEPTH_STENCIL }
+    public enum Kind { UNORM8, HALF, FLOAT, DEPTH, DEPTH_STENCIL, UINT, SINT }
 
     public final int bytesPerPixel;
     public final int channels;
@@ -53,6 +56,8 @@ public enum TexFormat {
             case GL_RGBA32F, GL_RGB32F -> RGBA32F;
             case GL_DEPTH_COMPONENT, GL_DEPTH_COMPONENT16, GL_DEPTH_COMPONENT24, GL_DEPTH_COMPONENT32, GL_DEPTH_COMPONENT32F -> DEPTH32F;
             case GL_DEPTH_STENCIL, GL_DEPTH24_STENCIL8, GL_DEPTH32F_STENCIL8 -> DEPTH32F_STENCIL8;
+            case GL_R32UI -> R32UI;
+            case GL_R32I -> R32I;
             default -> null;
         };
     }
