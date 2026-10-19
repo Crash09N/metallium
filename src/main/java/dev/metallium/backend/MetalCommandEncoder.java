@@ -958,6 +958,13 @@ final class MetalCommandEncoder implements CommandEncoderBackend {
             while (it.hasNext() && count < group.length) {
                 Map.Entry<MetalGpuTexture, Vector4fc> entry = it.next();
                 MetalGpuTexture other = entry.getKey();
+                if (other.isClosed()) {
+                    // A clear recorded for a texture that was closed before anything used it (e.g. a shader pack
+                    // reload recreating its render targets): nothing to clear any more.
+                    it.remove();
+                    pendingDepthClears.remove(other);
+                    continue;
+                }
                 if (!isPlain2D(other) || other.getWidth(0) != width || other.getHeight(0) != height
                         || pendingDepthClears.containsKey(other)) {
                     continue;
