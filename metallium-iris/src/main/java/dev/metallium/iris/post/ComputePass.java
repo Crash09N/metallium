@@ -83,6 +83,8 @@ final class ComputePass implements AutoCloseable {
         PostUniforms.Block block = null;
         try {
             ComputeTranslator.Kernel kernel = ComputeTranslator.toMsl(stage);
+            dev.metallium.shaders.ShaderDump.write(name, "csh.glsl", glsl);
+            dev.metallium.shaders.ShaderDump.write(name, "metal", kernel.msl());
             for (Resource resource : kernel.resources()) {
                 if (resource.kind() == Kind.UNIFORM_BUFFER && !resource.defaultBlock()) {
                     throw new PostProgram.UnsupportedProgramException("uniform block '" + resource.name() + "' (explicit UBOs are not supported yet)");

@@ -5,6 +5,7 @@ import com.mojang.renderpearl.api.commands.RenderPass;
 import com.mojang.renderpearl.api.commands.RenderPassDescriptor;
 import com.mojang.renderpearl.api.pipeline.CompiledRenderPipeline;
 import com.mojang.renderpearl.api.pipeline.RenderPipeline;
+import com.mojang.renderpearl.api.textures.GpuTextureView;
 import dev.metallium.api.MetalliumRuntime;
 import net.minecraft.client.Minecraft;
 import org.jspecify.annotations.Nullable;
@@ -53,6 +54,7 @@ public final class GbufferPasses {
         if (active == pipeline) {
             active = null;
             capturedPass = null;
+            capturedBound = null;
             lastRetargeted = null;
         }
     }
@@ -109,6 +111,7 @@ public final class GbufferPasses {
     public static void closed(final RenderPass pass) {
         if (pass == capturedPass) {
             capturedPass = null;
+            capturedBound = null;
         }
     }
 
@@ -129,8 +132,26 @@ public final class GbufferPasses {
     public static void afterSetPipeline(final RenderPass pass, final CompiledRenderPipeline bound) {
         MetalPostPipeline owner = active;
         if (owner != null && pass == capturedPass) {
+            capturedBound = bound;
             owner.bindGbufferResources(pass, bound);
         }
+    }
+
+    /** The pack program bound last on the captured pass (for uniforms that change with the albedo texture). */
+    @Nullable
+    private static CompiledRenderPipeline capturedBound;
+
+    /**
+     * {@code FrontendRenderPass#setUniform(String, GpuTextureView, GpuSampler)} HEAD: Iris's own hook
+     * ({@code MixinGlRenderPass}) only feeds {@code IrisRenderingPipeline}; the Metal pipeline needs the albedo texture
+     * for {@code atlasSize} as well.
+     */
+    public static void textureBound(final RenderPass pass, final String name, @Nullable final GpuTextureView view) {
+        MetalPostPipeline owner = active;
+        if (owner == null || view == null || !("Sampler0".equals(name) || "u_BlockTex".equals(name))) {
+            return;
+        }
+        owner.albedoBound(pass, view, pass == capturedPass ? capturedBound : null);
     }
 
     static List<CompiledRenderPipeline> knownCompiled() {
