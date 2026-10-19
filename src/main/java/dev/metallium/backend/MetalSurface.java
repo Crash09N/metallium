@@ -46,13 +46,14 @@ import java.util.concurrent.locks.LockSupport;
 
 @Environment(EnvType.CLIENT)
 final class MetalSurface implements GpuSurfaceBackend {
-    /** VSync-off present pacing, -Dmetallium.present.pacing: "refresh" (default), "handler" (old default) or "gpu". */
-    private static final String PACING = System.getProperty("metallium.present.pacing", "refresh");
+    /** VSync-off present pacing, -Dmetallium.present.pacing: "handler" (default), "refresh", "rate" or "gpu". */
+    private static final String PACING = System.getProperty("metallium.present.pacing", "handler");
     private static final boolean GPU_PACING = "gpu".equals(PACING);
-    private static final boolean HANDLER_PACING = "handler".equals(PACING);
-    /** Refresh pacing: presents per display refresh at most (long-run average), -Dmetallium.present.rate. */
+    /** "refresh": like "handler", plus a second present in flight once 3/4 of a refresh period passed since the last. */
+    private static final boolean REFRESH_PACING = "refresh".equals(PACING);
+    /** "rate": time budget of -Dmetallium.present.rate presents per refresh, up to maxInFlight unreported presents. */
+    private static final boolean RATE_PACING = "rate".equals(PACING);
     private static final double PRESENT_RATE = Double.parseDouble(System.getProperty("metallium.present.rate", "1.0"));
-    /** Refresh pacing: presents not yet reported by their presented handler, at most (= CAMetalLayer drawables). */
     private static final int MAX_PRESENTS_IN_FLIGHT = Integer.getInteger("metallium.present.maxInFlight", 3);
     private static final long PRESENT_PENDING_TIMEOUT_NS = 100_000_000L;
     private static final Set<GpuSurface.PresentMode> SUPPORTED_PRESENT_MODES = EnumSet.of(GpuSurface.PresentMode.IMMEDIATE, GpuSurface.PresentMode.FIFO, GpuSurface.PresentMode.MAILBOX);
@@ -165,10 +166,13 @@ final class MetalSurface implements GpuSurfaceBackend {
         boolean ready;
         if (GPU_PACING) {
             ready = metalEncoder.previousPresentCompleted() && now - this.lastPresentNs >= this.refreshPeriodNs / 2;
-        } else if (HANDLER_PACING) {
-            ready = this.presentsInFlight.get() < 1 || now - this.lastPresentNs >= PRESENT_PENDING_TIMEOUT_NS;
-        } else {
+        } else if (RATE_PACING) {
             ready = now >= this.nextPresentNs && this.presentsInFlight.get() < MAX_PRESENTS_IN_FLIGHT;
+        } else {
+            int inFlight = this.presentsInFlight.get();
+            long sinceLast = now - this.lastPresentNs;
+            ready = inFlight < 1 || sinceLast >= PRESENT_PENDING_TIMEOUT_NS
+                    || REFRESH_PACING && inFlight < 2 && sinceLast >= this.refreshPeriodNs * 3 / 4;
         }
         if (!ready) {
             if (drawable != null) {

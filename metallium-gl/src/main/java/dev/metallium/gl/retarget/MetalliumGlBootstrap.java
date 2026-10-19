@@ -157,7 +157,9 @@ public final class MetalliumGlBootstrap {
                 + dev.metallium.gl.GlCompute.INDIRECT_COUNT_SUM.get() + "; MDI-count as ICB=" + dev.metallium.gl.metal.MetalGlDevice.ICB_CALLS.get()
                 + ", per-slot fallback=" + dev.metallium.gl.metal.MetalGlDevice.SLOT_FALLBACK_CALLS.get()
                 + " (" + dev.metallium.gl.metal.MetalGlDevice.SLOT_FALLBACK_DRAWS.get() + " CPU draws); indirect encode CPU ms="
-                + dev.metallium.gl.metal.MetalGlDevice.INDIRECT_ENCODE_NS.get() / 1_000_000 + ")";
+                + dev.metallium.gl.metal.MetalGlDevice.INDIRECT_ENCODE_NS.get() / 1_000_000 + "); GPU waits="
+                + dev.metallium.gl.metal.MetalGlDevice.GPU_WAITS.get() + " (" + dev.metallium.gl.metal.MetalGlDevice.GPU_WAIT_NS.get() / 1_000_000
+                + " ms); " + dev.metallium.gl.metal.MetalGlDevice.icbPoolStats();
     }
 
     public static int retargetedClasses() {

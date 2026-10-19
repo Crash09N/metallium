@@ -258,6 +258,24 @@ public final class MetalGlDevice implements GlDevice {
     /** CPU-encoded draws of the per-slot fallback (one per maxdrawcount slot), and CPU time spent in drawIndirect. */
     public static final java.util.concurrent.atomic.AtomicLong SLOT_FALLBACK_DRAWS = new java.util.concurrent.atomic.AtomicLong();
     public static final java.util.concurrent.atomic.AtomicLong INDIRECT_ENCODE_NS = new java.util.concurrent.atomic.AtomicLong();
+    /** Mid-frame submit-and-wait (readbacks, glFinish, waiting fences of the frame being recorded) and time spent in them. */
+    public static final java.util.concurrent.atomic.AtomicLong GPU_WAITS = new java.util.concurrent.atomic.AtomicLong();
+    public static final java.util.concurrent.atomic.AtomicLong GPU_WAIT_NS = new java.util.concurrent.atomic.AtomicLong();
+
+    /** Indirect-command-buffer pool state (diagnostics). */
+    public static String icbPoolStats() {
+        return IndirectCountDraws.stats();
+    }
+
+    private boolean submitAndWait() {
+        long start = System.nanoTime();
+        try {
+            return host.submitAndWait();
+        } finally {
+            GPU_WAITS.incrementAndGet();
+            GPU_WAIT_NS.addAndGet(System.nanoTime() - start);
+        }
+    }
 
     /** -Dmetallium.gl.icbTextures=false:textured MDI-count draws use the per-slot fallback (A/B benchmark). */
     private static final boolean ICB_TEXTURES = !"false".equals(System.getProperty("metallium.gl.icbTextures"));
@@ -1320,7 +1338,7 @@ public final class MetalGlDevice implements GlDevice {
     public boolean readBuffer(final BufferStore source, final long offset, final ByteBuffer out) {
         endEncoders();
         commandBuffer = null;
-        if (!host.submitAndWait()) {
+        if (!submitAndWait()) {
             return false;
         }
         ((MetalBuffer) source).lastUse = null;
@@ -1348,7 +1366,7 @@ public final class MetalGlDevice implements GlDevice {
         }
         endEncoders();
         commandBuffer = null;
-        boolean ok = host.submitAndWait();
+        boolean ok = submitAndWait();
         if (ok) {
             MemoryUtil.memCopy(MemoryUtil.memAddress(ObjC.byteBufferView(readback.contents(), size)), MemoryUtil.memAddress(out), size);
         }
@@ -1690,7 +1708,7 @@ public final class MetalGlDevice implements GlDevice {
                 readback, 0, (long) width * 4, size);
         endEncoders();
         commandBuffer = null;
-        if (!host.submitAndWait()) {
+        if (!submitAndWait()) {
             readback.release();
             return false;
         }
@@ -1744,7 +1762,7 @@ public final class MetalGlDevice implements GlDevice {
     public boolean finish() {
         endEncoders();
         commandBuffer = null;
-        return host.submitAndWait();
+        return submitAndWait();
     }
 
     // ---------------------------------------------------------------------------------------------- GL → Metal enums

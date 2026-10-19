@@ -143,6 +143,8 @@ loom.runs.clientGameTest {
 	// -PglMods=voxy (with -PwithGl): retarget these mods' GL calls to metallium-gl; -PglFailFast=false logs instead of throwing.
 	if (project.hasProperty('glMods')) vmArg "-Dmetallium.gl.mods=${project.property('glMods')}"
 	if (project.hasProperty('glFailFast')) vmArg "-Dmetallium.gl.failFast=${project.property('glFailFast')}"
+	// -PvoxyFullscreen: the Voxy scenario also toggles fullscreen on and off after its window resizes.
+	if (project.hasProperty('voxyFullscreen')) vmArg '-Dmetallium.gametest.voxyFullscreen=true'
 	// -PglTrace=N [-PglTraceAfter=S]: log N metallium-gl device operations after S seconds (diagnostics).
 	if (project.hasProperty('glTrace')) vmArg "-Dmetallium.gl.trace=${project.property('glTrace')}"
 	if (project.hasProperty('glTraceAfter')) vmArg "-Dmetallium.gl.traceAfter=${project.property('glTraceAfter')}"
@@ -166,6 +168,8 @@ loom.runs.clientGameTest {
 	if (project.hasProperty('benchBiome')) vmArg "-Dmetallium.bench.biome=${project.property('benchBiome')}"
 	// -PbenchWindow=2560x1440: benchmark window size (default: the game test's 854x480).
 	if (project.hasProperty('benchWindow')) vmArg "-Dmetallium.bench.window=${project.property('benchWindow')}"
+	// -PbenchFpsLimit=165: Minecraft's frame limiter during the benchmark (10-259; default unlimited).
+	if (project.hasProperty('benchFpsLimit')) vmArg "-Dmetallium.bench.fpsLimit=${project.property('benchFpsLimit')}"
 	// -PbenchVsync: run the benchmark with VSync on (default off) to compare presented vs rendered frames.
 	if (project.hasProperty('benchVsync')) vmArg '-Dmetallium.bench.vsync=true'
 	// -PbenchDisplay=<index or name substring>: display for the benchmark window (default: highest refresh rate).

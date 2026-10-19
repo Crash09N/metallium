@@ -163,7 +163,8 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
         context.runOnClient(client -> {
             client.options.enableVsync().set(BENCH_VSYNC);
             line("bench display: " + moveToBenchDisplay(client));
-            client.options.framerateLimit().set(260); // 260 = unlimited
+            // 260 = unlimited; -Dmetallium.bench.fpsLimit=N emulates a heavier client's frame time (present pacing tests).
+            client.options.framerateLimit().set(Integer.getInteger("metallium.bench.fpsLimit", 260));
             client.options.chunkSectionFadeInTime().set(0.0);
             // Vanilla drops to 30 fps when there is no input for a while ("AFK"); a benchmark has no input.
             client.options.inactivityFpsLimit().set(net.minecraft.client.InactivityFpsLimit.MINIMIZED);
@@ -316,7 +317,7 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
             line(String.format("bench: rendered frames counted=%d in %.1f s (per rendered frame via HUD hook)", frameMs.size(), seconds));
             line(String.format(java.util.Locale.ROOT,
                     "bench-present: vsync=%s pacing=%s display_refresh_hz=%.1f rendered_fps=%.1f submitted_fps=%.1f presented_fps=%.1f displayed_fps=%.1f dropped=%d skipped=%d present_latency_ms=%.1f window=%s (Metal surface counters; 0 on OpenGL)",
-                    BENCH_VSYNC, System.getProperty("metallium.present.pacing", "refresh"), refreshHz, frameMs.size() / seconds, (present1[0] - present0[0]) / seconds, (present1[1] - present0[1]) / seconds,
+                    BENCH_VSYNC, System.getProperty("metallium.present.pacing", "handler"), refreshHz, frameMs.size() / seconds, (present1[0] - present0[0]) / seconds, (present1[1] - present0[1]) / seconds,
                     (present1[4] - present0[4]) / seconds, present1[2] - present0[2], present1[3] - present0[3],
                     (present1[5] - present0[5]) / 1e6 / Math.max(1, (present1[1] + present1[2]) - (present0[1] + present0[2])),
                     String.join("|", windowStates)));
@@ -1363,6 +1364,7 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
             clearChat(context);
             checkTerrainVisible(context.takeScreenshot("metallium-voxy-lods-rd4"), "voxy LODs (vanilla rd 4)");
             measure(context, "voxy rd4");
+            voxyResize(context);
             physicsInWorld(context, world, "voxy");
             tryCommand(world, "tp @a 0 220 0 210 30");
             context.waitTicks(200);
@@ -1502,6 +1504,31 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
      * macOS arm64: Voxy's RocksDB / LWJGL zstd natives must come from the metallium-voxy-natives addon (no Maven natives on
      * the game-test classpath any more) and RocksDB must have loaded its JNI library once Voxy opened its world storage.
      */
+    /**
+     * Window resizes while Voxy renders (owner's crash 2026-10-19 on toggling fullscreen: Voxy re-creates its
+     * framebuffer textures and checks completeness while an unbound framebuffer still references deleted ones). Any
+     * GL error there throws in Voxy and ends the test. -Dmetallium.gametest.voxyFullscreen=true also toggles fullscreen.
+     */
+    private void voxyResize(ClientGameTestContext context) {
+        int[][] sizes = {{1280, 720}, {1000, 562}, {854, 480}};
+        for (int[] size : sizes) {
+            context.runOnClient(client -> client.getWindow().setWindowed(size[0], size[1]));
+            context.waitTicks(40);
+            line("voxy resize: framebuffer " + context.computeOnClient(c -> c.getWindow().getWidth() + "x" + c.getWindow().getHeight())
+                    + " after setWindowed(" + size[0] + "x" + size[1] + ")");
+        }
+        if (Boolean.getBoolean("metallium.gametest.voxyFullscreen")) {
+            for (boolean fullscreen : new boolean[]{true, false}) {
+                context.runOnClient(client -> client.getWindow().setFullscreen(fullscreen));
+                context.waitTicks(60);
+                line("voxy resize: fullscreen=" + fullscreen + ", framebuffer " + context.computeOnClient(c -> ""
+                        + c.getWindow().getWidth() + "x" + c.getWindow().getHeight()));
+            }
+        }
+        checkTerrainVisible(context.takeScreenshot("metallium-voxy-after-resize"), "voxy LODs after window resizes");
+        line("voxy resize: " + glSummary());
+    }
+
     private void voxyNativesCheck(String status) {
         if (!dev.metallium.compat.voxy.VoxyNatives.isMacArm64()) {
             line("voxy natives: not macOS arm64, skipped");

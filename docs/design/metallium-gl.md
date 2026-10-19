@@ -230,7 +230,7 @@ descriptor) plus Minecraft OpenGL-backend internals. Before step 2, **106** of t
   `DrawElementsIndirectCommand`s and the GPU-written count and encodes an `MTLIndirectCommandBuffer` (indexed draws;
   commands ≥ count or with 0 instances are reset); the render encoder executes it with inherited pipeline and buffers
   (pipelines get `supportIndirectCommandBuffers`). No CPU readback, CPU cost independent of the draw count; one ICB per
-  call per frame (pooled). Rejected alternative: zeroing `instanceCount` and encoding `maxdrawcount` indirect draws on the
+  call per frame, pooled in power-of-two size classes (§12.6). Rejected alternative: zeroing `instanceCount` and encoding `maxdrawcount` indirect draws on the
   CPU (100k draw calls per frame for Voxy). Plain indirect draws use Metal's `drawIndexedPrimitives(indirectBuffer)`
   (identical argument layout). `gl_InstanceID` is fixed to exclude the base instance (Metal's `[[instance_id]]` includes
   it) for GL-semantics programs.
@@ -340,6 +340,31 @@ pack in the DH / Voxy / Bobby scenarios):
 | Physics Mod 3.2.5 + Voxy + Sodium | PASS; brick debris, zombie ragdoll and TNT on Metal with Voxy running (3 routed mods, 0 unimplemented GL functions) |
 | Iris + Voxy (Complementary Reimagined) | runs, no errors; Voxy draws, but the pack fogs everything beyond the vanilla distance: Voxy's Iris integration (`IrisVoxyRenderPipeline`, pack `voxy_*.glsl` programs) hooks Iris's GL pipeline, which metallium-iris replaces — needs metallium-iris work |
 | DH + Iris (+ Physics Mod) | was a hang (DH forces its OpenGL renderer when Iris is present; on Metal its start fails and the render thread waits forever). Fixed by `DhIrisEngineMixin` (Blaze3D stays). Now runs; LODs fogged by the pack ("2 DH programs are not executed yet on Metal"), physics debris works |
+
+### 12.6 Owner session fixes (2026-10-19: modpack + Voxy 0.2.20, 2560x1440 on the 144 Hz G5)
+
+- **Resize / fullscreen crash** (`GlFramebuffer.verify`: "Framebuffer incomplete with error code: 36054"). Voxy's
+  `NormalRenderPipeline.setup` deletes its colour textures, then `DepthFramebuffer.resize` re-creates the depth texture,
+  attaches it and checks completeness *before* the colour is re-attached. `glDeleteTextures` released the storage at
+  once, so the unbound framebuffer's colour attachment had none → `INCOMPLETE_ATTACHMENT`. GL keeps a deleted texture
+  or renderbuffer alive while a framebuffer that is not bound references it (deletion detaches it from the bound ones
+  only). Attachments are now reference-counted (`Texture.attachmentRefs` / `deletePending`); storage is released when
+  the last attachment drops it (re-attach, framebuffer deletion). Unit test
+  `GlContextTest.deletedTextureStaysAliveWhileAttachedToUnboundFramebuffer`; the Voxy game test now resizes the window
+  three times while Voxy renders (`-PvoxyFullscreen` also toggles fullscreen). With the fix reverted that game test
+  crashes with the owner's exact stack; with it, PASS and the LOD view is unchanged after the resizes.
+- **ICB churn**: the log had 154 ICB allocations / 6.1 million commands in 5 minutes. Capacities were rounded to
+  multiples of 1024, so every rise of Voxy's `maxdrawcount` (by ~1024 at a time while it loads) allocated two new ICBs
+  (frames in flight), and outgrown ones stayed pooled forever. `SizeClassPool`: power-of-two capacities, the smallest
+  fitting pooled ICB is reused once the GPU finished, ICBs idle for 512 acquisitions are freed; the compaction-fallback
+  scratch buffer (allocated per call before) uses the same pool. Voxy bench (2560x1440 windowed, rd 32 ingest then
+  rd 4): **16 ICB allocations in the whole run, none during the 30 s measurement, 6 alive (16 MiB)**; Metal allocated
+  size flat at 5128 MiB before and after the measurement. `diagnostics()` now reports ICBs alive / MiB / allocations,
+  the device's `currentAllocatedSize` and mid-frame GPU waits.
+- **Per-frame waits**: Voxy calls `glFinish` only when its upload/download streams are full (none in the owner's log)
+  and polls its fences; measured GPU waits: 22 in the whole Voxy bench (98 ms, all during loading), **0 during the
+  measurement**. So neither metallium-gl waits nor ICB allocation starve presents now; the remaining displayed-fps gap is
+  the core VSync-off present pacing (docs/STATUS.md).
 
 ## 12b. Engine objects behind Minecraft's GL backend types (Physics Mod GPU compute)
 
