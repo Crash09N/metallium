@@ -10,6 +10,7 @@
     "DrawBackendMixin",
     "EnumOptionMixin",
     "GLDrawBatchAccessor",
+    "GLDrawBatchDrawMixin",
     "MultiDrawBatchInvoker",
     "StatefulOptionMixin"
   ],
