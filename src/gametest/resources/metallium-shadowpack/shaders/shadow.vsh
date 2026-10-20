@@ -1,5 +1,5 @@
 #version 120
-// Metallium shadow test pack (Apache-2.0, written for Metallium's game tests): shadow casters from the sun's view.
+// Metallium shadow test pack (MIT, written for Metallium's game tests): shadow casters from the sun's view.
 varying vec2 texcoord;
 
 void main() {

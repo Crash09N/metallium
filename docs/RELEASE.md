@@ -14,11 +14,11 @@ The jar contains (jar-in-jar, `META-INF/jars/`):
 | Nested jar | Licence | Role |
 |---|---|---|
 | `metal-jvm-0.1.0.jar` | MIT (`LICENSES/MIT-metal-jvm.txt`) | Metal bindings |
-| `metallium-gl-<v>.jar` | Apache-2.0 | OpenGL to Metal translation for mods that call GL directly; only routes mods that need it |
+| `metallium-gl-<v>.jar` | MIT | OpenGL to Metal translation for mods that call GL directly; only routes mods that need it |
 | `metallium-iris-<v>.jar` | **LGPL-3.0** (own `LICENSE` + `SOURCE.txt` inside) | Iris shader-pack adapter; stays a separate jar so it can be replaced |
-| `metallium-voxy-natives-<v>.jar` | Apache-2.0 / BSD-3-Clause / OLDAP-2.8 (texts in its `META-INF/licenses/`) | Native files only (4.0 MB): the macOS arm64 RocksDB 10.2.1 and LWJGL 3.4.1 zstd/LMDB natives that Voxy's bundled libraries lack. Inert on other systems and without Voxy |
+| `metallium-voxy-natives-<v>.jar` | MIT (own packaging) + Apache-2.0 / BSD-3-Clause / OLDAP-2.8 (texts in its `META-INF/licenses/`) | Native files only (4.0 MB): the macOS arm64 RocksDB 10.2.1 and LWJGL 3.4.1 zstd/LMDB natives that Voxy's bundled libraries lack. Inert on other systems and without Voxy |
 
-The core (outer jar) is Apache-2.0. The LGPL adapter is never merged into the core jar; its corresponding source is the
+The core (outer jar) is MIT. The LGPL adapter is never merged into the core jar; its corresponding source is the
 `metallium-iris/` directory of this repository (see `NOTICE`, README "Credits & licenses", and `SOURCE.txt` in the nested jar).
 
 ## Install

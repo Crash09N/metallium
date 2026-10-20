@@ -1,5 +1,5 @@
 #version 430 core
-// Metallium compute test pack (Apache-2.0): shows what the compute passes produced.
+// Metallium compute test pack (MIT): shows what the compute passes produced.
 //   top 10 %, left third:   colortex3 from composite1.csh (green = counter, SSBO and .length() checks passed, red = failed)
 //   top 10 %, middle third: this fragment program reads SSBO 0 and the 3D custom image (green = both as expected)
 //   top 10 %, right third:  composite3.fsh shows colortex5, which this program writes through colorimg5 (green)

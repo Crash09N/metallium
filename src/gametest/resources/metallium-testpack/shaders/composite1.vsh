@@ -1,5 +1,5 @@
 #version 120
-// Metallium test pack (Apache-2.0, written for Metallium's game tests).
+// Metallium test pack (MIT, written for Metallium's game tests).
 varying vec2 texcoord;
 
 void main() {

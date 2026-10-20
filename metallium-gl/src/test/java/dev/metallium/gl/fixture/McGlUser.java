@@ -1,5 +1,6 @@
 /*
- * Copyright (c) 2026 Metallium contributors, licensed under the Apache License 2.0.
+ * SPDX-License-Identifier: MIT
+ * Copyright (c) 2026 Crash09N – NPR Media
  */
 package dev.metallium.gl.fixture;
 

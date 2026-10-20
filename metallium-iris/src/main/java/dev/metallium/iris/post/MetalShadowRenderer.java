@@ -2,7 +2,7 @@
  * Adapted from Iris's net.irisshaders.iris.shadows.ShadowRenderer (https://github.com/IrisShaders/Iris, branch 26.3),
  * Copyright (c) IrisShaders contributors, licensed under the GNU Lesser General Public License v3.0.
  * Modifications for Metallium's Metal backend (no OpenGL state, render passes retargeted by GbufferPasses):
- * Copyright (c) 2026 Metallium contributors, LGPL-3.0 (this module's licence).
+ * Copyright (c) 2026 Crash09N – NPR Media, LGPL-3.0 (this module's licence).
  */
 package dev.metallium.iris.post;
 

@@ -2,7 +2,7 @@ plugins {
 	id 'net.fabricmc.fabric-loom' version "${loom_version}"
 }
 
-// metallium-gl: OpenGL -> Metal translation layer for mods that call LWJGL's GL directly. Apache-2.0 like the core.
+// metallium-gl: OpenGL -> Metal translation layer for mods that call LWJGL's GL directly. MIT like the core.
 version = project.mod_version
 group = project.maven_group
 

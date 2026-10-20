@@ -1,12 +1,12 @@
 Metallium
-Copyright (c) 2026 Crash09N (https://github.com/Crash09N) and Metallium contributors
+Copyright (c) 2026 Crash09N – NPR Media (https://github.com/Crash09N)
 
-This product includes software developed by Crash09N for the Metallium project
-(https://github.com/Crash09N/metallium).
+Metallium's own code is released under the MIT License (see LICENSE). The only licence requirement is that the copyright
+and permission notice stay in copies of the code.
 
-Any redistribution or derivative work must retain this NOTICE file, or an equivalent
-attribution to Crash09N and the Metallium project, as required by section 4(d) of the
-Apache License, Version 2.0.
+Request (not a licence condition): if you use Metallium's code, ideas or documents, please credit "Crash09N – NPR Media"
+and the Metallium project (https://github.com/Crash09N/metallium), and let the author know by opening a GitHub issue
+titled "Used in: <your project>" on that repository.
 
 Third-party code included in this distribution:
 - Metallum (https://github.com/kokodio/metallum), Copyright (c) 2026 kokodio, MIT License
@@ -21,6 +21,7 @@ Third-party code included in this distribution:
   Central: RocksDB 10.2.1 (Apache-2.0, with LevelDB BSD code), LWJGL 3.4.1 zstd / LMDB bindings (BSD-3-Clause) containing
   Zstandard (BSD-3-Clause) and LMDB (OpenLDAP Public License 2.8). Licence texts and origins: META-INF/licenses/ in that jar.
 
-Release jar layout: the single installable jar bundles metal-jvm, metallium-gl (Apache-2.0), metallium-iris (LGPL-3.0) and
-metallium-voxy-natives (natives only) as separate nested jars (META-INF/jars/). The LGPL-3.0 Iris adapter is never merged into the Apache-2.0 core; its complete
-corresponding source is the metallium-iris/ directory of https://github.com/Crash09N/metallium (see SOURCE.txt in the nested jar).
+Release jar layout: the single installable jar bundles metal-jvm, metallium-gl (MIT), metallium-iris (LGPL-3.0) and
+metallium-voxy-natives (natives only) as separate nested jars (META-INF/jars/). The LGPL-3.0 Iris adapter is never merged into the
+MIT-licensed core; its complete corresponding source is the metallium-iris/ directory of
+https://github.com/Crash09N/metallium (see SOURCE.txt in the nested jar).

@@ -1,5 +1,5 @@
 #version 120
-// Metallium compute test pack (Apache-2.0): the right third of the top band shows colortex5, which composite2.fsh
+// Metallium compute test pack (MIT): the right third of the top band shows colortex5, which composite2.fsh
 // wrote through colorimg5 (image store from a fragment program); everything else passes colortex0 through.
 uniform sampler2D colortex0;
 uniform sampler2D colortex5;

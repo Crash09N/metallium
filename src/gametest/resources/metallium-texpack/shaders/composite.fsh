@@ -1,5 +1,5 @@
 #version 430 core
-// Metallium custom texture test pack (Apache-2.0): four checks in the middle band of the screen, one per quarter
+// Metallium custom texture test pack (MIT): four checks in the middle band of the screen, one per quarter
 // (green = pass, red = fail): PNG stage override, raw 3D texture, custom noise texture, size.buffer.
 uniform sampler2D colortex0;
 uniform sampler2D colortex5; // texture.composite.colortex5 = stripes.png (2x1: red, blue; nearest, repeat)

@@ -1,7 +1,8 @@
 /*
  * Portions of this file are derived from Metallum (https://github.com/kokodio/metallum),
  * Copyright (c) 2026 kokodio, licensed under the MIT License (see LICENSES/MIT-metallum.txt).
- * Modifications Copyright (c) 2026 Metallium contributors, licensed under the Apache License 2.0.
+ * Modifications Copyright (c) 2026 Crash09N – NPR Media, licensed under the MIT License.
+ * SPDX-License-Identifier: MIT
  */
 package dev.metallium.compat.sodium;
 
