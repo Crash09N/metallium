@@ -207,7 +207,7 @@ final class GbufferProgram implements AutoCloseable {
         String vertex = SODIUM_PUSH_CONSTANTS.matcher(spec.vertex).replaceAll("layout(push_constant) uniform iris_SodiumPushConstants");
         if (isPhysicsModPipeline(spec.source, available)) {
             String patched = physicsModInputs(vertex);
-            dev.metallium.iris.MetalliumIris.LOGGER.debug("[metallium-iris] {}: Physics Mod layout, atlas UVs/light {}", spec.name,
+            dev.metallium.iris.MetalliumIris.LOGGER.info("[metallium-iris] {}: Physics Mod layout, atlas UVs/light {}", spec.name,
                     patched.equals(vertex) ? "NOT patched (no iris_UV0 input): " + vertex.lines().filter(l -> l.contains("UV0") || l.contains("MultiTexCoord0")).toList() : "patched");
             vertex = patched;
         }
@@ -445,8 +445,11 @@ final class GbufferProgram implements AutoCloseable {
             return vertex;
         }
         String out = vertex.replace("iris_transforms.TextureMat", "mat4(1.0)");
-        out = UV0_INPUT.matcher(out).replaceAll("$1metallium_physicsUV0$2");
-        out = out.replaceAll("\\biris_UV0\\b", "(iris_transforms.TextureMat * vec4(metallium_physicsUV0, 0.0, 1.0)).xy");
+        // The input keeps its name: defaultMissingInputs and the vertex layout match inputs by name, a renamed input
+        // became the constant (0, 0) and every piece sampled one atlas texel (single-colour debris).
+        out = UV0_INPUT.matcher(out).replaceAll("$1metallium_physicsUV0_input$2");
+        out = out.replaceAll("\\biris_UV0\\b", "(iris_transforms.TextureMat * vec4(iris_UV0, 0.0, 1.0)).xy");
+        out = out.replace("metallium_physicsUV0_input", "iris_UV0");
         Matcher uv2 = UV2_INPUT.matcher(out);
         if (uv2.find()) {
             String type = uv2.group(1);
