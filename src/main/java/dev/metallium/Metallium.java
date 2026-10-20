@@ -10,9 +10,14 @@ public final class Metallium implements ClientModInitializer {
 
     @Override
     public void onInitializeClient() {
+        if (!MetalliumPlatform.supported()) {
+            return; // inert: MetalliumPlatform logged its single line, nothing else happens
+        }
         BackendSelection.logDecision();
-        dev.metallium.power.PowerManager.start();
-        dev.metallium.api.MetalliumRuntime.registerStatusLine(dev.metallium.power.PowerManager::statusLine);
+        if (BackendSelection.shouldOfferMetal()) {
+            dev.metallium.power.PowerManager.start(); // the power mode only caps FPS on Metal
+            dev.metallium.api.MetalliumRuntime.registerStatusLine(dev.metallium.power.PowerManager::statusLine);
+        }
         dev.metallium.compat.GlRouting.plan(); // scans mods (cached) and logs which ones call OpenGL directly
     }
 }

@@ -45,6 +45,16 @@ public final class MetalliumGlBootstrap {
             return;
         }
         installed = true;
+        if (!dev.metallium.MetalliumPlatform.supported()) {
+            optIn = OptInMods.none();
+            return; // unsupported platform: no hook, no routing, no status line, nothing written
+        }
+        if (!dev.metallium.BackendSelection.shouldOfferMetal()) {
+            // Metal is not used this session: route nothing (other mods, e.g. Voxy, run on real OpenGL untouched).
+            optIn = OptInMods.none();
+            MetalGLLog.LOGGER.info("[metallium-gl] inactive: Metal is not used this session; class loading is not hooked");
+            return;
+        }
         String failFast = System.getProperty("metallium.gl.failFast");
         MetalGLLog.setFailFast(failFast != null ? Boolean.parseBoolean(failFast) : FabricLoader.getInstance().isDevelopmentEnvironment());
         GlContext.setDeviceFactory(() -> new MetalGlDevice(new GameMetalHost()));

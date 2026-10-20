@@ -54,6 +54,13 @@ public final class MetalliumIris implements ClientModInitializer {
 
     @Override
     public void onInitializeClient() {
+        if (!dev.metallium.MetalliumPlatform.supported()) {
+            return; // unsupported platform: Metallium stays silent (one core log line)
+        }
+        if (!dev.metallium.BackendSelection.shouldOfferMetal()) {
+            LOGGER.info("[metallium-iris] inactive: Metal is not used this session; Iris runs its own OpenGL pipeline");
+            return;
+        }
         if (!dev.metallium.compat.IrisSupport.adapterUsable()) {
             LOGGER.info("[metallium-iris] inactive: {}", dev.metallium.compat.IrisSupport.problem());
             return;

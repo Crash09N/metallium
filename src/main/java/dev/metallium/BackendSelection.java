@@ -21,17 +21,25 @@ public final class BackendSelection {
 
     public static synchronized Decision decision() {
         if (decision == null) {
+            if (!MetalliumPlatform.supported()) {
+                // Inert platform: no crash guard, no config, no mod scan (nothing is read or written).
+                decision = new Decision(false, MetalliumPlatform.status().logLine());
+                return decision;
+            }
             decision = decide();
             dev.metallium.compat.CrashGuard.recordMetal(decision.offerMetal());
         }
         return decision;
     }
 
-    /** Whether the Metal choice makes sense on this machine (Apple Silicon macOS). */
+    /** Whether the Metal choice makes sense on this machine ({@link MetalliumPlatform#supported()}). */
     public static boolean metalSupported() {
-        String os = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
-        String arch = System.getProperty("os.arch", "").toLowerCase(Locale.ROOT);
-        return os.contains("mac") && (arch.equals("aarch64") || arch.equals("arm64"));
+        return MetalliumPlatform.supported();
+    }
+
+    /** Tests only: forgets the cached decision. */
+    public static synchronized void resetForTests() {
+        decision = null;
     }
 
     public static boolean shouldOfferMetal() {
@@ -39,6 +47,9 @@ public final class BackendSelection {
     }
 
     static void logDecision() {
+        if (!MetalliumPlatform.supported()) {
+            return; // MetalliumPlatform already logged its single line
+        }
         Decision d = decision();
         if (d.offerMetal()) {
             Metallium.LOGGER.info("[metallium] Metal backend enabled ({})", d.reason());
@@ -55,12 +66,10 @@ public final class BackendSelection {
         }
         boolean forced = override.equals("metal");
 
-        if (!metalSupported() && !forced) {
-            return new Decision(false, "not Apple Silicon macOS (" + System.getProperty("os.name") + ", " + System.getProperty("os.arch") + ")");
-        }
-
-        if (MetalliumConfig.INSTANCE.engine != MetalliumConfig.GraphicsEngine.METAL && !forced) {
-            return new Decision(false, "Graphics Engine is " + MetalliumConfig.INSTANCE.engine + " in config/metallium.json");
+        MetalliumConfig.GraphicsEngine engine = effectiveEngine(MetalliumConfig.INSTANCE.engine, MetalliumConfig.INSTANCE.syncedVanillaApi,
+                System.getProperty("metallium.engine", "").isBlank() ? vanillaApiFromOptionsFile() : null);
+        if (engine != MetalliumConfig.GraphicsEngine.METAL && !forced) {
+            return new Decision(false, "Graphics Engine is " + engine);
         }
 
         if (!forced) {
@@ -90,6 +99,49 @@ public final class BackendSelection {
         }
 
         return new Decision(true, forced ? "forced by -D" + PROPERTY + "=metal" : "Apple Silicon macOS");
+    }
+
+    /**
+     * The Graphics Engine this session will use, decided before vanilla loads options.txt (mixins and metallium-gl need
+     * it at class-load time). Same rule as {@link EngineSync#syncOnLoad}: a vanilla Graphics API value the player
+     * changed since the last sync wins over Metallium's config. Pure (unit-tested).
+     *
+     * @param vanillaApi vanilla's {@code preferredGraphicsBackend} enum name (DEFAULT/OPENGL/VULKAN), null if unknown
+     */
+    static MetalliumConfig.GraphicsEngine effectiveEngine(final MetalliumConfig.GraphicsEngine configured, final String synced, final String vanillaApi) {
+        if (vanillaApi == null) {
+            return configured;
+        }
+        MetalliumConfig.GraphicsEngine fromVanilla = switch (vanillaApi) {
+            case "DEFAULT" -> MetalliumConfig.GraphicsEngine.METAL;
+            case "OPENGL" -> MetalliumConfig.GraphicsEngine.OPENGL;
+            case "VULKAN" -> MetalliumConfig.GraphicsEngine.VULKAN;
+            default -> null;
+        };
+        if (fromVanilla == null) {
+            return configured;
+        }
+        boolean changedByUser = synced != null ? !synced.equals(vanillaApi)
+                : configured == MetalliumConfig.GraphicsEngine.METAL && fromVanilla != MetalliumConfig.GraphicsEngine.METAL;
+        return changedByUser ? fromVanilla : configured;
+    }
+
+    /** Vanilla's Graphics API from options.txt ({@code preferredGraphicsBackend:"opengl"}), as enum name; null if absent. */
+    private static String vanillaApiFromOptionsFile() {
+        try {
+            java.nio.file.Path options = FabricLoader.getInstance().getGameDir().resolve("options.txt");
+            if (!java.nio.file.Files.isRegularFile(options)) {
+                return null;
+            }
+            for (String line : java.nio.file.Files.readAllLines(options)) {
+                if (line.startsWith("preferredGraphicsBackend:")) {
+                    return line.substring(line.indexOf(':') + 1).replace("\"", "").trim().toUpperCase(Locale.ROOT);
+                }
+            }
+        } catch (java.io.IOException | RuntimeException e) {
+            Metallium.LOGGER.warn("[metallium] could not read options.txt early: {}", e.toString());
+        }
+        return null;
     }
 
     public record Decision(boolean offerMetal, String reason) {

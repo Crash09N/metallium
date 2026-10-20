@@ -16,6 +16,9 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 abstract class FramerateLimitTrackerMixin {
     @Inject(method = "getFramerateLimit", at = @At("RETURN"), cancellable = true)
     private void metallium$powerCap(final CallbackInfoReturnable<Integer> cir) {
+        if (!dev.metallium.api.MetalliumRuntime.isMetalActive()) {
+            return; // Metal device creation failed and vanilla fell back: no Metallium behaviour on OpenGL
+        }
         int cap = PowerManager.fpsCap();
         if (cap > 0 && cir.getReturnValueI() > cap) {
             cir.setReturnValue(cap);
