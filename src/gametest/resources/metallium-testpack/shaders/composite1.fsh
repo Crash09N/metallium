@@ -1,5 +1,5 @@
 #version 120
-// Metallium test pack (Apache-2.0, written for Metallium's game tests): checks a pack blend override on a fullscreen
+// Metallium test pack (MIT, written for Metallium's game tests): checks a pack blend override on a fullscreen
 // pass (shaders.properties: blend.composite1=SRC_ALPHA ZERO ONE ZERO). The pass outputs twice the (already inverted)
 // colour with alpha 0.5; only with that blend state does the target receive the colour unchanged (0.5 * 2 * colour,
 // destination ignored). Without blending the image would be twice as bright, which fails the inverted-pixel check.

@@ -22,7 +22,7 @@ dependencies {
 
 	include(implementation("io.github.kokodio:metal-jvm:${project.metal_jvm_version}"))
 
-	// Release jar: metallium-gl (Apache-2.0) and the Iris adapter (LGPL-3.0, stays a separate nested jar) are jar-in-jar.
+	// Release jar: metallium-gl (MIT) and the Iris adapter (LGPL-3.0, stays a separate nested jar) are jar-in-jar.
 	// Both are inert unless needed (see IrisSupport / GlRouting), so the one jar is safe to install anywhere.
 	include project(':metallium-gl')
 	include project(':metallium-iris')

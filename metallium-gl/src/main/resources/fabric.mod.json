@@ -4,11 +4,9 @@
   "version": "${version}",
   "name": "Metallium GL",
   "description": "OpenGL to Metal translation layer: runs the raw OpenGL calls of opted-in mods on Metallium's Metal backend.",
-  "authors": ["Metallium contributors"],
-  "contact": {
-    "sources": "https://github.com/Crash09N/metallium"
-  },
-  "license": "Apache-2.0",
+  "authors": ["Crash09N – NPR Media"],
+  "contact": {"homepage": "https://github.com/Crash09N/metallium", "sources": "https://github.com/Crash09N/metallium", "issues": "https://github.com/Crash09N/metallium/issues"},
+  "license": "MIT",
   "environment": "client",
   "entrypoints": {
     "preLaunch": ["dev.metallium.gl.retarget.MetalliumGlPreLaunch"]
@@ -17,5 +15,10 @@
   "depends": {
     "metallium": "*",
     "minecraft": "~26.3"
+  },
+  "custom": {
+    "modmenu": {
+      "parent": "metallium"
+    }
   }
 }

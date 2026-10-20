@@ -4,12 +4,10 @@
   "version": "${version}",
   "name": "Metallium",
   "description": "Metal rendering backend for Minecraft on Apple Silicon. Runs vanilla, Sodium and Fabric rendering mods on Metal.",
-  "authors": ["Metallium contributors"],
+  "authors": ["Crash09N – NPR Media"],
+  "contact": {"homepage": "https://github.com/Crash09N/metallium", "sources": "https://github.com/Crash09N/metallium", "issues": "https://github.com/Crash09N/metallium/issues"},
   "contributors": ["Based on Metallum by kokodio (MIT)"],
-  "contact": {
-    "sources": "https://github.com/Crash09N/metallium"
-  },
-  "license": "Apache-2.0",
+  "license": "MIT",
   "icon": "assets/metallium/icon.png",
   "environment": "client",
   "entrypoints": {

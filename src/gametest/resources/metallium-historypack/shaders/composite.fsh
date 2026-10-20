@@ -1,5 +1,5 @@
 #version 120
-// Metallium history test pack (Apache-2.0, written for Metallium's game tests): writes the same test pattern (left
+// Metallium history test pack (MIT, written for Metallium's game tests): writes the same test pattern (left
 // half red, right half blue) into colortex4 and colortex6. composite1 copies colortex6 once more, so composite2 reads
 // colortex4 from its alt texture and colortex6 from its main texture (Iris's ping-pong buffers).
 varying vec2 texcoord;

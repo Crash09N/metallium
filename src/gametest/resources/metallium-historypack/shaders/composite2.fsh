@@ -1,5 +1,5 @@
 #version 330 compatibility
-// Metallium history test pack (Apache-2.0): checks in the top 10 % of the screen (green = pass, red = fail), in four
+// Metallium history test pack (MIT): checks in the top 10 % of the screen (green = pass, red = fail), in four
 // columns:
 //   1. the mip chain of colortex4 (read from its alt texture): level 4 left of centre is red, the 1x1 level purple
 //   2. the same for colortex6 (read from its main texture)

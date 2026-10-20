@@ -1,5 +1,5 @@
 #version 430
-// Metallium compute test pack (Apache-2.0): runs once after pipeline creation and stores the marker colour in SSBO 0.
+// Metallium compute test pack (MIT): runs once after pipeline creation and stores the marker colour in SSBO 0.
 layout(local_size_x = 1) in;
 const ivec3 workGroups = ivec3(1, 1, 1);
 

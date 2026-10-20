@@ -1,5 +1,5 @@
 #version 430 core
-// Metallium custom texture test pack (Apache-2.0): more than 16 textures in one pass (Metal has 16 sampler states per
+// Metallium custom texture test pack (MIT): more than 16 textures in one pass (Metal has 16 sampler states per
 // stage; Bliss's composite4 uses 20). The bottom band turns green if all of them read as expected, red otherwise.
 uniform sampler2D colortex0;
 uniform sampler2D colortex1;  // never written: Iris clears colortex1 to white

@@ -1,5 +1,5 @@
 #version 120
-// Metallium shadow test pack (Apache-2.0, written for Metallium's game tests): every terrain/entity pixel is projected
+// Metallium shadow test pack (MIT, written for Metallium's game tests): every terrain/entity pixel is projected
 // into the shadow map; pixels in shadow become magenta (the game test counts them), lit pixels keep their colour.
 // shadowtex0 is a sampler2DShadow with hardware filtering, i.e. a depth-compare sampler on Metal.
 const int shadowMapResolution = 2048;

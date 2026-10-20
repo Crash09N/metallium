@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2026 Metallium contributors, LGPL-3.0 (this module's licence).
+ * Copyright (c) 2026 Crash09N – NPR Media, LGPL-3.0 (this module's licence).
  */
 package dev.metallium.iris.post;
 

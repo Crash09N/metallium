@@ -1,5 +1,5 @@
 #version 120
-// Metallium shadow test pack (Apache-2.0, written for Metallium's game tests): writes shadow depth (and a white
+// Metallium shadow test pack (MIT, written for Metallium's game tests): writes shadow depth (and a white
 // shadowcolor0); cutout pixels are discarded so leaves cast leaf-shaped shadows.
 const int shadowMapResolution = 2048;
 const float shadowDistance = 96.0;

@@ -1,5 +1,5 @@
 #version 430
-// Metallium compute test pack (Apache-2.0): a compute-only pass (no composite1.fsh). Checks that composite.csh ran for
+// Metallium compute test pack (MIT): a compute-only pass (no composite1.fsh). Checks that composite.csh ran for
 // every pixel (atomic counter), that the setup pass filled the SSBO and that .length() of its runtime array is right,
 // then paints colortex3 green (all good) or red. workGroupsRender: one thread per pixel.
 layout(local_size_x = 16, local_size_y = 16) in;

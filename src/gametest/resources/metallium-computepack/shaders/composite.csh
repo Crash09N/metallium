@@ -1,5 +1,5 @@
 #version 430
-// Metallium compute test pack (Apache-2.0): one thread per pixel (default work groups). The left half of colortex2
+// Metallium compute test pack (MIT): one thread per pixel (default work groups). The left half of colortex2
 // gets the SSBO marker colour through colorimg2; every pixel counts itself in the custom image with an atomic add.
 layout(local_size_x = 8, local_size_y = 8) in;
 
