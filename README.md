@@ -84,6 +84,9 @@ Note: the Iris adapter in `metallium-iris/` is LGPL-3.0 (it adapts Iris); its ow
 Metallium stands on the work of the projects below. This list states exactly **how** each one is used, because not every
 project's code may legally be copied. Rows will be updated whenever code is actually reused.
 
+**Test modpack:** Crash09N – NPR Media. The real-world modpack (~146 mods) that Metallium was stress-tested,
+benchmarked and release-checked against.
+
 ### Required at runtime (installed alongside Metallium, unmodified — not bundled, not copied)
 
 | Project | Authors | License | Role |
