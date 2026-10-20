@@ -44,6 +44,11 @@ public final class MetalliumConfig {
      */
     public boolean irisHideMacOs = true;
     /**
+     * Safety net: while a shader pack renders through the Metal Iris adapter, Voxy's LOD rendering is skipped (its
+     * shader-pack integration needs Iris's OpenGL pipeline and draws stripes / fire textures). Set to false to test.
+     */
+    public boolean voxySuppressWithShaders = true;
+    /**
      * Answers to "this mod needs OpenGL" ({@code dev.metallium.compat.OpenGlRequirements}), by mod id. Missing = ask
      * before the next title screen (and use OpenGL until answered).
      */

@@ -66,6 +66,9 @@ public final class MetalliumIris implements ClientModInitializer {
             return;
         }
         LOGGER.info("[metallium-iris] Iris adapter loaded (work in progress)");
+        // Voxy's shader integration needs Iris's OpenGL pipeline: core pauses Voxy's LODs while a pack renders on Metal.
+        dev.metallium.compat.voxy.VoxyCompat.registerShaderPackProbe(() ->
+                net.irisshaders.iris.Iris.getPipelineManager().getPipelineNullable() instanceof dev.metallium.iris.post.MetalPostPipeline);
         dev.metallium.api.MetalliumRuntime.registerStatusLine(MetalliumIris::statusLine);
         dev.metallium.api.MetalliumRuntime.registerStatusLine(MetalliumIris::problemsLine);
     }

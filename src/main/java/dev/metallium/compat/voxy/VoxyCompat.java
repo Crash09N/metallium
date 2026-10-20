@@ -1,6 +1,7 @@
 package dev.metallium.compat.voxy;
 
 import dev.metallium.Metallium;
+import dev.metallium.MetalliumConfig;
 import dev.metallium.api.MetalliumRuntime;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.ChatFormatting;
@@ -15,6 +16,13 @@ public final class VoxyCompat {
     public static final String MESSAGE = "Voxy needs OpenGL 4.6 and is disabled on Metal (metallium-gl runs it on Metal: see Metallium's status screen)";
     private static boolean noticeShown;
     private static boolean disabledForNatives;
+
+    public static final String SHADER_PAUSE_MESSAGE = "Voxy's far terrain is paused while a shader pack is active (not supported on Metal yet)";
+    private static volatile java.util.function.BooleanSupplier shaderPackProbe = () -> false;
+    private static final java.util.concurrent.atomic.AtomicLong renderCalls = new java.util.concurrent.atomic.AtomicLong();
+    private static final java.util.concurrent.atomic.AtomicLong suppressedCalls = new java.util.concurrent.atomic.AtomicLong();
+    private static volatile long lastSuppressedNanos;
+    private static boolean pauseNoticeShown;
 
     private VoxyCompat() {
     }
@@ -71,5 +79,53 @@ public final class VoxyCompat {
         noticeShown = true;
         Minecraft.getInstance().gui.hud.getChat()
                 .addClientSystemMessage(Component.literal("[Metallium] " + message).withStyle(ChatFormatting.GOLD));
+    }
+
+    /** metallium-iris registers how to tell that a shader pack renders through its Metal pipeline. */
+    public static void registerShaderPackProbe(final java.util.function.BooleanSupplier probe) {
+        shaderPackProbe = probe;
+    }
+
+    /**
+     * Called at the head of {@code VoxyRenderSystem.renderOpaque}: true = skip Voxy's render call (Voxy's shader-pack
+     * integration hooks Iris's OpenGL pipeline, which the Metal adapter does not support yet: stripes and fire textures).
+     * Voxy's world storage and ingest keep running, so LODs are ready when shaders are switched off.
+     */
+    public static boolean suppressRender() {
+        boolean suppress = false;
+        try {
+            suppress = MetalliumConfig.INSTANCE.voxySuppressWithShaders && MetalliumRuntime.isMetalActive() && shaderPackProbe.getAsBoolean();
+        } catch (RuntimeException | LinkageError e) {
+            // probe unavailable: render normally
+        }
+        if (!suppress) {
+            renderCalls.incrementAndGet();
+            return false;
+        }
+        suppressedCalls.incrementAndGet();
+        lastSuppressedNanos = System.nanoTime();
+        if (!pauseNoticeShown) {
+            pauseNoticeShown = true;
+            Metallium.LOGGER.warn("[Metallium] {}", SHADER_PAUSE_MESSAGE);
+            MetalliumRuntime.registerStatusLine(() -> shaderPauseActive() ? "Voxy: " + SHADER_PAUSE_MESSAGE : null);
+            Minecraft.getInstance().execute(() -> Minecraft.getInstance().gui.hud.getChat()
+                    .addClientSystemMessage(Component.literal("[Metallium] " + SHADER_PAUSE_MESSAGE).withStyle(ChatFormatting.GOLD)));
+        }
+        return true;
+    }
+
+    /** True while Voxy's render calls are being skipped because a shader pack is active (status line / screen). */
+    public static boolean shaderPauseActive() {
+        return System.nanoTime() - lastSuppressedNanos < 1_000_000_000L && lastSuppressedNanos != 0;
+    }
+
+    /** Voxy render calls that went through (game test). */
+    public static long renderCalls() {
+        return renderCalls.get();
+    }
+
+    /** Voxy render calls skipped because a shader pack was active (game test). */
+    public static long suppressedCalls() {
+        return suppressedCalls.get();
     }
 }

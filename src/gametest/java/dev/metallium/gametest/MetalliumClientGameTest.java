@@ -862,17 +862,18 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
 
     /** Copies -Dmetallium.gametest.shaderpack (a local pack, never in the repository) into the run's pack folder. */
     /** Combination tests (DH / Voxy / Bobby + -PwithIris -Pshaderpack=...): activates the external pack, if any. */
-    private void comboShaderPack(ClientGameTestContext context, String scene) {
+    private String comboShaderPack(ClientGameTestContext context, String scene) {
         if (!net.fabricmc.loader.api.FabricLoader.getInstance().isModLoaded("iris")) {
-            return;
+            return null;
         }
         String external = externalPack(context);
         if (external == null) {
-            return;
+            return null;
         }
         line(scene + ": shader pack " + external + ": pipeline=" + context.computeOnClient(client -> irisSelectPack(external, true)));
         context.waitTicks(100);
         context.takeScreenshot("metallium-" + scene + "-pack");
+        return external;
     }
 
     private String externalPack(ClientGameTestContext context) {
@@ -1479,11 +1480,31 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
             tryCommand(world, "time set 6000");
             tryCommand(world, "gamerule advance_time false");
             context.runOnClient(client -> client.options.renderDistance().set(16));
-            comboShaderPack(context, "voxy");
+            String voxyPack = comboShaderPack(context, "voxy");
+            boolean pausedCheck = voxyPack != null && dev.metallium.MetalliumConfig.INSTANCE.voxySuppressWithShaders
+                    && dev.metallium.api.MetalliumRuntime.isMetalActive();
+            long baseCalls = dev.metallium.compat.voxy.VoxyCompat.renderCalls();
             for (int i = 1; i <= 3; i++) {
                 context.waitTicks(400);
                 line("voxy: ingest phase " + (i * 20) + " s, " + glSummary());
                 line("voxy debug: " + context.computeOnClient(client -> voxyDebug()));
+            }
+            if (pausedCheck) {
+                // Safety net: with a shader pack on Metal Voxy's render calls are skipped; they resume with shaders off.
+                long during = dev.metallium.compat.voxy.VoxyCompat.renderCalls() - baseCalls;
+                long suppressed = dev.metallium.compat.voxy.VoxyCompat.suppressedCalls();
+                line("voxy pause: with pack " + voxyPack + ": voxy render calls=" + during + ", suppressed=" + suppressed);
+                if (during != 0) failures.add("voxy pause: " + during + " Voxy render calls went through while the shader pack was active");
+                if (suppressed == 0) failures.add("voxy pause: no Voxy render call was suppressed with the shader pack active");
+                String status = String.join("\n", dev.metallium.api.MetalliumRuntime.statusLines());
+                if (!status.contains(dev.metallium.compat.voxy.VoxyCompat.SHADER_PAUSE_MESSAGE)) failures.add("voxy pause: status line missing");
+                context.takeScreenshot("metallium-voxy-paused-with-pack");
+                line("voxy pause: pack off -> " + context.computeOnClient(client -> irisSelectPack(voxyPack, false)));
+                long before = dev.metallium.compat.voxy.VoxyCompat.renderCalls();
+                context.waitTicks(100);
+                long after = dev.metallium.compat.voxy.VoxyCompat.renderCalls() - before;
+                line("voxy pause: shaders off: voxy render calls=" + after);
+                if (after <= 0) failures.add("voxy pause: Voxy render calls did not resume with shaders off");
             }
             context.takeScreenshot("metallium-voxy-rd16");
             context.runOnClient(client -> client.options.renderDistance().set(4));
