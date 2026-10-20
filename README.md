@@ -1,18 +1,55 @@
 # Metallium
 
-A planned Fabric rendering mod for **Minecraft 26.3** that renders through Apple's **Metal** API on Apple Silicon Macs,
-aiming for top performance while staying compatible with Sodium, Sodium Extra, Reese's Sodium Options, the Fabric
-Rendering API and Iris shader packs.
+A Fabric rendering mod for **Minecraft 26.3** that renders through Apple's **Metal** API on Apple Silicon Macs, staying
+compatible with Sodium, Sodium Extra, Reese's Sodium Options, the Fabric Rendering API and Iris shader packs.
 
-**Status: early alpha (0.1.0-alpha.1). Metal backend boots on Apple Silicon via Minecraft's renderpearl backend; shader-pack (Iris) support is in progress. Not for general use yet.**
+**Status (2026-10-20): alpha 0.1.0-alpha, pre-1.0, owner-tested on an M3 Max.** Details: [`docs/STATUS.md`](docs/STATUS.md).
 
-Build: `./gradlew build` (JDK 25). Metal smoke test on a Mac: `./gradlew metalSmokeTest`.
+- **Metal is the default engine on Apple Silicon**, with OpenGL/Vulkan fallback. Sodium runs natively on Metal.
+- **Iris shader packs** run through the `metallium-iris` adapter (stages 1-5): gbuffers, shadows, composite passes,
+  compute shaders, image load/store and SSBOs (which macOS OpenGL 4.1 cannot run), custom/3D textures, history buffers,
+  blend overrides, horizon. Geometry/tessellation shaders are not supported yet.
+- **`metallium-gl`** translates OpenGL calls of mods to Metal (Voxy incl. indirect command buffers and argument buffers,
+  Physics Mod GPU compute, Xaero, Axiom and others), routed automatically; Voxy's macOS storage natives ship in the
+  nested `metallium-voxy-natives` addon.
+- **Compatibility center**: start-up scan, per-mod status screen, a "needs OpenGL?" question for mods that cannot run,
+  crash recovery (next start on OpenGL, no crash loops); Cmd+Q and normal quits are clean exits.
+- BetterF3 support and GPU utilization in F3, a shader/pipeline cache, and VSync-off present pacing (one present per
+  refresh) are in.
+
+### Performance (final shootout, 2026-10-20)
+
+2560x1440 fullscreen on a 144 Hz display, M3 Max, VSync off, rendered fps. Full tables, VSync-on results and method:
+[`docs/benchmarks/shootout-2026-10-20-final.md`](docs/benchmarks/shootout-2026-10-20-final.md).
+
+| Scene | Metal | OpenGL | Vulkan (MoltenVK) |
+|---|---|---|---|
+| Vanilla light | 2690 | 683 | 428 |
+| Sodium RD 32 | 717 | 383 | 460 |
+| Complementary Reimagined | 164.5 | 33.1 | n/a (Iris refuses Vulkan) |
+| Complementary Unbound | 151.3 | 107.4 | n/a |
+| Voxy | 661.5 | cannot run (GL 4.1) | n/a |
+
+### Install
+
+Single jar `metallium-0.1.0-alpha.jar` in `mods/`; requires Fabric API; Sodium recommended; Iris optional. Requirements,
+nested jars, what is inert when: [`docs/RELEASE.md`](docs/RELEASE.md). Build: `./gradlew releaseJar` (JDK 25).
+Metal smoke test (macOS): `./gradlew metalSmokeTest`.
+
+### Known limitations
+
+- Voxy and Distant Horizons programs under shader packs are not executed yet (packs fog their LODs at the vanilla distance).
+- The Voxy natives addon covers macOS arm64 only (no Intel Macs).
+- Geometry/tessellation shader packs, mipmapped shadow maps and some pack-specific effects are open (see STATUS).
+- metallium-gl implements a subset of OpenGL; unimplemented functions lead to the crash-recovery screen.
+- Apple-native extras (MetalFX, Game Mode, ray tracing) are not part of 1.0.
+- Planned: the project will be renamed **Nativium** (package `de.nprmedia.nativium`); not done yet.
 
 - Roadmap: [`docs/ROADMAP.md`](docs/ROADMAP.md) · Status: [`docs/STATUS.md`](docs/STATUS.md)
 - Research report: [`docs/research/METALLIUM-RESEARCH-REPORT.md`](docs/research/METALLIUM-RESEARCH-REPORT.md)
 - Source-level evidence notes: [`docs/research/notes/`](docs/research/notes/)
 
-## Planned approach (summary)
+## Approach (summary)
 
 Metallium plugs a Metal backend into Minecraft 26.3's own GPU abstraction (`com.mojang.renderpearl`), so vanilla,
 Sodium, Sodium Extra, Reese's Sodium Options and Fabric rendering mods run on Metal **unmodified**. Iris shader packs
@@ -93,5 +130,6 @@ project's code may legally be copied. Rows will be updated whenever code is actu
 | [BetterF3](https://modrinth.com/mod/betterf3) | cominixo, TreyRuffy | MIT | Compatibility only, no code used. A `@Pseudo` mixin (`dev.metallium.compat.betterf3`, written for Metallium after reading its MIT-licensed bytecode) appends Metallium's F3 lines to BetterF3's right-hand module, and a `Minecraft` mixin lets vanilla measure GPU utilization while F3 is open so BetterF3's "GPU Utilization" line has a value; the jar is only loaded by the `-PwithBetterF3` game test, never bundled. |
 | [Physics Mod](https://minecraftphysicsmod.com/) | Haubna | All rights reserved | Compatibility only, no code used. Metallium's `dev.metallium.compat.physicsmod` mixins (written for Metallium, found by bytecode inspection, mod never bundled or redistributed) let verified versions run on Metal; its OpenGL compute paths run unmodified through metallium-gl. |
 | [Bobby](https://github.com/johni0702/bobby) | johni0702 | LGPL-3.0 | Compatibility/test only, no code used. Game-test runtime dependency (`-PwithBobby`, Modrinth 5.2.16+mc26.3); never bundled. |
+| Skin Layers 3D, LOD Server Support, Xaero's Minimap / World Map (and XaeroPlus), Axiom, ReGlass, Cull Leaves, More Culling | their respective authors | see each project | Compatibility/test only, no code used, never bundled. Local test runs of the play-instance mod set (`docs/compat/release-check-2026-10-20.md`); Xaero and Axiom are routed through metallium-gl, LOD Server Support talks to Voxy. Licences are those of the upstream projects. |
 
 Licence obligations are summarised in section K of the research report.

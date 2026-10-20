@@ -153,7 +153,12 @@ Status legend: ✅ done · 🔄 in progress · ⏳ planned · 🔬 needs researc
 - Baselines: vanilla OpenGL, vanilla Vulkan via MoltenVK (and Mesa KosmicKrisp), Sodium on OpenGL, mcopt (pacing off)
 - Metal Performance HUD (`MTL_HUD_ENABLED=1`) as extra GPU-side view for Metallium
 
-## Phase 8 — Release ⏳
+## Phase 8 — Release 🔄
+- ✅ VSync-off present pacing (one present per refresh, up to 3 in flight; Complementary fullscreen 54.7 -> 131.5 shown/s)
+- ✅ Final pre-1.0 engine shootout (`docs/benchmarks/shootout-2026-10-20-final.md`) and release-jar production-style
+  check (`docs/compat/release-check-2026-10-20.md`); install notes in `docs/RELEASE.md`
+- ⏳ **Code cleanup (before release):** remove dead options and diagnostics no longer needed, unify duplicated helpers,
+  consolidate the game-test flags, tidy `docs/STATUS.md`, reduce log noise, check licence headers
 - Owner-tested on M3 Max; CI green; known limitations documented; credits complete (`README.md`, `NOTICE`)
 - Releases per Minecraft version; port the backend when renderpearl changes
 
@@ -168,3 +173,12 @@ Open items before the rename / NVIDIA work:
   adapted Nvidium code stays in an LGPL module (like `metallium-iris`).
 - DLSS / frame generation: NVIDIA Streamline/DLSS SDK licence terms; runs via Vulkan (vanilla 26.3 has a Vulkan
   backend) or DirectX, not Metal → a separate backend path with its own module.
+
+## After 1.0 — only with owner consent
+
+Not started without the owner's explicit agreement per item:
+- Apple features: MetalFX upscaling/frame interpolation, Game Mode, hardware ray tracing
+- NVIDIA / Nvidium-style GPU-driven path (and the "Nativium" rename/broadening)
+- Voxy / Distant Horizons programs under shader packs
+- GPU culling (two-phase Hi-Z occlusion)
+- Broad metallium-gl coverage campaign
