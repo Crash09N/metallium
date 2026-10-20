@@ -7,17 +7,17 @@
 #   PACKS="a.zip|Solas Shader V3.8.zip"   subset: '|'-separated file names or globs (Solas*, *Sildur*), so names with
 #                         spaces work; without '|' a single exact name is tried first, then space-separated names/globs.
 #   PACKS_FILE=list.txt   one name per line (alternative to PACKS)
-#   PACK_DIR=/Users/noah/Downloads/metallium-research/shaderpacks
-#   RESULTS_DIR=/Users/noah/Downloads/metallium-research/sweep-results/<date>
+#   PACK_DIR=/Users/noah/Desktop/Metallium/metallium-research/shaderpacks
+#   RESULTS_DIR=/Users/noah/Desktop/Metallium/metallium-research/sweep-results/<date>
 #   REFERENCE=1           also run each pack with -Pengine=OPENGL (reference screenshot)
 #   GPU_LOCK=/path/gpu-lock.sh   wraps each gradle run (not --exclusive: compatibility runs may share the GPU)
 #   OUT=docs/compat/shaderpacks-<date>.md     SMOKE=1 marks the output as a smoke run (do not commit)
 set -u
 cd "$(dirname "$0")/.."
 export JAVA_HOME="${JAVA_HOME:-/Users/noah/Library/Java/JavaVirtualMachines/temurin-25.0.4.1/Contents/Home}"
-PACK_DIR="${PACK_DIR:-/Users/noah/Downloads/metallium-research/shaderpacks}"
+PACK_DIR="${PACK_DIR:-/Users/noah/Desktop/Metallium/metallium-research/shaderpacks}"
 DATE="$(date +%Y-%m-%d)"
-RESULTS_DIR="${RESULTS_DIR:-/Users/noah/Downloads/metallium-research/sweep-results/$DATE}"
+RESULTS_DIR="${RESULTS_DIR:-/Users/noah/Desktop/Metallium/metallium-research/sweep-results/$DATE}"
 OUT="${OUT:-docs/compat/shaderpacks-$DATE.md}"
 REFERENCE="${REFERENCE:-0}"
 SMOKE="${SMOKE:-0}"
