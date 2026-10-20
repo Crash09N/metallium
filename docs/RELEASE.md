@@ -23,7 +23,7 @@ The core (outer jar) is MIT. The LGPL adapter is never merged into the core jar;
 
 ## Install
 
-Requirements: Apple Silicon Mac, macOS 14+, Minecraft 26.3, Fabric Loader >= 0.19.5, Java 25, Fabric API.
+Requirements: Apple Silicon Mac with Metal 4 (macOS 26+; the backend compiles MSL 4.0), Minecraft 26.3, Fabric Loader >= 0.19.5, Java 25, Fabric API.
 
 1. Copy `metallium-0.1.0-alpha.jar` into the instance's `mods/` folder (Prism, official launcher, anything that runs Fabric).
 2. Optional: Sodium 0.9.x (>= 0.9.2, < 0.10) for Sodium on Metal; Iris >= 1.11.6, < 1.12 (needs Sodium) for shader packs.
@@ -41,7 +41,34 @@ Metallium disables Voxy for the session and says so before the title screen and 
 - **No Iris** (or Iris outside 1.11.6 - 1.11.x, or no Sodium): the nested adapter loads but applies no mixins and does nothing
   (`IrisSupport`); log line `[metallium-iris] inactive: ...`. With Iris present but unsupported, Metallium falls back to OpenGL so Iris keeps working.
 - **No mod that calls OpenGL directly**: metallium-gl installs its class-loading hook but retargets nothing.
-- **Not Apple Silicon macOS**: Metallium keeps OpenGL/Vulkan (backend selection).
+- **Not Apple Silicon macOS, or Metal not used this session**: see "Platforms" below.
+
+## Platforms
+
+The jar is safe in any modpack. One predicate, `MetalliumPlatform.supported()`, decides whether Metallium does anything:
+macOS **and** aarch64 (Apple Silicon) **and** a Metal device the backend can use (`MTLCreateSystemDefaultDevice` non-null,
+GPU family Apple7+ and Metal 4). It is evaluated once, at the first Metallium mixin config load; the Metal probe (metal-jvm,
+FFM into Metal.framework) only runs on macOS aarch64, so no native code is touched elsewhere.
+
+| Machine / session | What Metallium does |
+|---|---|
+| Windows, Linux, any non-macOS | Nothing. One log line `Metallium: not a Mac — inactive (game runs on its normal renderer)`. No mixin applies (every config is gated by `MetalliumMixinPlugin` / its own plugin), entrypoints return at once, metallium-gl does not hook class loading, the Iris adapter applies nothing, no Sodium page, no screens, no F3 line, no config or session file is written. |
+| Intel Mac, Mac without a usable Metal device | The same, with the log line `Metallium: no supported Metal device — inactive`. |
+| Apple Silicon Mac, Metal not used this session (Graphics Engine / vanilla Graphics API = OpenGL or Vulkan, crash recovery, Iris without the adapter, a mod that needs OpenGL) | Rendering and other mods are untouched: no Metal backend, Iris runs its own OpenGL pipeline (the adapter's mixins are not applied), metallium-gl routes nothing (also not explicitly opted-in mods such as Voxy), no Sodium/Distant Horizons/Physics Mod/BetterF3 behaviour changes, no power-mode FPS cap. What stays is what lets the player see the state and switch back to Metal: the "Metal (via Metallium)" entry of the Graphics API option (vanilla and Sodium), the Metallium page / status screen / F3 line, crash-recovery and needs-OpenGL screens, and the Voxy natives check (Voxy would crash on any renderer without its macOS arm64 natives). The exact list is `MetalliumMixinPlugin.ENGINE_SELECTOR`. |
+| Apple Silicon Mac, Metal offered | Everything. If Metal device creation still fails and vanilla falls back to OpenGL, the behaviour-changing mixins check `MetalliumRuntime.isMetalActive()` and do nothing. |
+
+The Metal-or-not decision is made before vanilla reads `options.txt` (mixins and metallium-gl need it at class-load time),
+so `BackendSelection` reads vanilla's `preferredGraphicsBackend` from `options.txt` itself with the same rule as
+`EngineSync` (a value the player changed in vanilla's Graphics API option wins).
+
+`metallium-voxy-natives` (nested) contains only macOS arm64 native files under platform-specific names; it has no code
+and is inert on every other system.
+
+Checks: unit tests `MetalliumPlatformTest` (Windows x64/arm64, Linux, FreeBSD, Intel Mac, Apple Silicon without device:
+no mixin of any config applies, no native probe; the early engine rule), `MetalliumGlBootstrapTest`, `GlRoutingTest`
+(`nothingIsRoutedWithoutMetal`). Game test on a Mac: `-PsimulatePlatform=windows|linux|intel-mac|no-metal`
+(`-Dmetallium.platform.simulate`) or `-Pengine=OPENGL`; the report's `metallium inactive:` lines list applied
+Metallium mixins and metallium-gl routing, and the run fails on any mixin outside the allowed set or any routed mod.
 
 ## Verified (local, M3 Max)
 

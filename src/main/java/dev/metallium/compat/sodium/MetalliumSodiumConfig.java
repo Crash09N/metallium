@@ -29,6 +29,9 @@ public final class MetalliumSodiumConfig implements ConfigEntryPoint {
 
     @Override
     public void registerConfigLate(final ConfigBuilder builder) {
+        if (!dev.metallium.MetalliumPlatform.supported()) {
+            return; // unsupported platform: no Metallium page in Sodium's settings
+        }
         builder.registerOwnModOptions().addPage(builder.createOptionPage()
                 .setName(Component.literal("General"))
                 .addOption(builder.createEnumOption(Identifier.fromNamespaceAndPath(Metallium.MOD_ID, "graphics_engine"), GraphicsEngine.class)

@@ -1,6 +1,7 @@
 {
   "required": false,
   "package": "dev.metallium.compat.sodium.mixin",
+  "plugin": "dev.metallium.MetalliumMixinPlugin",
   "compatibilityLevel": "JAVA_25",
   "mixins": [
   ],

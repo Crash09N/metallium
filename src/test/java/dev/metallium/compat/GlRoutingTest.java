@@ -55,9 +55,9 @@ class GlRoutingTest {
     }
 
     @Test
-    void explicitOptInsRouteEvenWithoutMetal() {
+    void explicitOptInsRouteOnMetal() {
         GlRouting.Decision author = decide(NATIVE, Map.of("nat", new GlRouting.AuthorChoice(true, List.of("com/nat/render/"))), Set.of(), Map.of(),
-                false, true, false);
+                false, true, true);
         assertEquals(GlRouting.Status.ROUTED, author.status());
         assertEquals(List.of("com/nat/render/"), author.packages());
         assertFalse(author.allClasses());
@@ -84,9 +84,21 @@ class GlRoutingTest {
         assertEquals(GlRouting.Status.AUTO_ROUTING_OFF, GlRouting.decideWholeMod("voxy", Set.of(), Map.of(), false, true, true).status());
         assertEquals(GlRouting.Status.OPENGL_ENGINE, GlRouting.decideWholeMod("voxy", Set.of(), Map.of(), true, true, false).status());
         assertEquals(GlRouting.Status.OPTED_OUT, GlRouting.decideWholeMod("voxy", Set.of(), Map.of("voxy", ModOverride.NATIVE), true, true, true).status());
-        // explicit requests route even with automatic routing off or without Metal (calls then fall back to OpenGL)
-        GlRouting.Decision listed = GlRouting.decideWholeMod("voxy", Set.of("voxy"), Map.of(), false, true, false);
+        // explicit requests route even with automatic routing off
+        GlRouting.Decision listed = GlRouting.decideWholeMod("voxy", Set.of("voxy"), Map.of(), false, true, true);
         assertEquals(GlRouting.Status.ROUTED, listed.status());
         assertFalse(listed.automatic());
+    }
+
+    @Test
+    void nothingIsRoutedWithoutMetal() {
+        // Voxy bug (2026-10-20): Voxy listed / overridden to metallium-gl while the session ran on OpenGL was still routed.
+        assertFalse(GlRouting.decideWholeMod("voxy", Set.of("voxy"), Map.of(), true, true, false).routed());
+        assertFalse(GlRouting.decideWholeMod("voxy", Set.of(), Map.of("voxy", ModOverride.METALLIUM_GL), true, true, false).routed());
+        assertFalse(GlRouting.decideWholeMod("voxy", Set.of(), Map.of(), true, true, false).routed());
+        assertFalse(decide(NATIVE, Map.of("nat", new GlRouting.AuthorChoice(true, List.of())), Set.of(), Map.of(), true, true, false).routed());
+        assertFalse(decide(NATIVE, Map.of(), Set.of("nat"), Map.of(), true, true, false).routed());
+        assertFalse(decide(RAW, Map.of(), Set.of(), Map.of("raw", ModOverride.METALLIUM_GL), true, true, false).routed());
+        assertEquals(GlRouting.Status.OPENGL_ENGINE, decide(RAW, Map.of(), Set.of(), Map.of(), true, true, false).status());
     }
 }

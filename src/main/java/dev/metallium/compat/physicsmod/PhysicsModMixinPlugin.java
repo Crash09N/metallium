@@ -51,7 +51,7 @@ public final class PhysicsModMixinPlugin implements IMixinConfigPlugin {
 
     @Override
     public boolean shouldApplyMixin(final String targetClassName, final String mixinClassName) {
-        return supported();
+        return dev.metallium.MetalliumMixinPlugin.allowed(mixinClassName) && supported();
     }
 
     @Override

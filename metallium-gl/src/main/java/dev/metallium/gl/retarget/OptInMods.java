@@ -39,6 +39,11 @@ public final class OptInMods {
     private OptInMods() {
     }
 
+    /** No mod routed (Metal not used this session, or unsupported platform). */
+    public static OptInMods none() {
+        return new OptInMods();
+    }
+
     public static OptInMods discover() {
         OptInMods optIn = new OptInMods();
         for (GlRouting.Decision decision : GlRouting.plan().values()) {

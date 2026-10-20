@@ -22,7 +22,10 @@ public final class MetalliumIrisMixinPlugin implements IMixinConfigPlugin {
     @Override
     public boolean shouldApplyMixin(final String targetClassName, final String mixinClassName) {
         // The release jar always ships this adapter; without a supported Iris (and Sodium) every mixin stays off.
-        return dev.metallium.compat.IrisSupport.adapterUsable();
+        // Off as well on unsupported platforms and whenever Metal is not used this session: Iris then runs its own
+        // OpenGL pipeline untouched.
+        return dev.metallium.compat.IrisSupport.adapterUsable() && dev.metallium.MetalliumMixinPlugin.allowed(mixinClassName)
+                && dev.metallium.BackendSelection.shouldOfferMetal();
     }
 
     @Override

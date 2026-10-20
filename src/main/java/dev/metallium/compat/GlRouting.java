@@ -35,8 +35,8 @@ import java.util.function.Supplier;
  *   <li>if that crashes, {@link CrashGuard} offers "disable the mod / use OpenGL / try again" on the next start.</li>
  * </ol>
  * Explicit opt-ins (the mod's {@code "metallium-gl": true | {"packages": [...]}}, {@code -Dmetallium.gl.mods},
- * {@code config/metallium-gl.properties}, override {@code METALLIUM_GL}) are routed even when Metal is not active; the
- * retargeted calls then fall back to real OpenGL. Automatic routing only happens when Metal will be tried.
+ * {@code config/metallium-gl.properties}, override {@code METALLIUM_GL}) route a mod as well. Nothing at all is routed
+ * when Metal is not used this session (or on an unsupported platform): those mods then run on real OpenGL untouched.
  */
 public final class GlRouting {
     public static final String GL_MOD_ID = "metallium-gl";
@@ -145,6 +145,10 @@ public final class GlRouting {
             Decision decision;
             if (override == ModOverride.NATIVE) {
                 decision = new Decision(id, report.rawGl() ? Status.OPTED_OUT : Status.NATIVE, "override: native", List.of(), List.of(), false, false);
+            } else if (!metal) {
+                // Metal not used this session: nothing is routed, explicit opt-ins included (owner rule 2026-10-20).
+                decision = new Decision(id, report.rawGl() || explicit ? Status.OPENGL_ENGINE : Status.NATIVE,
+                        "Metal not active; real OpenGL", List.of(), List.of(), false, false);
             } else if (explicit) {
                 String why = override == ModOverride.METALLIUM_GL ? "override: metallium-gl"
                         : userList.contains(id) ? "listed in metallium.gl.mods" : "mod opts in (fabric.mod.json)";
@@ -158,8 +162,6 @@ public final class GlRouting {
                         List.of(), List.of(), false, false);
             } else if (author != null) {
                 decision = new Decision(id, Status.OPTED_OUT, "mod opts out (fabric.mod.json)", List.of(), List.of(), false, false);
-            } else if (!metal) {
-                decision = new Decision(id, Status.OPENGL_ENGINE, "Metal not active; real OpenGL", List.of(), List.of(), false, false);
             } else if (!autoRouting) {
                 decision = new Decision(id, Status.AUTO_ROUTING_OFF, "automatic metallium-gl routing is off", List.of(), List.of(), false, false);
             } else if (!glInstalled) {
@@ -180,13 +182,13 @@ public final class GlRouting {
         if (override == ModOverride.NATIVE) {
             return new Decision(id, Status.OPTED_OUT, "override: native (Metallium disables it on Metal)", List.of(), List.of(), false, false);
         }
+        if (!metal) {
+            return new Decision(id, Status.OPENGL_ENGINE, "Metal not active; real OpenGL", List.of(), List.of(), false, false);
+        }
         if (override == ModOverride.METALLIUM_GL || userList.contains(id)) {
             String why = override == ModOverride.METALLIUM_GL ? "override: metallium-gl" : "listed in metallium.gl.mods";
             return glInstalled ? new Decision(id, Status.ROUTED, why, List.of(), List.of(), true, false)
                     : new Decision(id, Status.NEEDS_METALLIUM_GL, why + ", but metallium-gl is not installed", List.of(), List.of(), false, false);
-        }
-        if (!metal) {
-            return new Decision(id, Status.OPENGL_ENGINE, "Metal not active; real OpenGL", List.of(), List.of(), false, false);
         }
         if (!autoRouting) {
             return new Decision(id, Status.AUTO_ROUTING_OFF, "automatic metallium-gl routing is off", List.of(), List.of(), false, false);

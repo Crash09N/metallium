@@ -18,7 +18,7 @@ import org.spongepowered.asm.mixin.injection.At;
 /**
  * BetterF3 (MIT, compatibility only) shows "GPU: xx%" from {@code Minecraft.getGpuUtilization()}, but vanilla only
  * measures it (GPU timer query per frame) while its own {@code gpu_utilization} F3 entry is enabled, which the default
- * F3 profile does not do; BetterF3 never enables it, so it shows "N/A" on every backend. With BetterF3 installed this
+ * F3 profile does not do; BetterF3 never enables it, so it shows "N/A" on every backend. With BetterF3 installed, on Metal, this
  * also measures while the F3 overlay is open. Without BetterF3 nothing changes.
  */
 @Mixin(Minecraft.class)
@@ -33,6 +33,6 @@ public abstract class MinecraftGpuUtilizationMixin {
     )
     private boolean metallium$measureGpuForBetterF3(final DebugScreenEntryList entries, final Identifier id, final Operation<Boolean> original) {
         return original.call(entries, id)
-                || METALLIUM$BETTERF3 && id.equals(DebugScreenEntries.GPU_UTILIZATION) && entries.isOverlayVisible();
+                || METALLIUM$BETTERF3 && dev.metallium.api.MetalliumRuntime.isMetalActive() && id.equals(DebugScreenEntries.GPU_UTILIZATION) && entries.isOverlayVisible();
     }
 }
