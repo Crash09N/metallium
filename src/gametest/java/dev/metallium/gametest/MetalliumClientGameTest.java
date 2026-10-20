@@ -522,6 +522,29 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
             context.takeScreenshot("metallium-iris-external-pack");
             blockParticles(context, world, "metallium-iris-external-pack-particles");
             blockBreaking(context, world, "metallium-iris-external-pack-breaking");
+            // Looking up: the sky must be seamless (Iris's horizon cone must not show as a ring, owner report).
+            tryCommand(world, "execute as @p at @s run tp @s ~ ~ ~ ~ -60");
+            context.waitTicks(10);
+            clearChat(context);
+            context.takeScreenshot("metallium-iris-external-pack-sky-up");
+            tryCommand(world, "execute as @p at @s run tp @s ~ ~ ~ ~ 10");
+            if (net.fabricmc.loader.api.FabricLoader.getInstance().isModLoaded("physicsmod")) {
+                // Physics Mod debris and ragdoll under the pack (owner report: black debris with Rethinking Voxels).
+                tryCommand(world, "execute as @p at @s run fill ^-2 ^-1 ^5 ^2 ^1 ^6 minecraft:bricks");
+                context.waitTicks(20);
+                tryCommand(world, "execute as @p at @s run fill ^-2 ^-1 ^5 ^2 ^1 ^6 minecraft:air destroy");
+                context.waitTicks(30);
+                tryCommand(world, "kill @e[type=item]");
+                clearChat(context);
+                context.takeScreenshot("metallium-iris-external-pack-physics-debris");
+                tryCommand(world, "execute as @p at @s run summon minecraft:zombie ^ ^ ^4 {NoAI:1b}");
+                context.waitTicks(20);
+                tryCommand(world, "kill @e[type=zombie]");
+                context.waitTicks(15);
+                clearChat(context);
+                context.takeScreenshot("metallium-iris-external-pack-physics-ragdoll");
+                context.waitTicks(100);
+            }
             line("external pack: still running after 100 ticks");
             // F3 / status-screen line (owner report: "Iris via Metallium adapter: shaders off" while a pack rendered).
             String status = context.computeOnClient(client -> String.join(" | ", dev.metallium.api.MetalliumRuntime.statusLines()));
