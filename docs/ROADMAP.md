@@ -179,6 +179,11 @@ Open items before the rename / NVIDIA work:
 Not started without the owner's explicit agreement per item:
 - Apple features: MetalFX upscaling/frame interpolation, Game Mode, hardware ray tracing
 - NVIDIA / Nvidium-style GPU-driven path (and the "Nativium" rename/broadening)
-- Voxy / Distant Horizons programs under shader packs
+- **Voxy / Distant Horizons far terrain under shader packs (first big job after 1.0, owner decision 2026-10-20).**
+  Today a safety net pauses Voxy's LODs while a pack is active (otherwise stripes and a fire band at the horizon).
+  Needed: run the packs' `dh_terrain` / `dh_water` / `dh_shadow` (and Voxy-specific) programs on Metal, provide
+  `dhDepthTex` and the `dhNearPlane` / `dhFarPlane` / `dhRenderDistance` uniforms, merge far terrain into the pack's
+  later passes (fog, shadows, water), and hand Voxy's metallium-gl draws to the Metal shader pipeline; DH benefits
+  from the same work. Then remove the safety net.
 - GPU culling (two-phase Hi-Z occlusion)
 - Broad metallium-gl coverage campaign
