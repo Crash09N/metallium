@@ -27,7 +27,7 @@ import java.util.Set;
  */
 public final class MetalliumMixinPlugin implements IMixinConfigPlugin {
     /** Simple names of mixins that also apply on a supported Mac when Metal is not used this session. */
-    static final Set<String> ENGINE_SELECTOR = Set.of(
+    public static final Set<String> ENGINE_SELECTOR = Set.of(
             // core: crash guard, engine selection and status
             "CrashReportMixin", "MinecraftMixin", "OptionsMixin", "PreferredGraphicsApiCaptionMixin",
             "PreferredGraphicsApiMixin", "GuiMixin", "VideoSettingsScreenMixin", "DebugEntrySystemSpecsMixin",

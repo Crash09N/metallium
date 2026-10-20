@@ -502,7 +502,7 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
         double fallback = matchFraction(off, context.takeScreenshot("metallium-iris-gbufferpack-failed-fallback"), false);
         line(String.format("iris gbuffers failure fallback: match with shaders-off screenshot=%.2f", fallback));
         if (fallback < 0.80) {
-            failures.add(String.format("vanilla fallback after a gbuffers failure differs from vanilla (match %.2f)", fallback));
+            metalExpectation(String.format("vanilla fallback after a gbuffers failure differs from vanilla (match %.2f)", fallback));
         }
 
         shadowPackScenario(context, world);
@@ -764,7 +764,7 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
             line(String.format("iris compute test pack: compute verdict green=%.2f, fragment SSBO/3D-image reads green=%.2f, fragment image stores green=%.2f, "
                     + "mipmap band green=%.2f, magenta left half=%.2f, right half=%.2f", verdict, fragmentReads, fragmentStores, mips, left, right));
             if (verdict < 0.90 || fragmentReads < 0.90 || fragmentStores < 0.90 || mips < 0.90 || left < 0.90 || right > 0.10) {
-                failures.add(String.format("compute/SSBO/image/mipmap test pack check failed (verdict %.2f, fragment reads %.2f, fragment stores %.2f, mips %.2f, left %.2f, right %.2f)",
+                metalExpectation(String.format("compute/SSBO/image/mipmap test pack check failed (verdict %.2f, fragment reads %.2f, fragment stores %.2f, mips %.2f, left %.2f, right %.2f)",
                         verdict, fragmentReads, fragmentStores, mips, left, right));
             }
         } catch (IOException e) {
@@ -789,14 +789,14 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
                 double green = colorFraction(image, 0.35, 0.65, i * 0.25 + 0.02, i * 0.25 + 0.23, 0x00FF00);
                 result.append(String.format(" %s=%.2f", names[i], green));
                 if (green < 0.90) {
-                    failures.add(String.format("custom texture test pack: %s check failed (green %.2f)", names[i], green));
+                    metalExpectation(String.format("custom texture test pack: %s check failed (green %.2f)", names[i], green));
                 }
             }
             // composite1.fsh: 18 textures in one pass (more than Metal's 16 sampler states), bottom band.
             double many = colorFraction(image, 0.92, 0.98, 0.05, 0.95, 0x00FF00);
             result.append(String.format(" 18-texture pass=%.2f", many));
             if (many < 0.90) {
-                failures.add(String.format("custom texture test pack: 18-texture pass check failed (green %.2f)", many));
+                metalExpectation(String.format("custom texture test pack: 18-texture pass check failed (green %.2f)", many));
             }
             line(result.toString());
         } catch (IOException e) {
@@ -1017,7 +1017,7 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
         double unchanged = matchFraction(off, on, false);
         line(String.format("iris test pack: inverted-pixel fraction=%.2f, unchanged-pixel fraction=%.2f", inverted, unchanged));
         if (inverted < 0.80) {
-            failures.add(String.format("test shader pack effect not visible (inverted fraction %.2f)", inverted));
+            metalExpectation(String.format("test shader pack effect not visible (inverted fraction %.2f)", inverted));
         }
     }
 
@@ -1210,6 +1210,7 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
         for (String mod : new String[] {"distanthorizons", "voxy", "bobby", "reglass", "cullleaves", "moreculling"}) {
             line(mod + " loaded: " + net.fabricmc.loader.api.FabricLoader.getInstance().isModLoaded(mod));
         }
+        metalliumInactiveCheck();
         String sessionExit = System.getProperty("metallium.gametest.sessionExit");
         if (sessionExit != null) {
             sessionExitRun(context, backend, sessionExit);
@@ -1756,6 +1757,62 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
     }
 
     /** Graphics API labels: vanilla caption() and (with Sodium) Sodium's option element names / tooltip + screenshot. */
+    /**
+     * Without Metal this session (engine OpenGL/Vulkan, or -Dmetallium.platform.simulate=windows|linux|intel-mac|no-metal):
+     * Metallium must not change the game. Unsupported platform: no Metallium mixin applied, no config or session file.
+     * Supported Mac without Metal: only the engine-selector/status mixins (MetalliumMixinPlugin.ENGINE_SELECTOR). Both:
+     * metallium-gl routes and hooks nothing.
+     */
+    /**
+     * A check of a Metallium feature (Metal pipeline, power cap, Iris adapter): a failure on Metal; without Metal (engine
+     * OpenGL, unsupported platform) the game runs as without Metallium, so the result is only informational.
+     */
+    private void metalExpectation(String failure) {
+        if (dev.metallium.api.MetalliumRuntime.isMetalActive()) {
+            failures.add(failure);
+        } else {
+            line("informational (Metal not active, Metallium does not change this): " + failure);
+        }
+    }
+
+    private void metalliumInactiveCheck() {
+        if (dev.metallium.api.MetalliumRuntime.isMetalActive()) {
+            return;
+        }
+        boolean supported = dev.metallium.MetalliumPlatform.supported();
+        java.util.Set<String> applied = new java.util.TreeSet<>();
+        for (org.spongepowered.asm.mixin.transformer.Config config : org.spongepowered.asm.mixin.Mixins.getConfigs()) {
+            for (String target : config.getConfig().getTargets()) {
+                for (org.spongepowered.asm.mixin.extensibility.IMixinInfo mixin : org.spongepowered.asm.mixin.Mixins.getMixinsForClass(target)) {
+                    if (mixin.getConfig().getName().startsWith("metallium")) {
+                        applied.add(mixin.getConfig().getName() + ":" + mixin.getClassName().substring(mixin.getClassName().lastIndexOf('.') + 1));
+                    }
+                }
+            }
+        }
+        line("metallium inactive: platform=" + dev.metallium.MetalliumPlatform.status() + " metalOffered="
+                + (supported && dev.metallium.BackendSelection.shouldOfferMetal()) + " appliedMixins=" + applied);
+        for (String mixin : applied) {
+            String simple = mixin.substring(mixin.indexOf(':') + 1);
+            if (!supported || !dev.metallium.MetalliumMixinPlugin.ENGINE_SELECTOR.contains(simple)) {
+                failures.add("Metallium mixin applied without Metal: " + mixin);
+            }
+        }
+        String routed = System.getProperty("metallium.gl.routedMods", "");
+        line("metallium inactive: metallium-gl routedMods='" + routed + "' hooked=" + dev.metallium.compat.GlRouting.hooked());
+        if (!routed.isEmpty() || dev.metallium.compat.GlRouting.hooked()) {
+            failures.add("metallium-gl routes mods without Metal: '" + routed + "'");
+        }
+        if (!supported) {
+            java.nio.file.Path configDir = net.fabricmc.loader.api.FabricLoader.getInstance().getConfigDir();
+            for (String file : new String[]{"metallium.json", "metallium", "metallium-gl.properties"}) {
+                if (java.nio.file.Files.exists(configDir.resolve(file))) {
+                    failures.add("Metallium wrote config/" + file + " on an unsupported platform");
+                }
+            }
+        }
+    }
+
     private void graphicsApiLabelsTest(ClientGameTestContext context) {
         boolean relabel = dev.metallium.GraphicsApiLabels.relabelDefault();
         String metal = "Metal (via Metallium)";
@@ -2040,7 +2097,7 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
             line("compat: power fps Low Power=" + low + " (cap " + dev.metallium.power.PowerManager.fpsCap(
                     dev.metallium.power.PowerMode.LOW_POWER, dev.metallium.MetalliumConfig.INSTANCE.batteryFpsLimit) + "), Performance=" + perf);
             if (low > dev.metallium.power.PowerManager.LOW_POWER_FPS + 5) {
-                failures.add("power: Low Power did not cap the frame rate (fps " + low + ")");
+                metalExpectation("power: Low Power did not cap the frame rate (fps " + low + ")");
             }
         } finally {
             dev.metallium.power.PowerManager.setMode(before);
@@ -2122,7 +2179,9 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
             }
         });
         line("sodium tab: metallium pages=" + pages.size());
-        if (pages.size() < 2) failures.add("sodium tab: expected General + Power pages, got " + pages.size());
+        if (dev.metallium.MetalliumPlatform.supported() ? pages.size() < 2 : !pages.isEmpty()) {
+            failures.add("sodium tab: expected " + (dev.metallium.MetalliumPlatform.supported() ? "General + Power pages" : "no Metallium page (unsupported platform)") + ", got " + pages.size());
+        }
         for (int i = 0; i < pages.size(); i++) {
             Object page = pages.get(i);
             boolean opened = context.computeOnClient(client -> {
