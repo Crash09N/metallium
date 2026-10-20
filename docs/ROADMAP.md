@@ -18,7 +18,7 @@ Status legend: ✅ done · 🔄 in progress · ⏳ planned · 🔬 needs researc
 ## Phase 1 — Metal backend works ✅ / 🔄
 - ✅ Metal backend under renderpearl (started from Metallum, MIT), Metal first on Apple Silicon, OpenGL/Vulkan fallback
 - ✅ CI on GitHub's Mac runners: smoke test, game tests with screenshots and an automatic terrain check
-- 🔄 **Sodium terrain renders garbled** (virtual GPU) — owner test on M3 Max decides where the bug is, then fix
+- ✅ Sodium terrain renders correctly on Apple Silicon (the garbled output was GitHub's paravirtual GPU only; CI is now disabled)
 - ⏳ Conformance scenes: every vanilla pipeline compared against OpenGL screenshots (orientation, blending, depth, OIT)
 
 ## Phase 2 — Backend performance (mcopt's techniques) ⏳
@@ -44,14 +44,14 @@ Status legend: ✅ done · 🔄 in progress · ⏳ planned · 🔬 needs researc
   OpenGL fallback bridges, per-mod unimplemented-function log, GL state tracker + Metal device for buffers (persistent
   mapping), 2D textures, FBOs, GLSL 330+ programs, VAOs, draws, blend/depth/cull state, fences; unit tests incl. real
   Metal readback; game test `-PwithGl` (raw-GL test mod renders on Metal, pixel-checked)
-- ✅ Voxy runs unmodified through metallium-gl and renders its LOD terrain (explicit opt-in `-Dmetallium.gl.mods=voxy`;
+- ✅ Voxy runs unmodified through metallium-gl and renders its LOD terrain (routed automatically on Metal; macOS storage natives via the nested metallium-voxy-natives addon;
   compute, SSBO + atomics, image load/store, indirect + indirect-count draws, UBOs, DSA — design §12)
 - Calls to `org.lwjgl.opengl.*` in mod code are redirected at load time to Metallium's layer
 - Emulated GL state (textures, buffers, framebuffers, programs, blend/depth) with synthetic GL names → Metal objects
 - Draws are recorded into Metallium's current render pass; GLSL goes through `GlslProgramTranslator`
 - Logs every unimplemented GL function per mod → coverage grows from real mods, not guesses
 - First user: the Iris adapter (~110 GL functions); then Distant Horizons, Voxy, HUD/minimap mods
-- **Explicit goal: Voxy running on macOS** (it runs on no Mac today — Apple's OpenGL stops at 4.1, Voxy needs 4.6).
+- ✅ **Goal reached: Voxy runs on macOS** (on no other Mac setup today — Apple's OpenGL stops at 4.1, Voxy needs 4.6).
   Requires metallium-gl to cover compute shaders, SSBOs + atomics, indirect-count draws and persistent mapping.
   Voxy runs unmodified through the layer (its licence forbids porting/copying). Parallel option: ask MCRcortex about a
   Metal path on Metallium's extension API (together with the Nvidium-Reborn name/logo question).
