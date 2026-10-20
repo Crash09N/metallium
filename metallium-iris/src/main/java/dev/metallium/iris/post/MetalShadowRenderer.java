@@ -237,6 +237,8 @@ final class MetalShadowRenderer {
         double cameraZ = cameraPos.z();
         terrainFrustumHolder.getFrustum().prepare(cameraX, cameraY, cameraZ);
 
+        // Physics Mod draws its objects into the shadow map through hooks in Iris's ShadowRenderer (see PhysicsModShadows).
+        PhysicsModShadows.Context physicsMod = PhysicsModShadows.context(levelRenderer);
         boolean wasChunkCullingEnabled = client.smartCull;
         client.smartCull = false;
         ChunkRenderMatrices playerMatrices = ((LevelRendererExtension) levelRenderer).sodium$getMatrices();
@@ -278,7 +280,12 @@ final class MetalShadowRenderer {
             entityShadowFrustum.prepare(cameraX, cameraY, cameraZ);
             levelRenderState.reset();
             if (shouldRenderEntities) {
-                extractVisibleEntities(playerCamera, entityShadowFrustum, client.getDeltaTracker(), levelRenderState);
+                PhysicsModShadows.clothSkipRenderQueue(false);
+                try {
+                    extractVisibleEntities(playerCamera, entityShadowFrustum, client.getDeltaTracker(), levelRenderState);
+                } finally {
+                    PhysicsModShadows.clothSkipRenderQueue(true);
+                }
             } else if (shouldRenderPlayer) {
                 Player player = client.player;
                 float g = client.getDeltaTracker().getGameTimeDeltaPartialTick(false);
@@ -310,9 +317,16 @@ final class MetalShadowRenderer {
             renderedBlockEntities = renderBlockEntities(modelView, playerCamera);
 
             Profiler.get().popPush("draw entities");
+            if (physicsMod != null) {
+                physicsMod.prepare(playerCamera.position(), ShadowRenderer.MODELVIEW, ShadowRenderer.PROJECTION, submitNodeStorage);
+            }
             var frame = featureRenderDispatcher.prepareFrame(submitNodeStorage);
             try (RenderPass renderPass = mainTargetPass("shadow entities")) {
                 FeatureRenderDispatcher.renderAllFeatures(renderPass, frame);
+                if (physicsMod != null) {
+                    pipeline.setPhase(WorldRenderingPhase.ENTITIES);
+                    physicsMod.draw(renderPass);
+                }
             }
             frame.close();
             buffers.endFrame();
@@ -342,6 +356,9 @@ final class MetalShadowRenderer {
             levelRenderer.setRenderBuffers(playerBuffers);
             ShadowRenderer.visibleBlockEntities = null;
             ShadowRenderer.ACTIVE = false;
+            if (physicsMod != null) {
+                physicsMod.restore(playerCamera.position());
+            }
             levelRenderState.cameraRenderState.viewRotationMatrix = cameraViewRotation;
             levelRenderState.cameraRenderState.projectionMatrix = cameraProjection;
             RenderSystem.getModelViewStack().popMatrix();
