@@ -81,6 +81,7 @@ public final class CompatStatus {
                     : !metal ? "on " + engineName()
                     : routed ? "runs via metallium-gl (OpenGL 4.6 translated to Metal)"
                     : "disabled on Metal (" + (voxy == null ? "needs OpenGL 4.6" : voxy.routed() ? "metallium-gl could not hook class loading" : voxy.reason()) + ")";
+            if (routed && VoxyCompat.shaderPauseActive()) state = "paused while a shader pack is active (not supported on Metal yet)";
             rows.add(keyMod(loader, "voxy", "Voxy", state, VoxyCompat.disabledForNatives() ? Tone.BAD : !metal || routed ? Tone.OK : Tone.WARN));
             String natives = VoxyNatives.statusLine();
             if (natives != null) {
