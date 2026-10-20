@@ -1775,25 +1775,104 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
         }
     }
 
-    private void metalliumInactiveCheck() {
-        if (dev.metallium.api.MetalliumRuntime.isMetalActive()) {
-            return;
-        }
-        boolean supported = dev.metallium.MetalliumPlatform.supported();
+    private static final String[] METALLIUM_MIXIN_CONFIGS = {"metallium.mixins.json", "metallium.sodium.mixins.json",
+            "metallium.voxy.mixins.json", "metallium.betterf3.mixins.json", "metallium.distanthorizons.mixins.json",
+            "metallium.physicsmod.mixins.json", "metallium-iris.mixins.json", "metallium-gl.mixins.json"};
+
+    /**
+     * Metallium mixins that were merged into a target class: reads every Metallium mixin config, takes each mixin's
+     * targets from its @Mixin annotation (ASM, the mixin class itself cannot be loaded) and looks for members carrying
+     * Mixin's runtime-visible @MixinMerged(mixin = ...) in the loaded target class. Targets of absent mods are skipped.
+     * Mixins that only add @Unique fields without methods are not seen (none of Metallium's).
+     */
+    private java.util.Set<String> appliedMetalliumMixins() {
         java.util.Set<String> applied = new java.util.TreeSet<>();
-        for (org.spongepowered.asm.mixin.transformer.Config config : org.spongepowered.asm.mixin.Mixins.getConfigs()) {
-            for (String target : config.getConfig().getTargets()) {
-                for (org.spongepowered.asm.mixin.extensibility.IMixinInfo mixin : org.spongepowered.asm.mixin.Mixins.getMixinsForClass(target)) {
-                    if (mixin.getConfig().getName().startsWith("metallium")) {
-                        applied.add(mixin.getConfig().getName() + ":" + mixin.getClassName().substring(mixin.getClassName().lastIndexOf('.') + 1));
+        ClassLoader loader = MetalliumClientGameTest.class.getClassLoader();
+        for (String configName : METALLIUM_MIXIN_CONFIGS) {
+            try (java.io.InputStream in = loader.getResourceAsStream(configName)) {
+                if (in == null) continue;
+                com.google.gson.JsonObject json = com.google.gson.JsonParser.parseReader(
+                        new java.io.InputStreamReader(in, java.nio.charset.StandardCharsets.UTF_8)).getAsJsonObject();
+                String pkg = json.get("package").getAsString();
+                for (String side : new String[]{"mixins", "client"}) {
+                    if (!json.has(side)) continue;
+                    for (com.google.gson.JsonElement e : json.getAsJsonArray(side)) {
+                        String mixin = pkg + "." + e.getAsString();
+                        for (String target : mixinTargets(loader, mixin)) {
+                            Class<?> type;
+                            try {
+                                type = Class.forName(target, false, loader);
+                            } catch (ClassNotFoundException | LinkageError absent) {
+                                continue;
+                            }
+                            if (mergedFrom(type, mixin)) applied.add(configName + ":" + e.getAsString());
+                        }
                     }
                 }
+            } catch (java.io.IOException | RuntimeException ex) {
+                failures.add("could not read " + configName + ": " + ex);
             }
+        }
+        return applied;
+    }
+
+    private static java.util.List<String> mixinTargets(ClassLoader loader, String mixin) throws java.io.IOException {
+        java.util.List<String> targets = new ArrayList<>();
+        try (java.io.InputStream in = loader.getResourceAsStream(mixin.replace('.', '/') + ".class")) {
+            if (in == null) return targets;
+            new org.objectweb.asm.ClassReader(in).accept(new org.objectweb.asm.ClassVisitor(org.objectweb.asm.Opcodes.ASM9) {
+                @Override
+                public org.objectweb.asm.AnnotationVisitor visitAnnotation(String descriptor, boolean visible) {
+                    if (!"Lorg/spongepowered/asm/mixin/Mixin;".equals(descriptor)) return null;
+                    return new org.objectweb.asm.AnnotationVisitor(org.objectweb.asm.Opcodes.ASM9) {
+                        @Override
+                        public org.objectweb.asm.AnnotationVisitor visitArray(String name) {
+                            return new org.objectweb.asm.AnnotationVisitor(org.objectweb.asm.Opcodes.ASM9) {
+                                @Override
+                                public void visit(String unused, Object value) {
+                                    if (value instanceof org.objectweb.asm.Type type) targets.add(type.getClassName());
+                                    else if (value instanceof String string) targets.add(string.replace('/', '.'));
+                                }
+                            };
+                        }
+                    };
+                }
+            }, org.objectweb.asm.ClassReader.SKIP_CODE);
+        }
+        return targets;
+    }
+
+    private static boolean mergedFrom(Class<?> type, String mixin) {
+        try {
+            for (java.lang.reflect.Method method : type.getDeclaredMethods()) {
+                org.spongepowered.asm.mixin.transformer.meta.MixinMerged merged = method.getAnnotation(org.spongepowered.asm.mixin.transformer.meta.MixinMerged.class);
+                if (merged != null && merged.mixin().equals(mixin)) return true;
+            }
+            for (java.lang.reflect.Field field : type.getDeclaredFields()) {
+                org.spongepowered.asm.mixin.transformer.meta.MixinMerged merged = field.getAnnotation(org.spongepowered.asm.mixin.transformer.meta.MixinMerged.class);
+                if (merged != null && merged.mixin().equals(mixin)) return true;
+            }
+        } catch (LinkageError | RuntimeException ignored) {
+            // class not inspectable: treated as not merged
+        }
+        return false;
+    }
+
+    private void metalliumInactiveCheck() {
+        boolean supported = dev.metallium.MetalliumPlatform.supported();
+        java.util.Set<String> applied = appliedMetalliumMixins();
+        if (dev.metallium.api.MetalliumRuntime.isMetalActive()) {
+            line("metallium active: applied Metallium mixins=" + applied.size());
+            return;
         }
         line("metallium inactive: platform=" + dev.metallium.MetalliumPlatform.status() + " metalOffered="
                 + (supported && dev.metallium.BackendSelection.shouldOfferMetal()) + " appliedMixins=" + applied);
+        if (supported && applied.isEmpty()) {
+            failures.add("could not enumerate applied Metallium mixins (expected at least the engine selector)");
+        }
         for (String mixin : applied) {
             String simple = mixin.substring(mixin.indexOf(':') + 1);
+            simple = simple.substring(simple.lastIndexOf('.') + 1);
             if (!supported || !dev.metallium.MetalliumMixinPlugin.ENGINE_SELECTOR.contains(simple)) {
                 failures.add("Metallium mixin applied without Metal: " + mixin);
             }
