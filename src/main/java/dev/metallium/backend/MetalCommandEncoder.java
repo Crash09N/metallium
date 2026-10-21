@@ -51,6 +51,14 @@ final class MetalCommandEncoder implements CommandEncoderBackend {
     private final Map<MetalGpuTexture, Vector4fc> pendingColorClears = new IdentityHashMap<>();
     private final Map<MetalGpuTexture, Double> pendingDepthClears = new IdentityHashMap<>();
     private final MTLFence fence;
+    /**
+     * {@link MetalliumInterop#GPU_OVERLAP}: the frame fence is not chained through Metallium's encoders (resources are
+     * hazard-tracked instead). External encoders (Iris compute, metallium-gl) chain through this fence; Metallium's
+     * encoders wait for it but never update it, so whatever they read that a compute pass wrote (e.g. with image
+     * atomics, which tracking alone did not reliably order in metallium-gl) is complete.
+     */
+    @Nullable
+    private final MTLFence externalFence;
     @Nullable
     private MetalRenderPass currentRenderPass;
     @Nullable
@@ -83,6 +91,7 @@ final class MetalCommandEncoder implements CommandEncoderBackend {
         this.device = device;
         this.transientMemory = new MetalTransientMemory(device, this);
         fence = MetalUtilities.nonNil(device.metalDevice().newFence(), "newFence");
+        externalFence = MetalliumInterop.GPU_OVERLAP ? MetalUtilities.nonNil(device.metalDevice().newFence(), "newFence") : null;
         for (int slot = 0; slot < MAX_SUBMITS_IN_FLIGHT; slot++) {
             Semaphore semaphore = new Semaphore(0);
             submitSemaphores[slot] = semaphore;
@@ -106,7 +115,12 @@ final class MetalCommandEncoder implements CommandEncoderBackend {
 
     /** Orders Metallium's encoders; also used by external encoders ({@link MetalliumInterop}). */
     MTLFence frameFence() {
-        return fence;
+        return externalFence != null ? externalFence : fence;
+    }
+
+    /** Start of one of Metallium's encoders: wait for the frame fence (overlap mode: only for external encoders). */
+    private void waitFrameFence(final MTLRenderCommandEncoder encoder) {
+        encoder.waitForFence(frameFence(), MTLRenderStages.Vertex | MTLRenderStages.Fragment);
     }
 
     /**
@@ -133,7 +147,7 @@ final class MetalCommandEncoder implements CommandEncoderBackend {
             encoder = MetalUtilities.nonNil(buffer.blitCommandEncoder(), "blitCommandEncoder");
             encoder.retain();
         }
-        encoder.waitForFence(fence);
+        encoder.waitForFence(frameFence());
         currentEncoder = encoder;
         if (PerfCounters.ENABLED) {
             PerfCounters.blitEncoders++;
@@ -173,11 +187,13 @@ final class MetalCommandEncoder implements CommandEncoderBackend {
         MetalliumInterop.endExternalEncoding(); // metallium-gl: close its encoder before Metallium encodes again
         if (currentEncoder != null) {
             if (currentEncoder instanceof MTLRenderCommandEncoder renderEncoder) {
-                renderEncoder.updateFence(fence, MTLRenderStages.Vertex | MTLRenderStages.Fragment);
+                if (externalFence == null) {
+                    renderEncoder.updateFence(fence, MTLRenderStages.Vertex | MTLRenderStages.Fragment);
+                }
                 if (currentRenderPass != null) {
                     currentRenderPass.invalidateEncoderState();
                 }
-            } else if (currentEncoder instanceof MTLBlitCommandEncoder blitEncoder) {
+            } else if (currentEncoder instanceof MTLBlitCommandEncoder blitEncoder && externalFence == null) {
                 blitEncoder.updateFence(fence);
             }
             currentEncoder.endEncoding();
@@ -295,7 +311,7 @@ final class MetalCommandEncoder implements CommandEncoderBackend {
                 viewportHeight,
                 level
         );
-        encoder.waitForFence(fence, MTLRenderStages.Vertex | MTLRenderStages.Fragment);
+        waitFrameFence(encoder);
         currentEncoder = encoder;
         renderColorAttachments = colorAttachments;
         renderDepthAttachment = depthAttachment;
@@ -511,7 +527,7 @@ final class MetalCommandEncoder implements CommandEncoderBackend {
         descriptor.setHeight(source.height());
         descriptor.setUsage(MTLTextureUsage.ShaderRead);
         descriptor.setStorageMode(MTLStorageMode.Private);
-        descriptor.setHazardTrackingMode(MTLHazardTrackingMode.Untracked);
+        descriptor.setHazardTrackingMode(MetalliumInterop.hazardTrackingMode()); // overlap mode: orders copy -> present
         copy = MetalUtilities.nonNil(device.metalDevice().newTexture(descriptor), "newTextureWithDescriptor:");
         descriptor.release();
         presentCopies[slot] = copy;
@@ -861,6 +877,9 @@ final class MetalCommandEncoder implements CommandEncoderBackend {
         }
         transientMemory.close();
         device.queueResourceRelease(fence);
+        if (externalFence != null) {
+            device.queueResourceRelease(externalFence);
+        }
         destroyQueue.close();
         for (ArrayDeque<MTLBuffer> bucket : dynamicBackingPool.values()) {
             for (MTLBuffer buffer : bucket) {
@@ -936,7 +955,7 @@ final class MetalCommandEncoder implements CommandEncoderBackend {
                     1.0, 1.0,
                     level
             );
-            encoder.waitForFence(fence, MTLRenderStages.Vertex | MTLRenderStages.Fragment);
+            waitFrameFence(encoder);
             currentEncoder = encoder;
         }
         texture.recordMaterializedClear(colorClear, depthClear);
@@ -996,7 +1015,7 @@ final class MetalCommandEncoder implements CommandEncoderBackend {
         endEncoder();
         if (PerfCounters.ENABLED) PerfCounters.clearEncoders++;
         MTLRenderCommandEncoder encoder = renderCommandEncoder(attachments, Arrays.copyOf(clears, count), null, null, 1.0, 1.0, 0);
-        encoder.waitForFence(fence, MTLRenderStages.Vertex | MTLRenderStages.Fragment);
+        waitFrameFence(encoder);
         currentEncoder = encoder;
         if (mips) {
             MTLBlitCommandEncoder blit = blitCommandEncoder();

@@ -140,6 +140,8 @@ loom.runs.clientGameTest {
 		project.property('terrain').toString().split(',').each { opt -> if (!opt.isEmpty()) vmArg "-Dmetallium.terrain.${opt}" }
 	}
 	if (project.hasProperty('perfCounters')) vmArg '-Dmetallium.perfCounters=true'
+	// -PgpuOverlap: hazard-tracked resources instead of the frame-fence chain (docs/design/gpu-overlap.md; A/B).
+	if (project.hasProperty('gpuOverlap')) vmArg "-Dmetallium.gpu.overlap=${project.property('gpuOverlap') ?: 'true'}"
 	// -PperfTrace (with -PperfCounters): log every encoder of one submit per counter window and why it was opened.
 	if (project.hasProperty('perfTrace')) vmArg '-Dmetallium.perfTrace=true'
 	// -PglMods=voxy (with -PwithGl): retarget these mods' GL calls to metallium-gl; -PglFailFast=false logs instead of throwing.

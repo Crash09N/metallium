@@ -45,7 +45,7 @@ final class StorageBuffers implements AutoCloseable {
                 : info.size();
         size = Math.max(16, (size + 15) & ~15L);
         MTLBuffer buffer = MetalliumInterop.device().newBuffer(size,
-                MTLResourceOptions.StorageModeShared | MTLResourceOptions.HazardTrackingModeUntracked);
+                MTLResourceOptions.StorageModeShared | MetalliumInterop.hazardTrackingOption());
         if (buffer == null) {
             throw new IllegalStateException("could not allocate SSBO " + index + " (" + size + " bytes)");
         }

@@ -10,6 +10,8 @@ import com.mojang.renderpearl.api.textures.GpuTexture;
 import io.github.kokodio.metaljvm.metal.MTLCommandBuffer;
 import io.github.kokodio.metaljvm.metal.MTLDevice;
 import io.github.kokodio.metaljvm.metal.MTLFence;
+import io.github.kokodio.metaljvm.metal.MTLHazardTrackingMode;
+import io.github.kokodio.metaljvm.metal.MTLResourceOptions;
 import io.github.kokodio.metaljvm.metal.MTLPixelFormat;
 import io.github.kokodio.metaljvm.metal.MTLTexture;
 import org.jspecify.annotations.Nullable;
@@ -23,7 +25,9 @@ import org.jspecify.annotations.Nullable;
  *   <li>{@link #beginExternalEncoding} ends Metallium's open encoder and returns the frame's command buffer; the
  *       caller may now create its own encoders on it.</li>
  *   <li>Each external encoder waits for {@link #frameFence()} when it starts and updates it when it ends, exactly like
- *       Metallium's own encoders (Metallium's resources are not hazard-tracked).</li>
+ *       Metallium's own encoders (Metallium's resources are not hazard-tracked). With {@link #GPU_OVERLAP} the
+ *       resources are hazard-tracked and the fence orders only external encoders (Metallium's encoders wait for it
+ *       but do not update it); external code creates its GPU-written resources with {@link #hazardTrackingMode()}.</li>
  *   <li>Before Metallium opens its next encoder (or submits / presents) it calls
  *       {@link ExternalEncoderClient#endExternalEncoding()} once, so the client closes whatever encoder it left open.</li>
  * </ol>
@@ -39,6 +43,23 @@ public final class MetalliumInterop {
     /** Owner of an open external encoder; asked to close it before Metallium encodes again. */
     public interface ExternalEncoderClient {
         void endExternalEncoding();
+    }
+
+    /**
+     * {@code -Dmetallium.gpu.overlap=true}: Metal's automatic hazard tracking orders GPU work instead of one fence
+     * chained through every encoder, so independent passes of consecutive frames can overlap on the GPU
+     * (docs/design/gpu-overlap.md). Fixed for the process lifetime: resources are created in the matching mode.
+     */
+    public static final boolean GPU_OVERLAP = Boolean.getBoolean("metallium.gpu.overlap");
+
+    /** Hazard tracking mode for textures/buffers the GPU writes: tracked in {@link #GPU_OVERLAP} mode, else untracked. */
+    public static MTLHazardTrackingMode hazardTrackingMode() {
+        return GPU_OVERLAP ? MTLHazardTrackingMode.Tracked : MTLHazardTrackingMode.Untracked;
+    }
+
+    /** {@link #hazardTrackingMode()} as {@code MTLResourceOptions} bits (for {@code newBuffer}). */
+    public static long hazardTrackingOption() {
+        return GPU_OVERLAP ? MTLResourceOptions.HazardTrackingModeTracked : MTLResourceOptions.HazardTrackingModeUntracked;
     }
 
     private static volatile @Nullable MetalDevice device;
@@ -78,7 +99,10 @@ public final class MetalliumInterop {
         return encoder.commandBuffer();
     }
 
-    /** The fence that orders Metallium's encoders; external encoders wait for and update it too. */
+    /**
+     * The fence that orders Metallium's encoders; external encoders wait for and update it too. In {@link #GPU_OVERLAP}
+     * mode it orders external encoders only (Metallium's encoders wait for it without updating it).
+     */
     public static MTLFence frameFence() {
         return require().createCommandEncoder().frameFence();
     }

@@ -3,7 +3,6 @@ package dev.metallium.iris.post;
 import com.mojang.renderpearl.api.GpuFormat;
 import dev.metallium.backend.MetalliumInterop;
 import dev.metallium.iris.MetalliumIris;
-import io.github.kokodio.metaljvm.metal.MTLHazardTrackingMode;
 import io.github.kokodio.metaljvm.metal.MTLStorageMode;
 import io.github.kokodio.metaljvm.metal.MTLTexture;
 import io.github.kokodio.metaljvm.metal.MTLTextureDescriptor;
@@ -97,7 +96,7 @@ final class CustomImages implements AutoCloseable {
         }
         descriptor.setUsage(usage);
         descriptor.setStorageMode(MTLStorageMode.Private);
-        descriptor.setHazardTrackingMode(MTLHazardTrackingMode.Untracked);
+        descriptor.setHazardTrackingMode(MetalliumInterop.hazardTrackingMode());
         MTLTexture texture = MetalliumInterop.device().newTexture(descriptor);
         descriptor.release();
         if (texture == null) {

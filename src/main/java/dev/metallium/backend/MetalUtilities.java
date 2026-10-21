@@ -432,7 +432,7 @@ final class MetalUtilities {
         try (AutoreleasePool _ = AutoreleasePool.push()) {
             MTLTextureDescriptor descriptor = MTLTextureDescriptor.textureBufferDescriptor(pixelFormat, width, 0L, MTLTextureUsage.ShaderRead);
             descriptor.setStorageMode(storageMode);
-            descriptor.setHazardTrackingMode(MTLHazardTrackingMode.Untracked);
+            descriptor.setHazardTrackingMode(buffer.hazardTrackingMode()); // must match the buffer's
             return buffer.newTexture(descriptor, offset, alignedBytesPerRow);
         }
     }

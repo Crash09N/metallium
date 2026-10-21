@@ -204,7 +204,11 @@ final class MetalCompute implements MetalliumInterop.ExternalEncoderClient, Auto
             compute = null;
         }
         if (blit != null) {
-            blit.updateFence(MetalliumInterop.frameFence());
+            // GPU overlap: mip blits are ordered by hazard tracking; updating the external-encoder fence here would
+            // make the next frame's encoders wait for this frame's composite mip chain.
+            if (!MetalliumInterop.GPU_OVERLAP) {
+                blit.updateFence(MetalliumInterop.frameFence());
+            }
             blit.endEncoding();
             blit.release();
             blit = null;
