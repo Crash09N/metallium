@@ -273,8 +273,8 @@ public final class NativiumClientGameTest implements FabricClientGameTest {
                 }
             }
 
-            if (shaders) {
-                // Same install as the shader pack scenario, including -PshaderpackOptions (<pack>.txt).
+            if (shaders || voxy && !System.getProperty("nativium.gametest.shaderpack", "").isEmpty()) {
+                // Same install as the shader pack scenario (voxy scene + -Pshaderpack: Voxy LODs under the pack), including -PshaderpackOptions (<pack>.txt).
                 String installed = externalPack(context);
                 if (installed == null) {
                     throw new IllegalStateException("could not install shader pack " + pack);
