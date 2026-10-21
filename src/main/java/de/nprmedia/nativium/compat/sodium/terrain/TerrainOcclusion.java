@@ -78,7 +78,9 @@ public final class TerrainOcclusion {
     /** Row 0 of a Nativium framebuffer is NDC y = -1 (GL memory layout, FLIP_VERTEX_Y); true flips the test's rows. */
     private static final boolean FLIP_Y = Boolean.getBoolean("nativium.terrain.gpuCullFlipY");
     /** Results older than this many frames are ignored (the section is drawn in phase 1). */
-    private static final int MAX_RESULT_AGE = Integer.getInteger("nativium.terrain.gpuCullMaxAge", 30);
+    public static int maxResultAge = Integer.getInteger("nativium.terrain.gpuCullMaxAge", 30);
+    /** Test only: phase 1 draws nothing, every section goes through the GPU test and phase 2. */
+    public static boolean deferAll;
     private static final long LOG_INTERVAL_NS = Long.getLong("nativium.terrain.gpuCullLogSeconds", 5L) * 1_000_000_000L;
 
     /** Per-frame CPU data that goes with a slot: what each box stands for. */
@@ -168,7 +170,7 @@ public final class TerrainOcclusion {
         for (int e = 0; e < s.count; e++) {
             CullData.Region region = data.regions[e];
             int local = data.local[e];
-            boolean deferred = region.hidden[local] != 0 && frameId - region.resultFrame[local] <= MAX_RESULT_AGE;
+            boolean deferred = deferAll || region.hidden[local] != 0 && frameId - region.resultFrame[local] <= maxResultAge;
             data.deferred[e] = deferred;
             if (deferred) {
                 deferredSections++;
