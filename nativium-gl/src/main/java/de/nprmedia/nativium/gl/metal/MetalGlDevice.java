@@ -862,6 +862,7 @@ public final class MetalGlDevice implements GlDevice {
         try {
             if (!readTexture(texture, 0, data)) return "unreadable";
             int pixels = texture.width * texture.height;
+            // Diagnostics: -Dnativium.gl.dumpDir=/dir (with -Dnativium.gl.dump) also writes each dumped texture as PNG.
             String dir = System.getProperty("nativium.gl.dumpDir");
             if (dir != null && pixels <= 4096 * 4096) {
                 try {
