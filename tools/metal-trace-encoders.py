@@ -70,5 +70,39 @@ def summarize(rows):
     print(f"sum of encoder times {total:.3f} ms, command buffer wall median {walls[len(walls) // 2]:.3f} ms")
 
 
+def overlap(rows):
+    """GPU overlap between consecutive command buffers (docs/design/gpu-overlap.md)."""
+    cbs = collections.OrderedDict()
+    for start, dur, channel, cb, kind, index in rows:
+        cbs.setdefault(cb, []).append((start, start + dur))
+    # Frame command buffers only (VSync off also commits a tiny present command buffer per shown frame).
+    biggest = max(sum(b - a for a, b in iv) for iv in cbs.values())
+    frames = [iv for iv in cbs.values() if sum(b - a for a, b in iv) >= 0.2 * biggest]
+    spans = sorted((min(a for a, _ in iv), max(b for _, b in iv), sum(b - a for a, b in iv)) for iv in frames)
+    if len(spans) < 3:
+        return
+    every = sorted((a, b) for iv in frames for a, b in iv)
+    union, cur_a, cur_b = 0, None, None
+    for a, b in every:
+        if cur_b is None or a > cur_b:
+            if cur_b is not None:
+                union += cur_b - cur_a
+            cur_a, cur_b = a, b
+        else:
+            cur_b = max(cur_b, b)
+    union += cur_b - cur_a
+    window = every[-1][1] - every[0][0]
+    busy = sum(s for _, _, s in spans)
+    gaps = sorted((spans[i][0] - spans[i - 1][0]) / 1e6 for i in range(1, len(spans)))
+    over = sorted(max(0, spans[i - 1][1] - spans[i][0]) / 1e6 for i in range(1, len(spans)))
+    n = len(spans)
+    print(f"overlap: {n} command buffers, median start-to-start {gaps[len(gaps) // 2]:.3f} ms, "
+          f"median overlap with the previous one {over[len(over) // 2]:.3f} ms ({sum(1 for o in over if o > 0)}/{len(over)} overlap)")
+    print(f"overlap: GPU busy (union of all intervals) {union / 1e6 / n:.3f} ms per command buffer, channel time "
+          f"{busy / 1e6 / n:.3f} ms per command buffer (concurrency {busy / union:.2f}), busy {100.0 * union / window:.0f}% of the window")
+
+
 if __name__ == "__main__":
-    summarize(intervals(export(sys.argv[1]), sys.argv[2] if len(sys.argv) > 2 else "java"))
+    rows = intervals(export(sys.argv[1]), sys.argv[2] if len(sys.argv) > 2 else "java")
+    summarize(rows)
+    overlap(rows)

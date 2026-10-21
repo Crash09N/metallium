@@ -92,6 +92,9 @@ final class MetalCommandEncoder implements CommandEncoderBackend {
         this.transientMemory = new MetalTransientMemory(device, this);
         fence = MetalUtilities.nonNil(device.metalDevice().newFence(), "newFence");
         externalFence = MetalliumInterop.GPU_OVERLAP ? MetalUtilities.nonNil(device.metalDevice().newFence(), "newFence") : null;
+        if (MetalliumInterop.GPU_OVERLAP) {
+            dev.metallium.Metallium.LOGGER.info("[metallium] GPU overlap on: hazard-tracked resources, no frame-fence chain (metallium.gpu.overlap)");
+        }
         for (int slot = 0; slot < MAX_SUBMITS_IN_FLIGHT; slot++) {
             Semaphore semaphore = new Semaphore(0);
             submitSemaphores[slot] = semaphore;
