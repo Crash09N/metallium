@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "id": "nativium_voxy_natives",
+  "version": "${version}",
+  "name": "Nativium Voxy Natives (macOS)",
+  "description": "The macOS Apple Silicon native libraries that Voxy's bundled RocksDB ${rocksdb} and LWJGL zstd/LMDB ${lwjgl} leave out, so Voxy's world storage opens on a Mac. Native files only, no code; does nothing on other systems or without Voxy.",
+  "authors": ["Crash09N – NPR Media"],
+  "contact": {"homepage": "https://github.com/Crash09N/metallium", "sources": "https://github.com/Crash09N/metallium", "issues": "https://github.com/Crash09N/metallium/issues"},
+  "license": ["MIT", "Apache-2.0", "BSD-3-Clause", "OLDAP-2.8"],
+  "environment": "*",
+  "depends": {
+    "minecraft": "~26.3"
+  },
+  "custom": {
+    "nativium:natives": {
+      "platform": "macos-arm64",
+      "org_rocksdb_rocksdbjni": "${rocksdb}",
+      "org_lwjgl_lwjgl-zstd": "${lwjgl}",
+      "org_lwjgl_lwjgl-lmdb": "${lwjgl}"
+    },
+    "modmenu": {
+      "parent": "nativium",
+      "badges": ["library"]
+    }
+  }
+}

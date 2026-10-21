@@ -3,15 +3,15 @@
 #
 #   tools/make-run-instance.sh [SOURCE_INSTANCE] [DEST]
 #
-# SOURCE_INSTANCE defaults to $METALLIUM_INSTANCE or /Users/noah/Desktop/Metallium/metallium-research/minecraft-instance,
+# SOURCE_INSTANCE defaults to $NATIVIUM_INSTANCE (or the old $METALLIUM_INSTANCE) or /Users/noah/Desktop/Metallium/metallium-research/minecraft-instance,
 # DEST to run-instance/ in the repository (git-ignored). Copies the enabled mods (*.jar; *.disabled stay out),
 # shaderpacks/, resourcepacks/, config/ and options.txt. Never copies saves, server lists, account data (essential/),
 # logs, crash reports or screenshots. Fabric API is left out because the dev game-test classpath already provides it
-# (two copies of the same mod id would stop Fabric Loader). Metallium itself comes from the dev build, never from mods/.
+# (two copies of the same mod id would stop Fabric Loader). Nativium itself comes from the dev build, never from mods/.
 # Essential is skipped (KEEP_ESSENTIAL=1 keeps it), see below. SKIP_MODS="glob1 glob2" leaves out more jars. Nothing from DEST may be committed.
 set -euo pipefail
 repo="$(cd "$(dirname "$0")/.." && pwd)"
-src="${1:-${METALLIUM_INSTANCE:-/Users/noah/Desktop/Metallium/metallium-research/minecraft-instance}}"
+src="${1:-${NATIVIUM_INSTANCE:-${METALLIUM_INSTANCE:-/Users/noah/Desktop/Metallium/metallium-research/minecraft-instance}}}"
 dest="${2:-$repo/run-instance}"
 [ -f "$src/options.txt" ] || { echo "not a Minecraft instance: $src" >&2; exit 1; }
 
@@ -21,7 +21,7 @@ find "$dest/mods" -maxdepth 1 -name '*.jar' -delete
 for jar in "$src"/mods/*.jar; do
 	name="$(basename "$jar")"
 	case "$name" in
-		fabric-api-*|metallium*) continue ;;
+		fabric-api-*|nativium*|metallium*) continue ;;
 		# Essential's loader remaps Essential to "dev mappings" whenever fabric.development=true and fails without a
 		# mappings.tiny on the classpath (26.x has none), so it cannot start in a Loom dev run. Production only.
 		Essential_*|essential-*) [ -n "${KEEP_ESSENTIAL:-}" ] || { echo "skipping $name (cannot run in a dev launch)"; continue; } ;;

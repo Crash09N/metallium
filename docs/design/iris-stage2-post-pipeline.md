@@ -1,6 +1,6 @@
 # Iris adapter stage 2: shader-pack fullscreen passes on Metal
 
-Status: implemented 2026-10-18 (`metallium-iris`, package `dev.metallium.iris.post`). Blueprint context:
+Status: implemented 2026-10-18 (`nativium-iris`, package `de.nprmedia.nativium.iris.post`). Blueprint context:
 `iris-adapter-blueprint.md` §6 stage 2.
 
 ## Decision: targeted replacement, not the GL-name shim (yet)
@@ -57,7 +57,7 @@ blocks, images/SSBOs. Without gbuffers programs depthtex1/2 are the same as dept
 
 ## Results (M3 Max, 2026-10-18)
 
-- Test pack (`src/gametest/resources/metallium-testpack`, inverts colours via colortex0 + `viewWidth`): inverted-pixel
+- Test pack (`src/gametest/resources/nativium-testpack`, inverts colours via colortex0 + `viewWidth`): inverted-pixel
   fraction 1.00 in the game test.
 - Complementary Unbound r5.6.1 (local only, never in the repo): loads; 8 fullscreen programs + final translate and
   run (its deferred clouds and tonemapping show over the vanilla scene); 20 gbuffers/shadow programs reported as not

@@ -1,0 +1,23 @@
+{
+  "required": true,
+  "package": "de.nprmedia.nativium.mixin",
+  "plugin": "de.nprmedia.nativium.NativiumMixinPlugin",
+  "compatibilityLevel": "JAVA_25",
+  "client": [
+    "DebugEntrySystemSpecsMixin",
+    "CrashReportMixin",
+    "FramerateLimitTrackerMixin",
+    "GuiMixin",
+    "MinecraftMixin",
+    "OptionsMixin",
+    "PreferredGraphicsApiCaptionMixin",
+    "PreferredGraphicsApiMixin",
+    "VideoSettingsScreenMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  },
+  "overwrites": {
+    "requireAnnotations": true
+  }
+}
