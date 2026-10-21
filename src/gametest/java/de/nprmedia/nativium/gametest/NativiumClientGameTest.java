@@ -79,6 +79,46 @@ public final class NativiumClientGameTest implements FabricClientGameTest {
         }
     }
 
+    /** The window's size in real pixels (SDL), {w, h}; a Retina window reports twice its point size. */
+    private static int[] windowPixels(final Minecraft client) {
+        try (org.lwjgl.system.MemoryStack stack = org.lwjgl.system.MemoryStack.stackPush()) {
+            java.nio.IntBuffer w = stack.mallocInt(1);
+            java.nio.IntBuffer h = stack.mallocInt(1);
+            org.lwjgl.sdl.SDLVideo.SDL_GetWindowSizeInPixels(client.getWindow().handle(), w, h);
+            return new int[]{w.get(0), h.get(0)};
+        }
+    }
+
+    /** Points, pixels, pixel density and display scale of the window (a 2x/1x mismatch looks zoomed/pixelated). */
+    private static String windowScale(final Minecraft client) {
+        long window = client.getWindow().handle();
+        try (org.lwjgl.system.MemoryStack stack = org.lwjgl.system.MemoryStack.stackPush()) {
+            java.nio.IntBuffer w = stack.mallocInt(1);
+            java.nio.IntBuffer h = stack.mallocInt(1);
+            org.lwjgl.sdl.SDLVideo.SDL_GetWindowSize(window, w, h);
+            int[] px = windowPixels(client);
+            return String.format(java.util.Locale.ROOT, "window_points=%dx%d window_pixels=%dx%d pixel_density=%.2f display_scale=%.2f",
+                    w.get(0), h.get(0), px[0], px[1], org.lwjgl.sdl.SDLVideo.SDL_GetWindowPixelDensity(window),
+                    org.lwjgl.sdl.SDLVideo.SDL_GetWindowDisplayScale(window));
+        }
+    }
+
+    /**
+     * Fabric's game test pins the framebuffer at 854x480, cancels resize events and restores the pinned size after every
+     * fullscreen switch, so a fullscreen/large bench window rendered 854x480 scaled up ("pixelated, zoomed in", owner).
+     * Resizes the framebuffer, main target and surface to the window's real pixel size, as a real game does.
+     */
+    private static String resizeToNative(final Minecraft client) {
+        org.lwjgl.sdl.SDLVideo.SDL_SyncWindow(client.getWindow().handle());
+        int[] px = windowPixels(client);
+        var hooks = (net.fabricmc.fabric.impl.client.gametest.util.WindowHooks) (Object) client.getWindow();
+        if (px[0] > 0 && px[1] > 0 && (client.getWindow().getWidth() != px[0] || client.getWindow().getHeight() != px[1])) {
+            hooks.fabric_resize(px[0], px[1]);
+        }
+        return "framebuffer " + client.getWindow().getWidth() + "x" + client.getWindow().getHeight() + ", main target "
+                + client.gameRenderer.mainRenderTarget().width + "x" + client.gameRenderer.mainRenderTarget().height + ", " + windowScale(client);
+    }
+
     /**
      * Moves the game window to the benchmark display: {@code -Dnativium.bench.display} = index into SDL's display list
      * or a name substring; default the display with the highest refresh rate (benchmarks must run on the owner's 144 Hz
@@ -169,6 +209,9 @@ public final class NativiumClientGameTest implements FabricClientGameTest {
             // Vanilla drops to 30 fps when there is no input for a while ("AFK"); a benchmark has no input.
             client.options.inactivityFpsLimit().set(net.minecraft.client.InactivityFpsLimit.MINIMIZED);
         });
+        // Native size from the start (world load, settle and measurement), not only just before measuring.
+        context.waitTicks(40); // macOS fullscreen transition
+        line("bench: native size before world load: " + context.computeOnClient(NativiumClientGameTest::resizeToNative));
         try (TestSingleplayerContext world = context.worldBuilder()
                 .setUseConsistentSettings(false)
                 .adjustSettings(state -> state.setSeed(BENCH_SEED))
@@ -249,18 +292,10 @@ public final class NativiumClientGameTest implements FabricClientGameTest {
                 line("bench: window display " + context.computeOnClient(NativiumClientGameTest::moveToBenchDisplay));
                 context.waitTicks(20);
             }
-            if (window.matches("\\d+x\\d+") || Boolean.getBoolean("nativium.bench.fullscreen")) {
-                // Fabric's game test pins the framebuffer at 854x480 and cancels resize events, so fullscreen alone
-                // rendered 854x480 and scaled it up; a windowed bench kept the Metal surface at 854x480 while macOS
-                // shrank the window. Resize the framebuffer (and surface) to the real window size, as a real game does.
-                line("bench: real framebuffer " + context.computeOnClient(c -> {
-                    var hooks = (net.fabricmc.fabric.impl.client.gametest.util.WindowHooks) (Object) c.getWindow();
-                    hooks.fabric_resize(hooks.fabric_getRealWidth(), hooks.fabric_getRealHeight());
-                    return "real " + hooks.fabric_getRealWidth() + "x" + hooks.fabric_getRealHeight() + " (fb "
-                            + hooks.fabric_getRealFramebufferWidth() + "x" + hooks.fabric_getRealFramebufferHeight() + ")";
-                }));
-                context.waitTicks(20);
-            }
+            // Again after a window resize (and in case anything switched the window mode since): the framebuffer must
+            // be the window's real pixel size (resizeToNative).
+            line("bench: native size after setup: " + context.computeOnClient(NativiumClientGameTest::resizeToNative));
+            context.waitTicks(20);
             line("bench: framebuffer " + context.computeOnClient(c -> c.getWindow().getWidth() + "x" + c.getWindow().getHeight()));
             // Ticks run faster than 20/s in the game test, so settle on wall-clock time as well as ticks.
             long settleUntil = System.nanoTime() + settleSeconds * 1_000_000_000L;
@@ -308,7 +343,14 @@ public final class NativiumClientGameTest implements FabricClientGameTest {
                     + ", occluded at start=" + context.computeOnClient(c -> BenchEnvironment.occluded(c.getWindow().handle())));
             boolean[] everUnfocused = {false};
             boolean[] everOccluded = {false};
+            if (Boolean.getBoolean("nativium.bench.rephase")) {
+                // Repro for the lock-step 20 fps state (LockstepStats): a 4 s server stall makes the integrated server
+                // log "Can't keep up" and restart its tick schedule at a random phase relative to the client's.
+                world.getServer().runOnServer(server -> java.util.concurrent.locks.LockSupport.parkNanos(4_000_000_000L));
+                context.waitTicks(60);
+            }
             long[] present0 = presentCounters();
+            long[] lockstep0 = context.computeOnClient(c -> LockstepStats.snapshot());
             java.util.Set<String> windowStates = new java.util.TreeSet<>(); // sampled once per second
             startRecording();
             for (int second = 0; second < BENCH_SECONDS; second++) {
@@ -330,6 +372,8 @@ public final class NativiumClientGameTest implements FabricClientGameTest {
             List<Double> frameMs = stopRecording();
             long[] present1 = presentCounters();
             double seconds = (System.nanoTime() - startNs) / 1e9;
+            long[] lockstep1 = context.computeOnClient(c -> LockstepStats.snapshot());
+            line(LockstepStats.describe(lockstep0, lockstep1, seconds));
             float refreshHz = context.computeOnClient(c -> de.nprmedia.nativium.backend.PresentStats.displayRefreshHz());
             if (frameMs.isEmpty()) {
                 throw new AssertionError("no frames recorded");
@@ -357,21 +401,38 @@ public final class NativiumClientGameTest implements FabricClientGameTest {
                     org.lwjgl.sdl.SDLVideo.SDL_GetDisplayForWindow(c.getWindow().handle()))));
             boolean fullscreen = context.computeOnClient(c -> (org.lwjgl.sdl.SDLVideo.SDL_GetWindowFlags(c.getWindow().handle()) & org.lwjgl.sdl.SDLVideo.SDL_WINDOW_FULLSCREEN) != 0);
             String mainTarget = context.computeOnClient(c -> c.gameRenderer.mainRenderTarget().width + "x" + c.gameRenderer.mainRenderTarget().height);
+            // Display mode in real pixels (SDL reports points; pixel_density is 2 on a Retina mode).
             String displaySize = context.computeOnClient(c -> {
                 org.lwjgl.sdl.SDL_DisplayMode mode = org.lwjgl.sdl.SDLVideo.SDL_GetCurrentDisplayMode(
                         org.lwjgl.sdl.SDLVideo.SDL_GetDisplayForWindow(c.getWindow().handle()));
-                return mode == null ? "?" : mode.w() + "x" + mode.h();
+                return mode == null ? "?" : Math.round(mode.w() * mode.pixel_density()) + "x" + Math.round(mode.h() * mode.pixel_density());
             });
+            String windowPixels = context.computeOnClient(c -> {
+                int[] px = windowPixels(c);
+                return px[0] + "x" + px[1];
+            });
+            String scale = context.computeOnClient(NativiumClientGameTest::windowScale);
             String sizes = de.nprmedia.nativium.backend.PresentStats.sizes();
+            // What was actually rendered during the measurement, read back at the game side.
+            Path nativeShot = context.takeScreenshot("nativium-bench-native-" + BENCH_SCENE);
+            String shotSize;
+            try {
+                java.awt.image.BufferedImage image = javax.imageio.ImageIO.read(nativeShot.toFile());
+                shotSize = image.getWidth() + "x" + image.getHeight();
+            } catch (IOException | RuntimeException e) {
+                shotSize = "?";
+            }
             String validity = BenchEnvironment.validity(everUnfocused[0], everOccluded[0], presentedPerSecond, metal);
-            // Fullscreen must render at the display's native size (the owner saw an upscaled image once).
-            boolean wrongSize = fullscreen && (!mainTarget.equals(displaySize) || !framebuffer.equals(displaySize)
-                    || metal && !sizes.contains("presented_texture=" + displaySize + " ") || metal && !sizes.contains("drawable=" + displaySize + " "));
+            // The frame must be rendered at the window's real pixel size (owner: an upscaled 854x480 image looked
+            // pixelated and zoomed in); in fullscreen that is the display mode's pixel size.
+            boolean wrongSize = !mainTarget.equals(windowPixels) || !framebuffer.equals(windowPixels) || !shotSize.equals(windowPixels)
+                    || fullscreen && !windowPixels.equals(displaySize)
+                    || metal && !sizes.contains("presented_texture=" + windowPixels + " ") || metal && !sizes.contains("drawable=" + windowPixels + " ");
             if (wrongSize) {
                 validity = validity.equals("VALID") ? "INVALID(render size)" : validity.replace(")", ",render size)");
             }
-            line(BenchEnvironment.fmt("bench-env: %s display=%s display_mode=%s resolution=%s main_target=%s %s fullscreen=%s refresh_hz=%.1f power=%s focused_always=%s occluded_ever=%s caffeinate=%s",
-                    validity, display, displaySize, framebuffer, mainTarget, sizes, fullscreen,
+            line(BenchEnvironment.fmt("bench-env: %s display=%s display_mode=%s resolution=%s main_target=%s screenshot=%s %s %s fullscreen=%s refresh_hz=%.1f power=%s focused_always=%s occluded_ever=%s caffeinate=%s",
+                    validity, display, displaySize, framebuffer, mainTarget, shotSize, scale, sizes, fullscreen,
                     refreshHz, BenchEnvironment.powerSource(), !everUnfocused[0], everOccluded[0], caffeinate != null));
             if (caffeinate != null) {
                 caffeinate.destroy();
@@ -1410,6 +1471,17 @@ public final class NativiumClientGameTest implements FabricClientGameTest {
                         clearChat(context);
                         packCoverage(context.takeScreenshot("nativium-iris-external-pack-natural"));
                         measure(context, "natural world, external pack");
+                        // Sky around a high sun (owner report: a dark-edged ring in the sky with Complementary
+                        // Reimagined, sun ~60 degrees up): facing east, looking up, then straight up.
+                        tryCommand(world, "time set 3500");
+                        tryCommand(world, "execute as @p at @s run tp @s ~ ~ ~ -90 -55");
+                        context.waitTicks(40);
+                        clearChat(context);
+                        context.takeScreenshot("nativium-iris-external-pack-natural-sun");
+                        tryCommand(world, "execute as @p at @s run tp @s ~ ~ ~ 0 -88");
+                        context.waitTicks(20);
+                        clearChat(context);
+                        context.takeScreenshot("nativium-iris-external-pack-natural-zenith");
                         context.computeOnClient(client -> irisSelectPack(external, false));
                         context.waitTicks(20);
                     }
