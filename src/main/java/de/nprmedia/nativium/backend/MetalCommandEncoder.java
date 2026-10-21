@@ -1028,7 +1028,7 @@ final class MetalCommandEncoder implements CommandEncoderBackend {
                 trackBlit(metal.handle(), metal.handle());
                 for (int level = 1; level < target.getMipLevels(); level++) {
                     blit.copyFromTexture(metal, 0, 0, new MTLOrigin(0, 0, 0),
-                            new MTLSize(target.getWidth(level), target.getHeight(level), 1),
+                            new MTLSize(Math.max(1, target.getWidth(level)), Math.max(1, target.getHeight(level)), 1),
                             metal, 0, level, new MTLOrigin(0, 0, 0));
                 }
             }
