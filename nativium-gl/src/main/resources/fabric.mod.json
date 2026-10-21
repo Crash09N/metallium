@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "id": "nativium-gl",
+  "version": "${version}",
+  "name": "Nativium GL",
+  "description": "OpenGL to Metal translation layer: runs the raw OpenGL calls of opted-in mods on Nativium's Metal backend.",
+  "authors": ["Crash09N – NPR Media"],
+  "contact": {"homepage": "https://github.com/Crash09N/metallium", "sources": "https://github.com/Crash09N/metallium", "issues": "https://github.com/Crash09N/metallium/issues"},
+  "license": "MIT",
+  "environment": "client",
+  "entrypoints": {
+    "preLaunch": ["de.nprmedia.nativium.gl.retarget.NativiumGlPreLaunch"]
+  },
+  "mixins": ["nativium-gl.mixins.json"],
+  "depends": {
+    "nativium": "*",
+    "minecraft": "~26.3"
+  },
+  "custom": {
+    "modmenu": {
+      "parent": "nativium"
+    }
+  }
+}

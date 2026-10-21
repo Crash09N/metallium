@@ -1,57 +1,41 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Crash09N – NPR Media
 package dev.metallium.api;
 
-/**
- * Stable, minimal runtime queries for other mods and Metallium's own compatibility modules.
- */
-public final class MetalliumRuntime {
-    private static volatile boolean metalActive;
-    private static volatile String metalDescription = "";
-    private static final java.util.List<java.util.function.Supplier<String>> STATUS_PROVIDERS = new java.util.concurrent.CopyOnWriteArrayList<>();
+import de.nprmedia.nativium.api.NativiumRuntime;
 
+/**
+ * Compatibility shim for mods built against Metallium, the project's name before it was renamed to Nativium.
+ * Every method delegates to {@link NativiumRuntime}; use that class instead. Kept for one release, then removed.
+ *
+ * @deprecated since 0.1.0-alpha: use {@link de.nprmedia.nativium.api.NativiumRuntime}
+ */
+@Deprecated(since = "0.1.0-alpha", forRemoval = true)
+public final class MetalliumRuntime {
     private MetalliumRuntime() {
     }
 
-    /** True once the Metal backend created the game's GPU device (i.e. no OpenGL context exists). */
+    /** @deprecated use {@link NativiumRuntime#isMetalActive()} */
+    @Deprecated(since = "0.1.0-alpha", forRemoval = true)
     public static boolean isMetalActive() {
-        return metalActive;
+        return NativiumRuntime.isMetalActive();
     }
 
-    /**
-     * Registers an extra line for Metallium's F3 block (e.g. compatibility adapters reporting their state).
-     * A supplier returning null or an empty string adds no line.
-     */
+    /** @deprecated use {@link NativiumRuntime#registerStatusLine(java.util.function.Supplier)} */
+    @Deprecated(since = "0.1.0-alpha", forRemoval = true)
     public static void registerStatusLine(final java.util.function.Supplier<String> line) {
-        STATUS_PROVIDERS.add(line);
+        NativiumRuntime.registerStatusLine(line);
     }
 
-    /** Current extra status lines, in registration order. */
+    /** @deprecated use {@link NativiumRuntime#statusLines()} */
+    @Deprecated(since = "0.1.0-alpha", forRemoval = true)
     public static java.util.List<String> statusLines() {
-        java.util.List<String> lines = new java.util.ArrayList<>();
-        for (java.util.function.Supplier<String> provider : STATUS_PROVIDERS) {
-            try {
-                String line = provider.get();
-                if (line != null && !line.isEmpty()) {
-                    lines.add(line);
-                }
-            } catch (RuntimeException e) {
-                lines.add("(status provider failed: " + e.getClass().getSimpleName() + ")");
-            }
-        }
-        return lines;
+        return NativiumRuntime.statusLines();
     }
 
-    /** Metal feature summary of the active device, e.g. "Metal 4 · GPU family Apple9 · MSL 4.0"; empty if inactive. */
+    /** @deprecated use {@link NativiumRuntime#metalDescription()} */
+    @Deprecated(since = "0.1.0-alpha", forRemoval = true)
     public static String metalDescription() {
-        return metalDescription;
-    }
-
-    /** Internal: set by the Metal backend after device creation. */
-    public static void setMetalDescription(final String description) {
-        metalDescription = description == null ? "" : description;
-    }
-
-    /** Internal: called by the Metal backend after successful device creation. */
-    public static void markMetalActive() {
-        metalActive = true;
+        return NativiumRuntime.metalDescription();
     }
 }

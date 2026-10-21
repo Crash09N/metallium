@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-# Copyright (c) 2026 Metallium contributors, licensed under the Apache License 2.0.
-"""Per-encoder GPU time from an Instruments "Metal System Trace" (.trace) of a Metallium client.
+# Copyright (c) 2026 Nativium contributors, licensed under the Apache License 2.0.
+"""Per-encoder GPU time from an Instruments "Metal System Trace" (.trace) of a Nativium client.
 
 Record (while a bench runs; see docs/design/iris-stage5-compute.md, "Performance"):
     xcrun xctrace record --template 'Metal System Trace' --attach <pid> --time-limit 2s --output run.trace

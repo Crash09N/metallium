@@ -9,4 +9,4 @@ logs/
 minecraft/
 run-instance/
 .DS_Store
-.metallium-cache/
+.nativium-cache/

@@ -1,0 +1,18 @@
+{
+  "required": false,
+  "package": "de.nprmedia.nativium.compat.sodium.mixin",
+  "plugin": "de.nprmedia.nativium.NativiumMixinPlugin",
+  "compatibilityLevel": "JAVA_25",
+  "mixins": [
+  ],
+  "client": [
+    "DefaultChunkRendererPerfMixin",
+    "DrawBackendMixin",
+    "EnumOptionMixin",
+    "GLDrawBatchDrawMixin",
+    "StatefulOptionMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 0
+  }
+}

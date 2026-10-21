@@ -1,0 +1,4 @@
+{
+  "nativium.graphicsApi.metal": "Metal (via Nativium)",
+  "nativium.graphicsApi.metal.tooltip": "Renders with Apple's Metal through Nativium and falls back to OpenGL if Metal is unavailable. Choose Prefer OpenGL to use vanilla's OpenGL renderer."
+}

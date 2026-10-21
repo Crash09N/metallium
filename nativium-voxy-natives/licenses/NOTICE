@@ -1,0 +1,20 @@
+nativium-voxy-natives (part of the Nativium project, https://github.com/Crash09N/metallium)
+
+This jar contains no code. It redistributes, unmodified, the macOS arm64 native libraries below, copied from the
+official Maven Central artifacts, so that the Java classes Voxy already bundles can load them on Apple Silicon Macs:
+
+- librocksdbjni-osx-arm64.jnilib
+  from org.rocksdb:rocksdbjni:10.2.1 (RocksDB, https://github.com/facebook/rocksdb).
+  RocksDB is dual-licensed under GPLv2 and the Apache License 2.0; it is redistributed here under the Apache License 2.0
+  (RocksDB-LICENSE.Apache). RocksDB contains code from LevelDB under a BSD licence (RocksDB-LICENSE.leveldb).
+  Copyright (c) Meta Platforms, Inc. and affiliates; Copyright (c) 2011 The LevelDB Authors.
+
+- macos/arm64/org/lwjgl/zstd/liblwjgl_zstd.dylib (+ META-INF/.../liblwjgl_zstd.dylib.sha1)
+  from org.lwjgl:lwjgl-zstd:3.4.1:natives-macos-arm64 (LWJGL, https://www.lwjgl.org, BSD-3-Clause, LWJGL-LICENSE.md).
+  The library statically contains Zstandard (https://github.com/facebook/zstd, BSD, zstd-LICENSE),
+  Copyright (c) Meta Platforms, Inc. and affiliates.
+
+- macos/arm64/org/lwjgl/lmdb/liblwjgl_lmdb.dylib (+ META-INF/.../liblwjgl_lmdb.dylib.sha1)
+  from org.lwjgl:lwjgl-lmdb:3.4.1:natives-macos-arm64 (LWJGL, BSD-3-Clause, LWJGL-LICENSE.md).
+  The library statically contains LMDB (https://www.symas.com/lmdb), OpenLDAP Public License 2.8 (LMDB-LICENSE),
+  Copyright Howard Chu, Symas Corp. and the OpenLDAP Foundation.

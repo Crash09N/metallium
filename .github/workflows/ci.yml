@@ -32,7 +32,7 @@ jobs:
         run: ./gradlew build --no-daemon
       - uses: actions/upload-artifact@v4
         with:
-          name: metallium-jar
+          name: nativium-jar
           path: build/libs/*.jar
 
   metal:
@@ -70,13 +70,13 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
       - name: Run client game test on Metal
         env:
-          METALLIUM_EXPECT_BACKEND: Metal
+          NATIVIUM_EXPECT_BACKEND: Metal
           # Metal API validation: reports invalid bindings/formats/offsets in the log.
           MTL_DEBUG_LAYER: '1'
         run: ./gradlew runClientGameTest --no-daemon ${{ matrix.variant == 'sodium' && '-PwithSodium' || matrix.variant == 'iris' && '-PwithIris' || matrix.variant == 'reglass' && '-PwithReGlass' || matrix.variant == 'cullleaves' && '-PwithCullLeaves' || matrix.variant == 'moreculling' && '-PwithMoreCulling' || '' }}
       - name: Report
         if: always()
-        run: cat build/run/clientGameTest/metallium-gametest-report.txt || true
+        run: cat build/run/clientGameTest/nativium-gametest-report.txt || true
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -85,7 +85,7 @@ jobs:
             build/run/clientGameTest/screenshots/
             build/run/clientGameTest/logs/
             build/run/clientGameTest/crash-reports/
-            build/run/clientGameTest/metallium-gametest-report.txt
+            build/run/clientGameTest/nativium-gametest-report.txt
           if-no-files-found: warn
       - name: Publish results to ci-artifacts branch
         if: always() && github.event_name == 'push'
@@ -94,10 +94,10 @@ jobs:
         run: |
           mkdir -p ci-out && cd ci-out
           cp -r ../build/run/clientGameTest/screenshots . 2>/dev/null || true
-          cp ../build/run/clientGameTest/metallium-gametest-report.txt . 2>/dev/null || true
+          cp ../build/run/clientGameTest/nativium-gametest-report.txt . 2>/dev/null || true
           cp ../build/run/clientGameTest/logs/latest.log . 2>/dev/null || true
           cp -r ../build/run/clientGameTest/crash-reports . 2>/dev/null || true
           echo "${GITHUB_SHA}" > COMMIT
           git init -q && git checkout -q -b "ci-artifacts-${{ matrix.variant }}" && git add -A
-          git -c user.name=metallium-ci -c user.email=ci@users.noreply.github.com commit -qm "CI results for ${GITHUB_SHA}"
+          git -c user.name=nativium-ci -c user.email=ci@users.noreply.github.com commit -qm "CI results for ${GITHUB_SHA}"
           git push -f -q "https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "ci-artifacts-${{ matrix.variant }}"

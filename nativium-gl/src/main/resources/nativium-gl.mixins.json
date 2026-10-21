@@ -1,0 +1,11 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "de.nprmedia.nativium.gl.mixin",
+  "plugin": "de.nprmedia.nativium.gl.retarget.NativiumGlMixinPlugin",
+  "compatibilityLevel": "JAVA_25",
+  "client": [],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

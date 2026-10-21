@@ -1,6 +1,6 @@
 # Iris adapter stage 3: gbuffers programs on Metal
 
-Status: implemented 2026-10-18 (`metallium-iris`, package `dev.metallium.iris.post`: `GbufferPasses`, `GbufferState`,
+Status: implemented 2026-10-18 (`nativium-iris`, package `de.nprmedia.nativium.iris.post`: `GbufferPasses`, `GbufferState`,
 `GbufferProgram`; mixins `FrontendCommandEncoderMixin`, `FrontendRenderPassMixin`, `RenderSystemPipelineMixin`).
 Blueprint context: `iris-adapter-blueprint.md` §6 stage 3; stage 2: `iris-stage2-post-pipeline.md`.
 

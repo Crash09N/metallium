@@ -1,0 +1,33 @@
+{
+  "required": true,
+  "package": "de.nprmedia.nativium.iris.mixin",
+  "plugin": "de.nprmedia.nativium.iris.NativiumIrisMixinPlugin",
+  "compatibilityLevel": "JAVA_25",
+  "priority": 1500,
+  "client": [
+    "BlendModeOverrideAccessor",
+    "BlockEntityRenderStateAccessor",
+    "FrontendCommandEncoderMixin",
+    "FrontendGpuDeviceAccessor",
+    "FrontendRenderPassAccessor",
+    "FrontendRenderPassMixin",
+    "GLDebugMixin",
+    "GlStateManagerGuardMixin",
+    "IrisCreatePipelineMixin",
+    "IrisDebugMixin",
+    "IrisMixin",
+    "IrisPackInUseMixin",
+    "IrisRenderSystemMixin",
+    "IrisRenderSystemUniformMixin",
+    "MatrixUniformMixin",
+    "MetalGpuTextureMixin",
+    "RenderSystemPipelineMixin",
+    "SamplerLimitsMixin",
+    "StandardMacrosMixin",
+    "VanillaRenderingPipelineMixin",
+    "VoxyPipelineFactoryMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

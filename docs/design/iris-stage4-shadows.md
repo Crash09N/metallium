@@ -1,6 +1,6 @@
 # Iris adapter stage 4: the shadow pass on Metal
 
-Status: implemented 2026-10-18 (`metallium-iris`, package `dev.metallium.iris.post`: `MetalShadowRenderer`,
+Status: implemented 2026-10-18 (`nativium-iris`, package `de.nprmedia.nativium.iris.post`: `MetalShadowRenderer`,
 `ShadowTargets`; shadow mode in `GbufferState`/`GbufferProgram`; backend extension `MetalDepthCompareSamplers`).
 Blueprint context: `iris-adapter-blueprint.md` §6 stage 4; stage 3: `iris-stage3-gbuffers.md`.
 
@@ -53,19 +53,19 @@ Binding (`MetalPostPipeline.bindShadowSampler`, used by gbuffers and fullscreen 
 
 **Depth-compare sampling.** A `sampler2DShadow` becomes `depth2d<float>` + `sample_compare` in MSL, which takes the
 compare function from the sampler state; renderpearl's `GpuDevice.createSampler` cannot express that. The isolated
-backend extension `dev.metallium.backend.MetalDepthCompareSamplers` creates a `MetalGpuSampler` with
+backend extension `de.nprmedia.nativium.backend.MetalDepthCompareSamplers` creates a `MetalGpuSampler` with
 `MTLSamplerDescriptor.compareFunction` (GL's `GL_TEXTURE_COMPARE_MODE`, Iris uses `LEQUAL`). Which samplers need it is
 read from SPIR-V (`GlslProgramTranslator.depthCompareSamplerNames`: combined image samplers whose image is a depth
 image), so it works whether or not the pack sets `shadowHardwareFiltering`. Linear/nearest follows `shadowtexNNearest`.
 
 ## Results (M3 Max, 2026-10-18)
 
-- Synthetic shadow pack (`src/gametest/resources/metallium-shadowpack`: `shadow` program + composite that projects every
+- Synthetic shadow pack (`src/gametest/resources/nativium-shadowpack`: `shadow` program + composite that projects every
   pixel into the shadow map through a `sampler2DShadow` and paints shadowed pixels magenta): at noon a floating stone
   platform shadows the ground below it - shadowed fraction 1.00 under the platform, 0.00 in the same area without it,
   0.00 on the far ground. The same pack gives the same numbers on Iris/OpenGL (`-Pengine=OPENGL`).
 - Complementary Unbound r5.6.1 (local only, `-Pshaderpack=`): `shadow` program runs at 2048 px (shadowcolor0). Game-test
-  scene `metallium-iris-external-pack-shadows` (flat world, time 1500, a log + leaf canopy and a stone-brick wall):
+  scene `nativium-iris-external-pack-shadows` (flat world, time 1500, a log + leaf canopy and a stone-brick wall):
   the canopy's leaf-patterned shadow, the trunk and the wall shadows fall in the same places and shapes as with Iris on
   OpenGL (`-Pengine=OPENGL`, same scene). Remaining visible differences are stage-2/3 items (horizon band, no mipmaps).
 
