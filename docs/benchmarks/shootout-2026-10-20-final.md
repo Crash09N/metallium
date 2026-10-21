@@ -57,7 +57,7 @@
 - Vulkan is flat (430-460 fps) across light/rd16/rd32: bound by per-frame overhead in the MoltenVK path, not terrain.
 - Voxy runs only on Metal (metallium-gl routes its GL 4.6 calls); real OpenGL on macOS (GL 4.1) cannot run it.
 - **Intermittent slow run (Voxy + VSync on):** one Metal run measured 23.7 fps (p50 48.8 ms, all frames presented, VALID
-  env); an identical re-run gave 137.9 fps. Same 50 ms pattern as the 19 fps windowed case in STATUS. Unresolved flake
+  env); an identical re-run gave 137.9 fps. Same 50 ms pattern as the 19 fps windowed case in STATUS. Resolved 2026-10-21: a game-test lock-step artifact (Fabric's client/server tick barrier after a "Can't keep up" server schedule restart), fixed in the bench harness (STATUS, `bench-lockstep:`); the other rows were measured in the normal state (light fix-on rerun 2691 fps). Was: unresolved flake
   (kept: `METAL-voxy-v1-try1`). Not reproduced in any other cell.
 - Harness finding: the game test bench with `-PwithVoxy` does not load the nested `metallium-voxy-natives` addon, so Voxy
   stays disabled ("no macOS natives") and the voxy scene silently measures vanilla RD 4. The numbers above were taken
