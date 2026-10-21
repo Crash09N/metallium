@@ -45,7 +45,7 @@ final class StorageBuffers implements AutoCloseable {
                 : info.size();
         size = Math.max(16, (size + 15) & ~15L);
         MTLBuffer buffer = NativiumInterop.device().newBuffer(size,
-                MTLResourceOptions.StorageModeShared | MTLResourceOptions.HazardTrackingModeUntracked);
+                MTLResourceOptions.StorageModeShared | NativiumInterop.hazardTrackingOption());
         if (buffer == null) {
             throw new IllegalStateException("could not allocate SSBO " + index + " (" + size + " bytes)");
         }

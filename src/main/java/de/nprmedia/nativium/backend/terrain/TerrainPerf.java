@@ -18,6 +18,14 @@ public final class TerrainPerf {
     /** Wall time inside Sodium's chunk renderer {@code prepare(...)} (draw-list building), nanoseconds. */
     public static long prepareNs;
 
+    /** Running totals (never reset; A/B windows take differences): submits, wall time between them, GPU time, submit waits. */
+    public static long totalSubmits, totalFrameNs, totalGpuNs, totalWaitNs;
+
+    /** Snapshot of the running totals. */
+    public static long[] totals() {
+        return new long[] {totalSubmits, totalFrameNs, totalGpuNs, totalWaitNs};
+    }
+
     private TerrainPerf() {
     }
 

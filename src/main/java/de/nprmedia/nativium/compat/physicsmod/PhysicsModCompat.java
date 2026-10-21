@@ -14,7 +14,6 @@ import de.nprmedia.nativium.Nativium;
 import de.nprmedia.nativium.api.NativiumRuntime;
 import de.nprmedia.nativium.backend.NativiumInterop;
 import de.nprmedia.nativium.compat.GlRouting;
-import io.github.kokodio.metaljvm.metal.MTLHazardTrackingMode;
 import io.github.kokodio.metaljvm.metal.MTLOrigin;
 import io.github.kokodio.metaljvm.metal.MTLRegion;
 import io.github.kokodio.metaljvm.metal.MTLSize;
@@ -129,7 +128,7 @@ public final class PhysicsModCompat {
         descriptor.setUsage(MTLTextureUsage.ShaderRead | (storage ? MTLTextureUsage.ShaderWrite : 0)
                 | (storage && integer ? MTLTextureUsage.ShaderAtomic : 0));
         descriptor.setStorageMode(MTLStorageMode.Shared);
-        descriptor.setHazardTrackingMode(MTLHazardTrackingMode.Untracked);
+        descriptor.setHazardTrackingMode(NativiumInterop.hazardTrackingMode());
         MTLTexture texture = NativiumInterop.device().newTexture(descriptor);
         descriptor.release();
         if (texture == null) {

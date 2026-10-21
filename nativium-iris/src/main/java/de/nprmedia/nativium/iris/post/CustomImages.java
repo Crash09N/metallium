@@ -3,7 +3,6 @@ package de.nprmedia.nativium.iris.post;
 import com.mojang.renderpearl.api.GpuFormat;
 import de.nprmedia.nativium.backend.NativiumInterop;
 import de.nprmedia.nativium.iris.NativiumIris;
-import io.github.kokodio.metaljvm.metal.MTLHazardTrackingMode;
 import io.github.kokodio.metaljvm.metal.MTLStorageMode;
 import io.github.kokodio.metaljvm.metal.MTLTexture;
 import io.github.kokodio.metaljvm.metal.MTLTextureDescriptor;
@@ -97,7 +96,7 @@ final class CustomImages implements AutoCloseable {
         }
         descriptor.setUsage(usage);
         descriptor.setStorageMode(MTLStorageMode.Private);
-        descriptor.setHazardTrackingMode(MTLHazardTrackingMode.Untracked);
+        descriptor.setHazardTrackingMode(NativiumInterop.hazardTrackingMode());
         MTLTexture texture = NativiumInterop.device().newTexture(descriptor);
         descriptor.release();
         if (texture == null) {

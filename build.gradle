@@ -140,6 +140,8 @@ loom.runs.clientGameTest {
 		project.property('terrain').toString().split(',').each { opt -> if (!opt.isEmpty()) vmArg "-Dnativium.terrain.${opt}" }
 	}
 	if (project.hasProperty('perfCounters')) vmArg '-Dnativium.perfCounters=true'
+	// -PgpuOverlap: hazard-tracked resources instead of the frame-fence chain (docs/design/gpu-overlap.md; A/B).
+	if (project.hasProperty('gpuOverlap')) vmArg "-Dnativium.gpu.overlap=${project.property('gpuOverlap') ?: 'true'}"
 	// -PperfTrace (with -PperfCounters): log every encoder of one submit per counter window and why it was opened.
 	if (project.hasProperty('perfTrace')) vmArg '-Dnativium.perfTrace=true'
 	// -PglMods=voxy (with -PwithGl): retarget these mods' GL calls to nativium-gl; -PglFailFast=false logs instead of throwing.
@@ -152,6 +154,10 @@ loom.runs.clientGameTest {
 	if (project.hasProperty('glTraceAfter')) vmArg "-Dnativium.gl.traceAfter=${project.property('glTraceAfter')}"
 	// -PvoxyScenario: run the Voxy camera scenario without Voxy (reference screenshots).
 	if (project.hasProperty('voxyScenario')) vmArg '-Dnativium.gametest.voxyScenario=true'
+	// -PvoxyHorizonVariants: the Voxy horizon view also with Voxy's fog off and with Voxy's rendering off (diagnostics).
+	if (project.hasProperty('voxyHorizonVariants')) vmArg '-Dnativium.gametest.voxyHorizonVariants=true'
+	// -PsysProps=a.b=1,c.d=x: extra system properties for the game client (diagnostics switches).
+	if (project.hasProperty('sysProps')) project.property('sysProps').toString().split(',').each { vmArg "-D${it}" }
 	if (project.hasProperty('glDump')) vmArg "-Dnativium.gl.dump=${project.property('glDump')}"
 	if (project.hasProperty('benchPower')) vmArg '-Dnativium.bench.power=true'
 	// A crashed earlier test run must not put the next one into crash-recovery mode (OpenGL + dialog).
@@ -183,6 +189,16 @@ loom.runs.clientGameTest {
 	if (project.hasProperty('benchDisplay')) vmArg "-Dnativium.bench.display=${project.property('benchDisplay')}"
 	// -PbenchFullscreen: benchmark fullscreen on that display.
 	if (project.hasProperty('benchFullscreen')) vmArg '-Dnativium.bench.fullscreen=true'
+	// -PbenchCullTour[=elevated,ground,plains,forest,mountains,cave]: after the measurement, visit those views and log
+	// terrain occlusion counters per view (with -Pterrain=gpuCull=count|on). -PbenchCullSeconds=N per view (default 8).
+	if (project.hasProperty('benchCullTour')) {
+		vmArg '-Dnativium.bench.cullTour=true'
+		if (!project.property('benchCullTour').toString().isEmpty()) vmArg "-Dnativium.bench.cullScenes=${project.property('benchCullTour')}"
+	}
+	// -PterrainCullTest: terrain occlusion culling must not change the image (wall / behind-camera / open views, on vs off).
+	if (project.hasProperty('terrainCullTest')) vmArg '-Dnativium.gametest.mode=terrainCull'
+	if (project.hasProperty('benchCullSeconds')) vmArg "-Dnativium.bench.cullSeconds=${project.property('benchCullSeconds')}"
+	if (project.hasProperty('benchCullModes')) vmArg "-Dnativium.bench.cullModes=${project.property('benchCullModes')}"
 	// -PmetalHud: Apple's Metal Performance HUD in the game window (+ its unified-log metrics, MTL_HUD_LOG_ENABLED).
 	if (project.hasProperty('metalHud')) {
 		environmentVariable 'MTL_HUD_ENABLED', '1'

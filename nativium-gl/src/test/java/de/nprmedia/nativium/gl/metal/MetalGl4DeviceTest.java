@@ -226,6 +226,90 @@ class MetalGl4DeviceTest {
         assertEquals(0.5f, b, 0.02f, "linear blend of blue");
     }
 
+    @Test
+    void depthTextureSampledThroughLinearSamplerReadsDepth() {
+        // Voxy's SSAO pass: GL_DEPTH24_STENCIL8 attachment, cleared with glClearNamedFramebufferfi, read in a compute shader
+        // through a GL_LINEAR sampler (no depth compare). Metal cannot filter depth formats: without the nearest fallback
+        // the read returned 0 and every LOD pixel counted as "far".
+        int depth = MetalGL4.glCreateTextures(GL_TEXTURE_2D);
+        MetalGL4.glTextureStorage2D(depth, 1, GL_DEPTH24_STENCIL8, 4, 4);
+        int fbo = MetalGL4.glCreateFramebuffers();
+        MetalGL4.glNamedFramebufferTexture(fbo, GL_DEPTH_STENCIL_ATTACHMENT, depth, 0);
+        MetalGL.glDepthMask(true);
+        MetalGL4.glClearNamedFramebufferfi(fbo, GL_DEPTH_STENCIL, 0, 0.25f, 1);
+        int sampler = MetalGL4.glCreateSamplers();
+        MetalGL4.glSamplerParameteri(sampler, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        MetalGL4.glSamplerParameteri(sampler, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        MetalGL4.glSamplerParameteri(sampler, GL_TEXTURE_COMPARE_MODE, GL_NONE);
+        int program = computeProgram("""
+                #version 460 core
+                layout(local_size_x = 1) in;
+                layout(binding = 2) uniform sampler2D depthTex;
+                layout(binding = 0, std430) buffer Out { float value; };
+                void main() { value = texture(depthTex, vec2(0.375, 0.625)).r; }
+                """);
+        int out = storageBuffer(16);
+        MetalGL4.glBindTextureUnit(2, depth);
+        MetalGL4.glBindSampler(2, sampler);
+        MetalGL4.glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, out);
+        MetalGL.glUseProgram(program);
+        MetalGL4.glDispatchCompute(1, 1, 1);
+        assertEquals(GL_NO_ERROR, MetalGL.glGetError());
+        assertEquals(0.25f, Float.intBitsToFloat(read(out, 1)[0]), 1e-6f);
+    }
+
+    @Test
+    void computeImageSizeAndSamplersNextToAWriteOnlyImage() {
+        // Shape of a screen-space post pass (Voxy's SSAO): image size from imageSize(), colour + depth samplers, bounds check.
+        int colour = MetalGL4.glCreateTextures(GL_TEXTURE_2D);
+        MetalGL4.glTextureStorage2D(colour, 1, GL_RGBA8, 8, 8);
+        int[] pixels = new int[64];
+        java.util.Arrays.fill(pixels, 0x80402010);
+        MetalGL4.glTextureSubImage2D(colour, 0, 0, 0, 8, 8, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+        int depth = MetalGL4.glCreateTextures(GL_TEXTURE_2D);
+        MetalGL4.glTextureStorage2D(depth, 1, GL_DEPTH24_STENCIL8, 8, 8);
+        int fbo = MetalGL4.glCreateFramebuffers();
+        MetalGL4.glNamedFramebufferTexture(fbo, GL_DEPTH_STENCIL_ATTACHMENT, depth, 0);
+        MetalGL.glDepthMask(true);
+        MetalGL4.glClearNamedFramebufferfi(fbo, GL_DEPTH_STENCIL, 0, 0.5f, 1);
+        int target = MetalGL4.glCreateTextures(GL_TEXTURE_2D);
+        MetalGL4.glTextureStorage2D(target, 1, GL_RGBA8, 8, 8);
+        int sampler = MetalGL4.glCreateSamplers();
+        MetalGL4.glSamplerParameteri(sampler, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        MetalGL4.glSamplerParameteri(sampler, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        int program = computeProgram("""
+                #version 450
+                layout(local_size_x = 8, local_size_y = 8) in;
+                layout(binding = 0, rgba8) uniform writeonly restrict image2D outImage;
+                layout(binding = 1) uniform sampler2D colourTex;
+                layout(binding = 2) uniform sampler2D depthTex;
+                layout(location = 3) uniform mat4 unused;
+                void main() {
+                    ivec2 size = imageSize(outImage);
+                    if (any(lessThanEqual(size, gl_GlobalInvocationID.xy))) return;
+                    vec2 point = (vec2(gl_GlobalInvocationID.xy) + 0.5) / vec2(size);
+                    float d = texture(depthTex, point).r;
+                    vec4 c = vec4(0);
+                    if (d != 0.0 && d != 1.0) { c = texture(colourTex, point); c.w = 1.0; }
+                    imageStore(outImage, ivec2(gl_GlobalInvocationID.xy), c);
+                }
+                """);
+        MetalGL4.glBindImageTexture(0, target, 0, false, 0, GL_WRITE_ONLY, GL_RGBA8);
+        MetalGL4.glBindTextureUnit(1, colour);
+        MetalGL4.glBindSampler(1, 0);
+        MetalGL4.glBindTextureUnit(2, depth);
+        MetalGL4.glBindSampler(2, sampler);
+        MetalGL.glUseProgram(program);
+        MetalGL4.glDispatchCompute(1, 1, 1);
+        MetalGL4.glMemoryBarrier(GL_TEXTURE_UPDATE_BARRIER_BIT);
+        ByteBuffer out = MemoryUtil.memAlloc(8 * 8 * 4).order(ByteOrder.nativeOrder());
+        MetalGL4.glGetTextureImage(target, 0, GL_RGBA, GL_UNSIGNED_BYTE, out);
+        assertEquals(GL_NO_ERROR, MetalGL.glGetError());
+        assertEquals(0xFF402010, out.getInt(0));
+        assertEquals(0xFF402010, out.getInt(63 * 4));
+        MemoryUtil.memFree(out);
+    }
+
     private static final String VS_INSTANCED = """
             #version 460 core
             #extension GL_ARB_shader_draw_parameters : require
