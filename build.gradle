@@ -154,6 +154,10 @@ loom.runs.clientGameTest {
 	if (project.hasProperty('glTraceAfter')) vmArg "-Dnativium.gl.traceAfter=${project.property('glTraceAfter')}"
 	// -PvoxyScenario: run the Voxy camera scenario without Voxy (reference screenshots).
 	if (project.hasProperty('voxyScenario')) vmArg '-Dnativium.gametest.voxyScenario=true'
+	// -PvoxyHorizonVariants: the Voxy horizon view also with Voxy's fog off and with Voxy's rendering off (diagnostics).
+	if (project.hasProperty('voxyHorizonVariants')) vmArg '-Dnativium.gametest.voxyHorizonVariants=true'
+	// -PsysProps=a.b=1,c.d=x: extra system properties for the game client (diagnostics switches).
+	if (project.hasProperty('sysProps')) project.property('sysProps').toString().split(',').each { vmArg "-D${it}" }
 	if (project.hasProperty('glDump')) vmArg "-Dnativium.gl.dump=${project.property('glDump')}"
 	if (project.hasProperty('benchPower')) vmArg '-Dnativium.bench.power=true'
 	// A crashed earlier test run must not put the next one into crash-recovery mode (OpenGL + dialog).
