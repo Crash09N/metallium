@@ -272,3 +272,13 @@ Complementary Unbound r5.6.1 (shaders bench, 854x480, exclusive GPU, AC, screen 
   Apple's archiver / compiler service). Now handled: the archive is rebuilt without the culprits (above), no more
   lost archives. Found on the way: the archive grew several-fold per warm session (append path, above; the owner's
   play instance had 178 MiB) and some pipelines missed every warm session; both gone with segments.
+
+## Voxy under shader packs (2026-10-21, in progress)
+
+Voxy's own Iris pipeline runs on Metal through `nativium-iris` `VoxyIrisBridge` (docs/design/iris-voxy-dh.md): with
+Complementary Reimagined r5.9.3 Voxy logs "using pipeline 'IrisVoxyRenderPipeline'", a GL trace shows its LOD draw
+writing the pack's colortex6 (115k pixels at rd 16), `vxDepthTexOpaque/Trans` are Voxy's depth buffers in the pack's
+passes; game test `-PwithSodium -PwithIris -PwithGl -PwithVoxy=... -Pshaderpack=Complementary` PASS (no pause, status
+line "Voxy LODs drawn with the pack", window resizes). Translator fixes found on the way: GL's separate UBO/SSBO binding
+namespaces (SPIRV-Cross aliasing), no manual `gl_HelperInvocation` updates (undeclared in helper functions). Not yet
+verified: LODs beyond the vanilla distance in the final image (test world too small), Photon/BSL, fps cost; DH not done.

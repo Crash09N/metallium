@@ -353,7 +353,12 @@ public final class VoxyIrisBridge {
         if (name == 0) {
             return null;
         }
-        return (opaque ? opaqueDepth : translucentDepth).view(de.nprmedia.nativium.gl.MetalGLInterop.metalTexture(name));
+        GpuTextureView view = (opaque ? opaqueDepth : translucentDepth).view(de.nprmedia.nativium.gl.MetalGLInterop.metalTexture(name));
+        if (warned.add("depth " + opaque)) {
+            NativiumIris.LOGGER.info("[nativium-iris] Voxy: {} LOD depth for the pack's passes: GL name {} -> {}", opaque ? "opaque" : "translucent", name,
+                    view == null ? "none" : view.texture().getWidth(0) + "x" + view.texture().getHeight(0) + " " + view.texture().getFormat());
+        }
+        return view;
     }
 
     void close() {

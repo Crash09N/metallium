@@ -180,10 +180,13 @@ Not started without the owner's explicit agreement per item:
 - Apple features: MetalFX upscaling/frame interpolation, Game Mode, hardware ray tracing
 - NVIDIA / Nvidium-style GPU-driven path (the broadening; the rename to Nativium itself is ✅ done 2026-10-21)
 - **Voxy / Distant Horizons far terrain under shader packs (first big job after 1.0, owner decision 2026-10-20).**
-  Today a safety net pauses Voxy's LODs while a pack is active (otherwise stripes and a fire band at the horizon).
-  Needed: run the packs' `dh_terrain` / `dh_water` / `dh_shadow` (and Voxy-specific) programs on Metal, provide
-  `dhDepthTex` and the `dhNearPlane` / `dhFarPlane` / `dhRenderDistance` uniforms, merge far terrain into the pack's
-  later passes (fog, shadows, water), and hand Voxy's nativium-gl draws to the Metal shader pipeline; DH benefits
-  from the same work. Then remove the safety net.
+  In progress (design: docs/design/iris-voxy-dh.md). Done 2026-10-21: Voxy's own shader-pack pipeline
+  (`IrisVoxyRenderPipeline`, pack `voxy.json` + `voxy_*.glsl`) runs on Metal via `VoxyIrisBridge` for packs with a Voxy
+  patch (Complementary Reimagined: pipeline created, LOD draws land in the pack's colortex0/6, `vxDepthTexOpaque/Trans`
+  bound in the pack's passes, game test PASS incl. resizes); the safety net now only pauses Voxy when the bridge is
+  not active (packs without `voxy.json`, failures). Open: verify the LODs in the final image in a scene where Voxy has
+  LODs beyond the vanilla distance (the game-test world only ingested ~the rd-4 area), Photon/BSL runs, fps cost at
+  2560x1440; Distant Horizons (Blaze3D renderer, no DH-API program overrides) needs `dh_terrain` substitution in DH's
+  Blaze3D terrain pass - not started (`dhDepthTex*` bound white meanwhile).
 - GPU culling (two-phase Hi-Z occlusion)
 - Broad nativium-gl coverage campaign
