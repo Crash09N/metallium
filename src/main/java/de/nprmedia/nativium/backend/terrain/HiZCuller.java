@@ -50,10 +50,12 @@ public final class HiZCuller implements NativiumInterop.ExternalEncoderClient {
             #include <metal_stdlib>
             using namespace metal;
 
-            // Level 0 of the pyramid: each texel is the max of the 2x2 depth pixels under it; the last texel of a row or
-            // column also covers the remainder of an odd size, so every depth pixel is covered by exactly one texel.
+            // The pyramid stores "farness" (0 at the near plane, 1 at the far plane) for both depth conventions, so the
+            // reduction is always max. Level 0: each texel is the max of the 2x2 depth pixels under it; the last texel of
+            // a row or column also covers the remainder of an odd size, so every depth pixel is covered by one texel.
             kernel void hiz_from_depth(depth2d<float, access::read> src [[texture(0)]],
                                        texture2d<float, access::write> dst [[texture(1)]],
+                                       constant uint& reversed [[buffer(0)]],
                                        uint2 gid [[thread_position_in_grid]]) {
                 uint dw = dst.get_width(), dh = dst.get_height();
                 if (gid.x >= dw || gid.y >= dh) return;
@@ -64,7 +66,8 @@ public final class HiZCuller implements NativiumInterop.ExternalEncoderClient {
                 float m = 0.0;
                 for (uint y = y0; y <= y1; y++) {
                     for (uint x = x0; x <= x1; x++) {
-                        m = max(m, src.read(uint2(x, y)));
+                        float d = src.read(uint2(x, y));
+                        m = max(m, reversed != 0u ? 1.0 - d : d);
                     }
                 }
                 dst.write(float4(m), gid);
@@ -96,7 +99,7 @@ public final class HiZCuller implements NativiumInterop.ExternalEncoderClient {
                 uint zeroToOne;     // clip z already in [0, w]
                 float pixelMargin;  // rectangle growth in pixels (rasterisation, TAA jitter)
                 uint flipY;         // 1: framebuffer row 0 is NDC y = +1
-                uint pad;
+                uint reversed;      // reversed depth (near = 1, test GREATER_EQUAL)
             };
 
             kernel void hiz_test(constant CullParams& p [[buffer(0)]],
@@ -117,7 +120,8 @@ public final class HiZCuller implements NativiumInterop.ExternalEncoderClient {
                     float3 ndc = clip.xyz / clip.w;
                     lo = min(lo, ndc.xy);
                     hi = max(hi, ndc.xy);
-                    zmin = min(zmin, p.zeroToOne != 0 ? ndc.z : ndc.z * 0.5 + 0.5);
+                    float d = p.zeroToOne != 0 ? ndc.z : ndc.z * 0.5 + 0.5;
+                    zmin = min(zmin, p.reversed != 0u ? 1.0 - d : d); // farness of the nearest corner
                 }
                 if (zmin <= 0.0) { vis[id] = 1; return; }
                 float2 uvLo = lo * 0.5 + 0.5;
@@ -375,7 +379,7 @@ public final class HiZCuller implements NativiumInterop.ExternalEncoderClient {
      * the slot is free again after it returns.
      */
     public void encode(final MTLTexture depth, final Slot slot, final float[] viewProj, final boolean zeroToOne,
-                       final boolean flipY, final float pixelMargin, final boolean drawAll, final Consumer<Slot> done) {
+                       final boolean flipY, final boolean reversed, final float pixelMargin, final boolean drawAll, final Consumer<Slot> done) {
         long w = depth.width();
         long h = depth.height();
         ensurePyramid(w, h);
@@ -389,7 +393,9 @@ public final class HiZCuller implements NativiumInterop.ExternalEncoderClient {
         enc.waitForFence(NativiumInterop.frameFence());
 
         MTLTexture[] views = levelViews;
+        params.set(ValueLayout.JAVA_INT, 104, reversed ? 1 : 0);
         enc.setComputePipelineState(fromDepth);
+        enc.setBytes(params.asSlice(104, 4), 4, 0);
         enc.setTexture(depth, 0);
         enc.setTexture(views[0], 1);
         dispatch2d(enc, views[0].width(), views[0].height());
@@ -410,7 +416,7 @@ public final class HiZCuller implements NativiumInterop.ExternalEncoderClient {
         params.set(ValueLayout.JAVA_INT, 80, zeroToOne ? 1 : 0);
         params.set(ValueLayout.JAVA_FLOAT, 84, pixelMargin);
         params.set(ValueLayout.JAVA_INT, 88, flipY ? 1 : 0);
-        params.set(ValueLayout.JAVA_INT, 92, 0);
+        params.set(ValueLayout.JAVA_INT, 92, reversed ? 1 : 0);
         enc.setComputePipelineState(test);
         enc.setBytes(params, 96, 0);
         enc.setBuffer(slot.boxBuffer, 0, 1);

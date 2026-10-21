@@ -410,7 +410,11 @@ public final class TerrainOcclusion {
                                    final ChunkRenderMatrices matrices, final java.util.function.Consumer<HiZCuller.Slot> done) {
         VIEW_PROJ.set(matrices.projection()).mul(matrices.modelView()).get(VIEW_PROJ_ARRAY);
         boolean zeroToOne = RenderSystem.getDevice().getDeviceInfo().isZZeroToOne();
-        culler.encode(depth, s, VIEW_PROJ_ARRAY, zeroToOne, FLIP_Y, PIXEL_MARGIN, VERIFY, done);
+        // Depth convention from the projection itself: Minecraft 26.3 uses reversed depth (near = 1, GREATER_EQUAL).
+        org.joml.Vector4f near = matrices.projection().transform(new org.joml.Vector4f(0, 0, -1, 1));
+        org.joml.Vector4f far = matrices.projection().transform(new org.joml.Vector4f(0, 0, -1000, 1));
+        boolean reversed = near.z / near.w > far.z / far.w;
+        culler.encode(depth, s, VIEW_PROJ_ARRAY, zeroToOne, FLIP_Y, reversed, PIXEL_MARGIN, VERIFY, done);
     }
 
     private static void countTest(final ChunkRenderListIterable renderLists, final ChunkRenderMatrices matrices,
