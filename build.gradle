@@ -176,6 +176,11 @@ loom.runs.clientGameTest {
 	if (project.hasProperty('benchFpsLimit')) vmArg "-Dnativium.bench.fpsLimit=${project.property('benchFpsLimit')}"
 	// -PbenchVsync: run the benchmark with VSync on (default off) to compare presented vs rendered frames.
 	if (project.hasProperty('benchVsync')) vmArg '-Dnativium.bench.vsync=true'
+	// -PbenchLockstepFix=false: keep Fabric's lock-step barrier wait in the client tick clock (reproduces the sporadic
+	// 20 fps / 50 ms-per-frame bench runs; see LockstepStats in the gametest source set).
+	// -PbenchRephase: stall the integrated server for 4 s before measuring (restarts its tick schedule at a random phase).
+	if (project.hasProperty('benchRephase')) vmArg '-Dnativium.bench.rephase=true'
+	if (project.hasProperty('benchLockstepFix')) vmArg "-Dnativium.bench.lockstepFix=${project.property('benchLockstepFix')}"
 	// -PbenchDisplay=<index or name substring>: display for the benchmark window (default: highest refresh rate).
 	if (project.hasProperty('benchDisplay')) vmArg "-Dnativium.bench.display=${project.property('benchDisplay')}"
 	// -PbenchFullscreen: benchmark fullscreen on that display.
