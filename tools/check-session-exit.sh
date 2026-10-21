@@ -7,8 +7,8 @@
 # Wrap in gpu-lock.sh when other agents share the machine.
 set -u
 cd "$(dirname "$0")/.."
-M=build/run/clientGameTest/config/metallium/session.json
-R=build/run/clientGameTest/metallium-gametest-report.txt
+M=build/run/clientGameTest/config/nativium/session.json
+R=build/run/clientGameTest/nativium-gametest-report.txt
 fail=0
 for mode in normal sigterm crash; do
   ./gradlew --no-daemon -q :runClientGameTest -PsessionExit=$mode >/tmp/session-exit-$mode.log 2>&1

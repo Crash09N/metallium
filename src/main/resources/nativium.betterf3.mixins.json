@@ -1,0 +1,10 @@
+{
+  "required": false,
+  "package": "de.nprmedia.nativium.compat.betterf3.mixin",
+  "plugin": "de.nprmedia.nativium.NativiumMixinPlugin",
+  "compatibilityLevel": "JAVA_25",
+  "client": [
+    "MinecraftGpuUtilizationMixin",
+    "MiscRightModuleMixin"
+  ]
+}

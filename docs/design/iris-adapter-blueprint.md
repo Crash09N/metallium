@@ -1,11 +1,11 @@
-# metallium-iris: implementation blueprint
+# nativium-iris: implementation blueprint
 
-Goal: run Iris 1.11.6 (MC 26.3, `origin/26.3` @ `671a5c877`) on Metallium's renderpearl Metal backend with no GL context.
+Goal: run Iris 1.11.6 (MC 26.3, `origin/26.3` @ `671a5c877`) on Nativium's renderpearl Metal backend with no GL context.
 Inputs: `docs/research/notes/iris-arch.md`, `iris-shaders-translation.md`, report section D, Iris source, vanilla 26.3 decompiled
-source (`.../scratchpad/mc/src/com/mojang/renderpearl`), Metallium source (`src/main/java/dev/metallium/backend`).
+source (`.../scratchpad/mc/src/com/mojang/renderpearl`), Nativium source (`src/main/java/de/nprmedia/nativium/backend`).
 Labels: **[V]** verified in code read for this document, **[SI]** strongly inferred, **[H]** hypothesis / needs a spike.
-Paths: `I/` = `Iris/common/src/main/java/net/irisshaders/iris/`; `V/` = `com/mojang/renderpearl/` (vanilla); `M/` = `src/main/java/dev/metallium/backend/`.
-Licence note: everything here lives in a separate LGPL-3.0 module `metallium-iris` (CLAUDE.md credits rule); no Sodium/MetalRender code.
+Paths: `I/` = `Iris/common/src/main/java/net/irisshaders/iris/`; `V/` = `com/mojang/renderpearl/` (vanilla); `M/` = `src/main/java/de/nprmedia/nativium/backend/`.
+Licence note: everything here lives in a separate LGPL-3.0 module `nativium-iris` (CLAUDE.md credits rule); no Sodium/MetalRender code.
 
 ---------------------------------------------------------------------------------------------------
 
@@ -16,22 +16,22 @@ Licence note: everything here lives in a separate LGPL-3.0 module `metallium-iri
    `GLxx.glFoo(` per file]. Everything else reaches GL through two static facades: `IrisRenderSystem` (68 distinct public statics, all taking
    GL `int` names/enums) and vanilla `GlStateManager` (50 distinct methods used by Iris; list in 3.2). Distinct raw LWJGL entry points: ~110 [V].
 2. **Iris never uses GL objects as objects, only as `int` names** (`GlResource.getGlId()`, `iris$getGlId()`, program ids, FBO ids). A GL-name
-   handle space (`GlNames`) owned by Metallium therefore lets unchanged Iris classes keep working; that is the seam recommended in section 4.
+   handle space (`GlNames`) owned by Nativium therefore lets unchanged Iris classes keep working; that is the seam recommended in section 4.
 3. **The pass model is the real problem, not the GL calls.** Iris draws gbuffers inside vanilla/Sodium `RenderPass`es created on the
    main target, then re-binds its own FBO inside `GlRenderPipeline.bind` (`I/mixin/MixinGlRenderPipeline.java:277-283` -> `ExtendedShader.iris$setupState`
    `I/pipeline/programs/ExtendedShader.java:255-259`). The frontend validates the pass against the *vanilla* colour-target list (`V/frontend/FrontendRenderPass.java:105-123`
    requires `colorTargetStates.size() == colorAttachments.size()` and equal formats); Iris keeps `old2.colorTargetStates()` in its replacement
    `FrontendRenderPipeline` (`I/mixin/MixinShaderManager_Overrides.java:98-99`) so that check passes and the lie lives only in the backend.
    Metal backend must therefore be able to **retarget an open pass at draw time** (section 2, H1).
-4. **Metallium's backend is already shaped for this.** `MetalCommandEncoder.renderCommandEncoder(...)` reuses `currentEncoder` when the attachment
+4. **Nativium's backend is already shaped for this.** `MetalCommandEncoder.renderCommandEncoder(...)` reuses `currentEncoder` when the attachment
    set is unchanged and otherwise ends it and opens a new one (`M/MetalCommandEncoder.java:154-196`); `MetalRenderPass` fixes colour/depth in its constructor
    (`M/MetalRenderPass.java:39-93`, final fields) and `MetalCompiledRenderPipeline` builds per-"layout" PSO variants (`M/MetalCompiledRenderPipeline.java:~120-200`, hard-codes
    `Depth32Float`, colour formats from `CreateInfo.colorTargetStates`). Needed change: make the attachment set mutable per draw and key PSOs by the *actual* attachment formats.
-5. **Metallium's backend selection never touches the options string** (`PreferredGraphicsApiMixin` returns `{new MetalBackend()}` unconditionally,
-   `metallum`-derived; our copy `dev/metallium/mixin/PreferredGraphicsApiMixin.java`), so `options.txt` keeps `preferredGraphicsBackend:"default"|"opengl"`,
+5. **Nativium's backend selection never touches the options string** (`PreferredGraphicsApiMixin` returns `{new MetalBackend()}` unconditionally,
+   `metallum`-derived; our copy `de/nprmedia/nativium/mixin/PreferredGraphicsApiMixin.java`), so `options.txt` keeps `preferredGraphicsBackend:"default"|"opengl"`,
    `IrisMixinPlugin.usingVulkan` is `false` and **every Iris mixin applies on Metal** (section 3). The gate is irrelevant; the problem is runtime behaviour of the applied mixins.
 6. Sodium 0.9.2 has no GL-backend references in Iris's compat mixins (`I/compat/sodium/mixin/*`: no `opengl`/`GlStateManager` hits [V]); Sodium itself has GL-specific bits
-   (`WindowMixin`, `GlSurfaceMixin`, `MappedStagingBuffer`, `GlStateManagerMixin`, git grep of `mc26.3-0.9.2`) which are Metallium's separate "Sodium on Metal" problem and a hard prerequisite of stage 3.
+   (`WindowMixin`, `GlSurfaceMixin`, `MappedStagingBuffer`, `GlStateManagerMixin`, git grep of `mc26.3-0.9.2`) which are Nativium's separate "Sodium on Metal" problem and a hard prerequisite of stage 3.
 
 ---------------------------------------------------------------------------------------------------
 
@@ -39,7 +39,7 @@ Licence note: everything here lives in a separate LGPL-3.0 module `metallium-iri
 
 Scope: 145 files / 20,126 LOC (grep for `org.lwjgl.opengl|GlStateManager|IrisRenderSystem|renderpearl.backend.opengl|glId|iris$getGlId|GlProgram`).
 Column **T** = treatment: **N** none (constants/data/pure type reference), **S** class unchanged, behaviour supplied by the shim (section 4) or by a Metal-side class that implements an Iris-injected interface,
-**R** targeted redirect/overwrite of a few methods (mixin from `metallium-iris`), **X** logic must be replaced/re-implemented against the pass-hook SPI, **D** disabled/dead on Metal.
+**R** targeted redirect/overwrite of a few methods (mixin from `nativium-iris`), **X** logic must be replaced/re-implemented against the pass-hook SPI, **D** disabled/dead on Metal.
 "Calls" = number of other Iris files that mention the class name [V, grep -w]. Service names are defined in section 5.
 
 ### 1.1 Capability, debug, window (subsystem: debug/capabilities)
@@ -49,7 +49,7 @@ Column **T** = treatment: **N** none (constants/data/pure type reference), **S**
 | `I/gl/IrisRenderSystem.java` | 879 | The facade: 98 raw calls; DSA tiering `initRenderer` L59-78 (`GL.getCapabilities()`), `supportsSSBO/Image/Compute/Tess/BufferBlending` L299-337, `getVRAM` L477 (NVX/ATI), `getGlDevice()` L579-581 hard cast `(GlDevice)`, bind-to-edit helpers L370-420, `DSAAccess` L621-879 | 74 files | R | One mixin overwriting all 68 public statics -> `MetalGL` sink (section 4.2). `initRenderer` sets `dsaState = new DSACore()` via accessor and claims GL 4.5. `getGlDevice()` -> returns `null`; its 3 callers patched (see `MixinRenderTarget`). `getVRAM` -> `DeviceCapabilities.vramBytes()`. |
 | `I/gl/GLDebug.java` | 378 | KHR/ARB/AMD debug callbacks, `glObjectLabel`, `glPush/PopDebugGroup` (34 raw) | 18 | R | no-op `nameObject`; `pushGroup/popGroup` -> `DebugGroups` (MTL debug groups, `MetalRenderPass.pushDebugGroup` exists `M/MetalRenderPass.java:110`) |
 | `I/features/FeatureFlags.java` | 84 | none directly; suppliers call `IrisRenderSystem.supportsImageLoadStore/BufferBlending/Compute/Tesselation/SSBO` L14-22 | 12 | S | `DeviceCapabilities` flags (stage 1: all false; stage 5: compute/SSBO/image true; tess false permanently) |
-| `I/gl/shader/StandardMacros.java` | 367 | `GlStateManager._getString(GL_VERSION/SHADING_LANGUAGE_VERSION/VENDOR/RENDERER)` L52-53, L208; every GL extension string becomes a `#define` | 3 (`IrisDefines`, `Iris`, `UpdateChecker`) | R | `DeviceCapabilities.glStrings()` curated: version "4.6.0 Metallium", GLSL "4.60", vendor "Apple" (-> `MC_GL_VENDOR_OTHER` L267-283), extension list = what the shim really implements |
+| `I/gl/shader/StandardMacros.java` | 367 | `GlStateManager._getString(GL_VERSION/SHADING_LANGUAGE_VERSION/VENDOR/RENDERER)` L52-53, L208; every GL extension string becomes a `#define` | 3 (`IrisDefines`, `Iris`, `UpdateChecker`) | R | `DeviceCapabilities.glStrings()` curated: version "4.6.0 Nativium", GLSL "4.60", vendor "Apple" (-> `MC_GL_VENDOR_OTHER` L267-283), extension list = what the shim really implements |
 | `I/gl/sampler/SamplerLimits.java` | 39 | `GL_MAX_TEXTURE_IMAGE_UNITS/DRAW_BUFFERS/MAX_SHADER_STORAGE_BUFFER_BINDINGS` | 6 | S | `DeviceCapabilities.limits()` via `_getInteger` sink |
 | `I/gl/image/ImageLimits.java` | 24 | `IrisRenderSystem.getMaxImageUnits` | 2 | S | same |
 | `I/mixin/MixinWindow.java` (target `GlBackend#createWindow`) | 51 | SDL GL debug-context attributes | - | D | target never runs on Metal |
@@ -61,7 +61,7 @@ Column **T** = treatment: **N** none (constants/data/pure type reference), **S**
 
 | File | LOC | GL it does | Callers | T | Replacement |
 |---|---|---|---|---|---|
-| `I/pipeline/programs/ShaderCreator.java` | 435 | `link()` L186-200: `glCreateProgram`, `glCreateShader`, `glShaderSource`, `glCompileShader`, `glGetShaderi(COMPILE_STATUS)`, `glAttachShader`, `VertexFormat.bindAttributesIris`, `glLinkProgram`; `createShader` L224-243; builds fake program-JSON + `IrisProgramResourceFactory` (vestigial) | `IrisRenderingPipeline` (via `ShaderLoadingMap`) | S | `MetalliumShaderPrograms` (compile at `glCompileShader`, link at `glLinkProgram`) |
+| `I/pipeline/programs/ShaderCreator.java` | 435 | `link()` L186-200: `glCreateProgram`, `glCreateShader`, `glShaderSource`, `glCompileShader`, `glGetShaderi(COMPILE_STATUS)`, `glAttachShader`, `VertexFormat.bindAttributesIris`, `glLinkProgram`; `createShader` L224-243; builds fake program-JSON + `IrisProgramResourceFactory` (vestigial) | `IrisRenderingPipeline` (via `ShaderLoadingMap`) | S | `NativiumShaderPrograms` (compile at `glCompileShader`, link at `glLinkProgram`) |
 | `I/pipeline/programs/PartialShader.java` | 83 | `getFinally()` L26-35: `IrisBindings.apply`, `glDetachShader`, `glDeleteShader` | 2 | S | shim |
 | `I/pipeline/programs/IrisBindings.java` | 70 | `glGetProgrami(LINK_STATUS)` L28, `glGetUniformBlockIndex/glUniformBlockBinding` L55-58, `glUniform1i` for samplers `tex/texture/gtexture/Sampler0/u_BlockTex`->0, overlay->1, lightmap->2, aux (`CloudFaces`, `u_SectionTimeInfo`)->3 (L44-47), UBO binding points DYN_TRANSFORMS=0, CLOUD_INFO=1, PROJECTION=2, GLOBALS=3, FOG=4, LIGHTING=5, PUSH_CONSTANTS=6, SODIUM_GLOBALS=0 (L15-22) | 3 | R | the alias table (names -> well-known binding) becomes `IrisBindingTable` consumed by the Metal Iris pipeline (section 2, H3); GL calls retargeted (`glGetUniformBlockIndex` returns reflection block index, `glUniformBlockBinding` records) |
 | `I/pipeline/programs/ExtendedShader.java` | 282 | `extends GlProgram` L51 (private ctor reached through accesswidener), `GlStateManager._glGetUniformLocation` L148,168-169, `iris$setupState` L208-260 (`_glUseProgram`, `uniformMatrix4fv/3fv`, `bindTextureToUnit`, `samplers/uniforms/images.update()`, blend overrides, **FBO bind** L255-259), `iris$getBlockIndex` L267-272 (`GL46C.glGetUniformBlockIndex`), `iris$getGlId` for glint/white pixel L174-187 | `ShaderCreator`, `IrisRenderingPipeline`, mixins | R | keep class; `super.setupBindGroupLayouts` is cancelled by `MixinGlProgram:33-39` and builds `Uniform.Ubo/Sampler/Utb` records (`Utb` ctor calls `GlStateManager._genTexture()` `V/backend/opengl/Uniform.java`) -> works only because the sink hands out handles; `iris$setupState` is invoked by the Metal hook H3 |
@@ -174,7 +174,7 @@ Column **T** = treatment: **N** none (constants/data/pure type reference), **S**
 | T | Files | LOC | Meaning | Members |
 |---|---|---|---|---|
 | S | 85 | 9,272 | class untouched; GL supplied by the shim / Metal implementing an Iris interface | uniform classes (22), program/sampler/image/SSBO/FBO/render-target/texture classes, blend/depth storage, PBR/texture mixins, GlStateManager lock mixins, most of the pipeline/shadow data classes |
-| R | 17 | 5,315 | a few methods redirected/overwritten by `metallium-iris` mixins (LOC is the whole file, edits are tens of lines each, except `IrisRenderSystem`, rewritten wholesale as it is a pure facade) | `Iris`, `GLDebug`, `IrisRenderSystem`, `GlFramebuffer` (1 cast), `ShaderWorkarounds`, `StandardMacros`, `MatrixUniform`, `MatrixFromFloatArrayUniform`, `MixinGlProgram`, `MixinRenderTarget`, `ColorSpaceConverter`, `ColorSpaceFragmentConverter`, `PBRAtlasTexture` (1 cast), `IrisRenderingPipeline` (2 casts), `ExtendedShader`, `FallbackShader`, `IrisBindings` |
+| R | 17 | 5,315 | a few methods redirected/overwritten by `nativium-iris` mixins (LOC is the whole file, edits are tens of lines each, except `IrisRenderSystem`, rewritten wholesale as it is a pure facade) | `Iris`, `GLDebug`, `IrisRenderSystem`, `GlFramebuffer` (1 cast), `ShaderWorkarounds`, `StandardMacros`, `MatrixUniform`, `MatrixFromFloatArrayUniform`, `MixinGlProgram`, `MixinRenderTarget`, `ColorSpaceConverter`, `ColorSpaceFragmentConverter`, `PBRAtlasTexture` (1 cast), `IrisRenderingPipeline` (2 casts), `ExtendedShader`, `FallbackShader`, `IrisBindings` |
 | X | 8 | 2,755 | logic must be re-expressed against the pass-hook SPI (H1-H6) or replaced | `MixinGlCommandEncoder`, `MixinGlRenderPipeline`, `MixinShaderManager_Overrides`, `CompositeRenderer` (draw loop only), `FinalPassRenderer`, `ShadowCompositeRenderer`, `ShadowRenderer` (pass creation only), `FullScreenQuadRenderer` |
 | D | 12 | 1,726 | dead / disabled on Metal | DH (5), `MixinWindow`, `MixinGpuTexture` (GlTexture), `MixinRenderPass` (GlRenderPass), `MixinCompiledShaderProgram`, `UndoReverseZTwo/Three/Five` |
 | N | 23 | 1,058 | no change (GL enum data, type references) | `*Format`, `TextureType`, `ShaderType`, `AlphaTestFunction`, `BlendModeFunction`, `Fog/VanillaUniforms`, accessors, `IrisConfig`, ... |
@@ -202,7 +202,7 @@ Total GL-touching: 145 files. Of 59,3xx LOC in `common` (arch note 14: 59,223), 
 | `:277-283` `iris$bind` | `bind` RETURN | `GlProgramBindings.iris$setupBindings(createInfo.uniforms(), pushConstantsSize)` then `IrisProgram.iris$setupState(uniforms)` | **H3** `beforeDraw`: call the same two methods on the program object stored in the Metal Iris pipeline |
 | `MixinGlProgram.java:33-72` | `GlProgram#setupBindGroupLayouts` HEAD / `close` | give Iris programs fixed binding indices (UBO 0..6, samplers 0..3), create `Uniform.Utb` texel buffers by name | `IrisBindingTable` in the Metal Iris pipeline: block/sampler name -> `UniformDescription` index (what `FrontendRenderPass.setUniform(index, ..)` delivers to `RenderPassBackend#setUniform(int, Object)`) |
 | `MixinCompiledShaderProgram.java:85-92` | `GlProgram#setupBindGroupLayouts` redirect | `iris_`-prefixed UBO names | folded into the same table; remaining members commented out |
-| `MixinRenderPass.java:15` / `MixinRenderPass3.java:12` / `MixinRenderPass_Stub.java:15,20` | `GlRenderPass`, `FrontendRenderPass`, `RenderPassBackend` | `iris$setCustomPass/getCustomPass` plumbing; **`RenderPassBackend` default methods throw `UnsupportedOperationException`** | `MetalRenderPass` must implement `RenderPassInterface` (mixin from `metallium-iris`, class is package-private/final) - otherwise `FinalPassRenderer.java:254` crashes |
+| `MixinRenderPass.java:15` / `MixinRenderPass3.java:12` / `MixinRenderPass_Stub.java:15,20` | `GlRenderPass`, `FrontendRenderPass`, `RenderPassBackend` | `iris$setCustomPass/getCustomPass` plumbing; **`RenderPassBackend` default methods throw `UnsupportedOperationException`** | `MetalRenderPass` must implement `RenderPassInterface` (mixin from `nativium-iris`, class is package-private/final) - otherwise `FinalPassRenderer.java:254` crashes |
 | `MixinGlRenderPass.java:16` | `FrontendRenderPass#setUniform(String,TextureView,Sampler)` | capture albedo for PBR | frontend-only, works unchanged |
 | `MixinGpuTexture.java:35` / `MixinGpuTexture2.java:11` | `GlTexture`, `BaseGpuTexture` | `iris$getGlId()` (49 call sites), `iris$markMipmapNonLinear` | `MixinMetalGpuTexture implements GpuTextureInterface` backed by `GlNames` |
 | `MixinRenderTarget.java:31,61` | blaze3d `RenderTarget` | depth/colour buffer versions; `iris$bindFramebuffer` via `GlDevice.frameBufferCache()` | version counters unchanged; `bindFramebuffer` -> `RenderTargetService.framebufferFor` |
@@ -212,7 +212,7 @@ Total GL-touching: 145 files. Of 59,3xx LOC in `common` (arch note 14: 59,223), 
 | `MixinRenderSystem.java:25` | `RenderSystem#initRenderer` RETURN | Iris init | unchanged |
 | `UndoReverseZOne` (`DeviceInfo`), `UndoReverseZTwo/Three/Five` | - | `One` is empty; `Two`-`Five` are not in `mixins.iris.json` (inactive) [V] | none (Iris's own `DepthTransformer` handles reverse-Z via `DeviceInfo.isZZeroToOne`, translation notes 1.3) |
 
-### 2.2 SPI that Metallium's backend must expose (`dev.metallium.iris.spi.IrisBackendHooks`, registered at runtime by `metallium-iris`, consulted from `dev.metallium.backend`)
+### 2.2 SPI that Nativium's backend must expose (`de.nprmedia.nativium.iris.spi.IrisBackendHooks`, registered at runtime by `nativium-iris`, consulted from `de.nprmedia.nativium.backend`)
 
 ```java
 public interface IrisBackendHooks {
@@ -234,7 +234,7 @@ record AttachmentOverride(MetalTextureRef[] color /*null = unused slot*/, @Nulla
                           int[] drawBufferMap, @Nullable Viewport viewport, @Nullable Rect scissor, LoadPolicy load);
 ```
 
-Backend changes that implement the SPI (all in `dev.metallium.backend`):
+Backend changes that implement the SPI (all in `de.nprmedia.nativium.backend`):
 - **H1**: `MetalRenderPass` fields `colorAttachments/colorFormats/depthTexture` (lines 39-93) become mutable; new `MetalRenderPass.retarget(AttachmentOverride)` ends the current encoder via the existing mechanism in `MetalCommandEncoder.renderCommandEncoder(...)` (`:154-196`, attachment comparison `sameAttachments` L211). Retarget loads with `MTLLoadAction.Load` (Iris has already cleared). `MetalCommandEncoder.createRenderPass` (`:276-335`) stays lazy: no encoder is opened until the first draw/clear, which is what makes "create pass on main target, then Iris re-binds" free (no extra empty encoder).
 - **PSO keying**: `MetalCompiledRenderPipeline.createPipeline(layout)` (`:~190-215`) currently derives formats from `CreateInfo.colorTargetStates` and fixes `Depth32Float`. Iris pipelines key PSOs by (actual colour formats[8], depth format, blend state per attachment, write masks, sample count) built from the override.
 - **H2**: `MetalCompiledRenderPipeline` gets a sibling `MetalIrisRenderPipeline` created from SPIR-V `SpvModule`s of the linked Iris program (`MetalCrossShaderCompiler` already consumes `CreateInfo.shaders()` SPIR-V -> MSL, `M/MetalCrossShaderCompiler.java`), adding: shim-driven resource binding, default-block buffer, Iris binding table.
@@ -245,7 +245,7 @@ Backend changes that implement the SPI (all in `dev.metallium.backend`):
 ### 2.3 H2 in detail: pipeline compile substitution
 
 `RenderSystem#getCompiledPipelineNullable` (vanilla) is frontend, so Iris's hook point survives; only its body is GL (`MixinShaderManager_Overrides.java:85,96-99,125-127`).
-Metal replacement (mixin in `metallium-iris`, priority 1500 so it applies after Iris's, HEAD-inject with `cancellable`; see 3.3 for why HEAD-cancel pre-empts Iris's RETURN injector):
+Metal replacement (mixin in `nativium-iris`, priority 1500 so it applies after Iris's, HEAD-inject with `cancellable`; see 3.3 for why HEAD-cancel pre-empts Iris's RETURN injector):
 1. same early-outs as Iris L70-76 (`COMPOSITE_PIPELINE`, `ANIMATE_SPRITE_*`, `ImmediateState.bypass`, pipeline instanceof `IrisRenderingPipeline && shouldOverrideShaders()`);
 2. `ShaderKey key = IrisPipelines.getPipeline(irisPipeline, renderPipeline)`; `GlProgram program = irisPipeline.getShaderMap().getShader(key)` (unchanged; returns `ExtendedShader`/`FallbackShader` whose int program id is a shim handle);
 3. `BackendRenderPipeline.CreateInfo createInfo = iris$createInfo(...)` unchanged except `glGetAttribLocation` goes through shim;
@@ -262,19 +262,19 @@ Metal replacement (mixin in `metallium-iris`, priority 1500 so it applies after 
 - The same plugin class is the `plugin` of five configs: `mixins.iris.json:7`, `mixins.iris.vertexformat.json:6`, `mixins.iris.compat.sodium.json:6`, `mixins.iris.bettermipmaps.json:6` (0 mixins), `mixins.iris.fantastic.json:6` (7 mixins, not referenced by `fabric.mod.json`). DH uses its own plugin; `mixins.iris.fixes.maxfpscrash.json` has none.
 - `IrisConfig.java:40` reads `usingVulkan` to build the placeholder UI.
 
-### 3.2 Consequence for Metallium
-`options.txt` never contains "vulkan" under Metallium (backend list is overridden unconditionally; if the user chooses Vulkan in Sodium's UI the Sodium-config overlay `IrisConfig.java:101-123` is skipped because `getBackend() instanceof GlDevice` is false and the string would flip the gate). So `usingVulkan=false` => **all 145+7+21 mixins apply**. Every GL-backend-targeted mixin still resolves because the GL backend classes exist in the vanilla jar; they are simply never exercised.
+### 3.2 Consequence for Nativium
+`options.txt` never contains "vulkan" under Nativium (backend list is overridden unconditionally; if the user chooses Vulkan in Sodium's UI the Sodium-config overlay `IrisConfig.java:101-123` is skipped because `getBackend() instanceof GlDevice` is false and the string would flip the gate). So `usingVulkan=false` => **all 145+7+21 mixins apply**. Every GL-backend-targeted mixin still resolves because the GL backend classes exist in the vanilla jar; they are simply never exercised.
 The harm is only in applied mixins whose *hosts are shared/active* and whose bodies are GL-bound: `MixinShaderManager_Overrides` (cast `GlDevice`), `MixinRenderSystem` (via `IrisRenderSystem.initRenderer -> GL.getCapabilities()`), `MixinRenderTarget#iris$bindFramebuffer`, `Iris.onRenderSystemInit`. Everything else is repaired by callee-side shims.
 
 ### 3.3 Options and feasibility
 
 | # | Option | Feasible? | Notes |
 |---|---|---|---|
-| A | **No gate; runtime neutralisation** (recommended for stages 1-5) | yes [SI] | (a) callee shim (4.2). (b) for the 3-4 GL-bound *RETURN/TAIL* injectors, add a `metallium-iris` mixin on the same host with **higher priority number (applied later)** and `@Inject(at=HEAD, cancellable=true)` that handles the Metal case and cancels; Iris's RETURN callback sits before the original `return` opcodes and is skipped by the early return [SI; Mixin semantics, verify in spike]. Iris HEAD injectors (the GlStateManager locks) still run first and are wanted. |
+| A | **No gate; runtime neutralisation** (recommended for stages 1-5) | yes [SI] | (a) callee shim (4.2). (b) for the 3-4 GL-bound *RETURN/TAIL* injectors, add a `nativium-iris` mixin on the same host with **higher priority number (applied later)** and `@Inject(at=HEAD, cancellable=true)` that handles the Metal case and cancels; Iris's RETURN callback sits before the original `return` opcodes and is skipped by the early return [SI; Mixin semantics, verify in spike]. Iris HEAD injectors (the GlStateManager locks) still run first and are wanted. |
 | B | Set `IrisMixinPlugin.usingVulkan=true` reflectively | no | disables **all** non-VKOnly mixins including level/world hooks. Useful only as an emergency "Iris menu only" mode. |
 | C | Mixin into `IrisMixinPlugin` | no [SI] | the plugin class is defined while configs are registered (`FabricMixinBootstrap` -> `Mixins.addConfiguration` -> plugin instantiated, static init runs), before the transformer has any selected config, so mixins cannot apply to it. |
-| D | A Metallium mixin config with higher `priority` | does not help | `priority` orders mixins within a target; it cannot veto another config's `shouldApplyMixin`. |
-| E | Reflectively wrap the live Iris config's plugin with a filtering delegate from a Metallium `IMixinConfigPlugin.onLoad` / pre-launch entrypoint (`Mixins.getConfigs()` -> `Config.getConfig()` -> private `plugin` field) | maybe [H] | depends on Mixin internals and on Metallium's config registering after Iris's (Fabric load order is dependency-based; add `"depends": {"iris": "*"}` to `metallium-iris` so it registers after Iris). Needs a half-day spike. Gives exact exclusion lists if A proves insufficient. |
+| D | A Nativium mixin config with higher `priority` | does not help | `priority` orders mixins within a target; it cannot veto another config's `shouldApplyMixin`. |
+| E | Reflectively wrap the live Iris config's plugin with a filtering delegate from a Nativium `IMixinConfigPlugin.onLoad` / pre-launch entrypoint (`Mixins.getConfigs()` -> `Config.getConfig()` -> private `plugin` field) | maybe [H] | depends on Mixin internals and on Nativium's config registering after Iris's (Fabric load order is dependency-based; add `"depends": {"iris": "*"}` to `nativium-iris` so it registers after Iris). Needs a half-day spike. Gives exact exclusion lists if A proves insufficient. |
 | F | 1-file Iris patch / upstream PR: `shouldApplyMixin` consults a `BackendSupport` ServiceLoader and a `GL_ONLY` set | yes | cleanest long term; only valid if we accept a patched Iris or upstream acceptance. |
 
 Recommendation: A now, E as spike in stage 1 (to learn if exclusion is possible without a fork), F as the upstream ask.
@@ -292,23 +292,23 @@ Also needed: hide/redirect `ShaderPackScreenPlaceholder` ("Iris cannot run when 
 - Verdict: **mixin/shim adapter, no source fork**, because (a) the GL-name seam keeps 108 classes untouched, (b) the edit surface is 25 classes of which only 8 are structural, (c) a fork would carry 20k LOC of GL code that we then never run. A thin patch set remains the fallback only for the plugin gate (option F in 3.3).
 
 ### 4.2 Recommended mechanism: "GL-name shim at the facade seam" + 12 explicit Metal hooks (no Iris source fork)
-1. **`MetalGL` sink**: generated class `dev.metallium.iris.gl.MetalGL` with the ~110 LWJGL entry points Iris uses (same names/descriptors; list in appendix A), implemented on the services of section 5. GL constants are `static final int` and inline at compile time, so Iris code compiles to the same ints; the shim interprets them.
-2. **Retarget, do not cancel**: an ASM step in `metallium-iris`'s mixin plugin (`preApply`/`postApply`, which fire for every class that any of our mixins targets - declare an empty `@Mixin` for each class below) rewrites `INVOKESTATIC org/lwjgl/opengl/GL*.x` to `INVOKESTATIC dev/metallium/iris/gl/MetalGL.x` inside exactly these classes: vanilla `GlStateManager` (+ nested `BooleanState`), Iris `IrisRenderSystem`, `GLDebug`, `Iris`, `ExtendedShader`, `FallbackShader`, `IrisBindings`, `MatrixUniform`, `MatrixFromFloatArrayUniform`, `ShaderWorkarounds`, `FinalPassRenderer`, `MixinBooleanState`. Reason for retargeting rather than HEAD-cancelling `GlStateManager` methods: vanilla's own tracking (`BLEND`, `BLEND_ENABLE`, `COLOR_MASK`, `DEPTH`, `TEXTURES`, `activeTexture`, viewport/scissor) must stay authoritative because Iris reads it back (`BlendModeStorage.java:24-48`, `DepthColorStorage.java:20-24`, `CommonUniforms.java:107-109`, `CompositeRenderer.java:349`, `DepthCopyStrategy.java:60`, `TextureInfoCache.java:33`, `MixinFramebufferBinding`), and Iris's lock mixins are HEAD injects on the same methods. Retargeting keeps both intact and sends only effective GL calls to the sink.
-3. **Priority**: all `metallium-iris` mixins on shared hosts use `priority = 1500` (Iris default 1000) so Iris HEAD locks run first.
+1. **`MetalGL` sink**: generated class `de.nprmedia.nativium.iris.gl.MetalGL` with the ~110 LWJGL entry points Iris uses (same names/descriptors; list in appendix A), implemented on the services of section 5. GL constants are `static final int` and inline at compile time, so Iris code compiles to the same ints; the shim interprets them.
+2. **Retarget, do not cancel**: an ASM step in `nativium-iris`'s mixin plugin (`preApply`/`postApply`, which fire for every class that any of our mixins targets - declare an empty `@Mixin` for each class below) rewrites `INVOKESTATIC org/lwjgl/opengl/GL*.x` to `INVOKESTATIC de/nprmedia/nativium/iris/gl/MetalGL.x` inside exactly these classes: vanilla `GlStateManager` (+ nested `BooleanState`), Iris `IrisRenderSystem`, `GLDebug`, `Iris`, `ExtendedShader`, `FallbackShader`, `IrisBindings`, `MatrixUniform`, `MatrixFromFloatArrayUniform`, `ShaderWorkarounds`, `FinalPassRenderer`, `MixinBooleanState`. Reason for retargeting rather than HEAD-cancelling `GlStateManager` methods: vanilla's own tracking (`BLEND`, `BLEND_ENABLE`, `COLOR_MASK`, `DEPTH`, `TEXTURES`, `activeTexture`, viewport/scissor) must stay authoritative because Iris reads it back (`BlendModeStorage.java:24-48`, `DepthColorStorage.java:20-24`, `CommonUniforms.java:107-109`, `CompositeRenderer.java:349`, `DepthCopyStrategy.java:60`, `TextureInfoCache.java:33`, `MixinFramebufferBinding`), and Iris's lock mixins are HEAD injects on the same methods. Retargeting keeps both intact and sends only effective GL calls to the sink.
+3. **Priority**: all `nativium-iris` mixins on shared hosts use `priority = 1500` (Iris default 1000) so Iris HEAD locks run first.
 4. **Capabilities**: `MetalGL.getCapabilities()` returns an all-false-except-claimed `GLCapabilities` (allocated without a context, `Unsafe.allocateInstance` [H]); claim `OpenGL45` so `IrisRenderSystem` picks `DSACore` (`IrisRenderSystem.java:60-62`) and avoids bind-to-edit code paths.
 5. **Texture-name space**: `GlNames` allocates ints; `MetalGpuTexture.iris$getGlId()` returns its name; Iris-created textures (colortex, shadow colour, custom, noise) are created through the sink and get `MetalGpuTexture`-compatible `MTLTexture`s with a `GpuTexture` wrapper so they can also be passed to frontend APIs when needed (Iris mixes both: e.g. `RenderTargets.java:72-73` allocates depthtex1/2 via the frontend and copies with GL names).
 6. **State realisation** (`MetalGlState`): holds current program, FBO (draw/read), draw-buffer map, texture units [128] x (target,name), sampler units, image units [16], SSBO bindings [16], bound buffers per target, viewport/scissor, blend/depth/colour-mask/cull, polygon mode. A "flush" at draw/dispatch resolves it into Metal: attachment retarget (H1) -> PSO lookup -> bind default-block bytes, UBO slices, textures+samplers, images, SSBOs -> encode.
 
 ### 4.3 Why not the alternatives
 - **Source fork of Iris**: gives clean seams (rename `IrisRenderSystem` to an interface etc.) but must be rebased on every Iris release (Iris moves with MC snapshots; 26.3 already has reworked pipelines `IrisPipelines`, `ShaderKey`). The GL-bound surface that *needs logic change* is ~9 classes (4.1), small enough for mixins.
-- **Build-time bytecode transform of the Iris jar** (same ASM retarget run by Gradle against the released jar, shipping `iris-metallium-<ver>.jar`): fallback if runtime ASM through the mixin plugin proves brittle; redistribution of a modified LGPL jar is permitted but must carry notices; no source maintenance.
+- **Build-time bytecode transform of the Iris jar** (same ASM retarget run by Gradle against the released jar, shipping `iris-nativium-<ver>.jar`): fallback if runtime ASM through the mixin plugin proves brittle; redistribution of a modified LGPL jar is permitted but must carry notices; no source maintenance.
 - **Explicit-API rewrite of `gl/*`** (replace the whole `gl` package with Metal-native services, ~6k LOC + ~3k call sites per the report): best end state for performance (no state-emulation overhead) but is a fork by another name; keep as phase-2 optimisation of hot paths only (`ProgramUniforms`, composite loop) after first light.
 - **Leaf wrappers vs intertwined logic**: leaf (best handled by redirecting their methods): `IrisRenderSystem` (1 class, 68 methods), `GLDebug`, the 22 uniform classes, `GlSampler`, `GlFramebuffer`, `GlImage`, `GlTexture`, `ShaderStorageBuffer(Holder)`, `GlShader`, `ProgramCreator`, `DepthCopyStrategy`. Intertwined with the pass model (cannot be redirected, need hooks or replacement): `MixinGlCommandEncoder`, `MixinGlRenderPipeline`, `MixinShaderManager_Overrides`, `CompositeRenderer` (draw part), `FinalPassRenderer`, `ShadowCompositeRenderer`, `ShadowRenderer` (pass creation), `FullScreenQuadRenderer`, `ExtendedShader.iris$setupState` ordering (uniform upload -> FBO bind).
 
 ### 4.4 Risks of the shim seam [SI]
 - Redundant state churn: Iris calls `glMemoryBarrier` on every `Program.use()` (`Program.java:28`); sink must make it a no-op unless the previous op wrote RW images/SSBOs.
 - TBDR cost of FBO switching: `before/after translucent` FBOs (`ExtendedShader.java:255-259`), per-composite-pass FBOs, shadow FBO. Each switch = end encoder + `Load/Store` of up to 8 colour attachments. Mitigation: batch by FBO identity, `Store`/`DontCare` hints from `RenderTargets` clear info; measure before optimising.
-- 16-sampler limit/stage in Metal vs packs with >16 samplers (translation notes 3): constexpr samplers for Iris's fixed `GlSampler` set or argument buffers; decided in `MetalliumShaderPrograms.link`.
+- 16-sampler limit/stage in Metal vs packs with >16 samplers (translation notes 3): constexpr samplers for Iris's fixed `GlSampler` set or argument buffers; decided in `NativiumShaderPrograms.link`.
 - Fast-math: compile pack MSL with safe maths (translation notes 5.1).
 - Silent skip of failed pipelines (`MetalDevice` returns `Pending.NULL`, translation notes 5.1) is unacceptable for packs: the shim must raise `ShaderCompileException` with the compile log (Iris shows it in chat).
 
@@ -316,11 +316,11 @@ Also needed: hide/redirect `ShaderPackScreenPlaceholder` ("Iris cannot run when 
 
 ## 5. Proposed services (Java interfaces)
 
-Package `dev.metallium.iris.service`. All "names" are ints from one `GlNames` space so that unchanged Iris code keeps passing ints. Services are implemented in `dev.metallium.backend` side (they need `MTLDevice`) and exposed through a static `MetalliumIris.services()`; `MetalGL` is only a thin dispatcher.
+Package `de.nprmedia.nativium.iris.service`. All "names" are ints from one `GlNames` space so that unchanged Iris code keeps passing ints. Services are implemented in `de.nprmedia.nativium.backend` side (they need `MTLDevice`) and exposed through a static `NativiumIris.services()`; `MetalGL` is only a thin dispatcher.
 
 ```java
 /** GLSL (post-Iris, GLSL 330+ core, GL semantics) -> glslang -> SPIR-V -> SPIRV-Cross -> MTLLibrary. */
-public interface MetalliumShaderPrograms {
+public interface NativiumShaderPrograms {
     int createShader(ShaderStage stage);                              // glCreateShader  (VERTEX,FRAGMENT,COMPUTE; GEOMETRY/TESS_* => reject at link with a clear message)
     void shaderSource(int shader, String glsl);                       // glShaderSource
     CompileResult compile(int shader);                                // glCompileShader: glslang (Vulkan 1.2 rules-relaxed + auto-map), returns status+info log
@@ -415,45 +415,45 @@ public interface DeviceCapabilities {
 public interface DebugGroups { void push(int id, String label); void pop(); void name(int kind, int name, String label); }
 ```
 
-`MetalGL` mapping (appendix A lists every function): program/shader fns -> `MetalliumShaderPrograms`; `glUniform*`/`glGetUniformLocation` -> `UniformBlockWriter`; texture/FBO/blit/clear fns -> `RenderTargetService`; sampler fns -> `SamplerService`; `glEnable/glBlend*/glDepth*/glColorMask/glViewport/glScissor/glCullFace/glPolygonMode` -> `PipelineStateService`; `glDispatchCompute*/glMemoryBarrier` -> `ComputeDispatcher`; `glBindBufferBase/glBufferStorage/glClearBufferSubData` -> `StorageBufferService`; `glBindImageTexture` -> `ImageBindingService`; `glDrawElements`/`glDrawArrays` -> `PassEncoder.drawShim`; `glGet*` -> `DeviceCapabilities`; KHR_debug -> `DebugGroups`.
+`MetalGL` mapping (appendix A lists every function): program/shader fns -> `NativiumShaderPrograms`; `glUniform*`/`glGetUniformLocation` -> `UniformBlockWriter`; texture/FBO/blit/clear fns -> `RenderTargetService`; sampler fns -> `SamplerService`; `glEnable/glBlend*/glDepth*/glColorMask/glViewport/glScissor/glCullFace/glPolygonMode` -> `PipelineStateService`; `glDispatchCompute*/glMemoryBarrier` -> `ComputeDispatcher`; `glBindBufferBase/glBufferStorage/glClearBufferSubData` -> `StorageBufferService`; `glBindImageTexture` -> `ImageBindingService`; `glDrawElements`/`glDrawArrays` -> `PassEncoder.drawShim`; `glGet*` -> `DeviceCapabilities`; KHR_debug -> `DebugGroups`.
 
 ---------------------------------------------------------------------------------------------------
 
 ## 6. Staged implementation (first visible result soonest)
 
-Stage 0 (precondition, outside this document): Metallium backend renders vanilla and Sodium chunks on Metal (`M/*` exists; Sodium `WindowMixin/GlSurfaceMixin/GlStateManagerMixin` neutralised on Metal).
+Stage 0 (precondition, outside this document): Nativium backend renders vanilla and Sodium chunks on Metal (`M/*` exists; Sodium `WindowMixin/GlSurfaceMixin/GlStateManagerMixin` neutralised on Metal).
 
 ### Stage 1 - Iris loads on Metal, shaders OFF (no crash, Iris UI usable) - ~1-2 days
-Visible: game boots with Iris installed; Iris keybinds/menu work; "no shader pack" renders exactly like plain Metallium.
+Visible: game boots with Iris installed; Iris keybinds/menu work; "no shader pack" renders exactly like plain Nativium.
 Crash points in boot order and fixes [V unless noted]:
-1. `RenderSystem#initRenderer` RETURN -> `MixinRenderSystem.java:25` -> `GLDebug.reloadDebugState`, `IrisRenderSystem.initRenderer` (`GL.getCapabilities()` `:60-72`), `IrisSamplers.initRenderer` -> `SamplerLimits` (`GlStateManager._getInteger`), `Iris.onRenderSystemInit` (`Iris.java:135-137`, `PBRTextureManager.init()`). Fix: `metallium-iris` mixins: `IrisRenderSystem.initRenderer` HEAD-cancel + set `dsaState` (accessor), `GLDebug.*` no-ops, `@WrapOperation` on the 2 `GL.getCapabilities()` in `Iris.onRenderSystemInit`; sink answers `glGetIntegerv` limits.
+1. `RenderSystem#initRenderer` RETURN -> `MixinRenderSystem.java:25` -> `GLDebug.reloadDebugState`, `IrisRenderSystem.initRenderer` (`GL.getCapabilities()` `:60-72`), `IrisSamplers.initRenderer` -> `SamplerLimits` (`GlStateManager._getInteger`), `Iris.onRenderSystemInit` (`Iris.java:135-137`, `PBRTextureManager.init()`). Fix: `nativium-iris` mixins: `IrisRenderSystem.initRenderer` HEAD-cancel + set `dsaState` (accessor), `GLDebug.*` no-ops, `@WrapOperation` on the 2 `GL.getCapabilities()` in `Iris.onRenderSystemInit`; sink answers `glGetIntegerv` limits.
 2. First texture access: `MixinAbstractTexture.java:28` / `MixinTextureAtlas:50` / `MixinReloadableTexture:17` call `iris$getGlId()`; Metal textures extend `BaseGpuTexture` and would hit `AssertionError("Why.")` (`MixinGpuTexture2:11`). Fix: `MixinMetalGpuTexture implements GpuTextureInterface` + `GlNames`.
 3. `GlStateManager` use by Iris GUI (`IrisButton.java:38-39`, `OldImageButton.java:117`) and `VanillaRenderingPipeline.beginLevelRendering` (`_glUseProgram(0)`, `:44`): vanilla `GlStateManager` methods would call real LWJGL -> ASM retarget to `MetalGL` no-ops (stage-1 `MetalGL` is a ~40-method stub that only tracks state).
 4. Per frame `MixinLevelRenderer.java:130` `IrisRenderSystem.backupAndDisableCullingState` (no GL) fine; `setPolygonMode` only for wireframe key.
 5. `FeatureFlags` must report compute/SSBO/images/tess/bufferblend = false (so a pack requiring them shows Iris's unsupported screen instead of crashing).
-Metallium APIs needed: `GlNames`, `MetalGL` stub, `MixinMetalGpuTexture`, `DeviceCapabilities` (static answers). Spikes: option E of 3.3; confirm HEAD-cancel pre-empts Iris RETURN injectors; confirm ASM retarget through `preApply` for classes with empty mixins.
+Nativium APIs needed: `GlNames`, `MetalGL` stub, `MixinMetalGpuTexture`, `DeviceCapabilities` (static answers). Spikes: option E of 3.3; confirm HEAD-cancel pre-empts Iris RETURN injectors; confirm ASM retarget through `preApply` for classes with empty mixins.
 Exit test: launch, open Iris pack screen, toggle shaders on with a pack -> `Iris.handleException` falls back to vanilla pipeline cleanly (`Iris.java:648-670`) instead of crashing.
 
 ### Stage 2 - composite/deferred/final passes render on the vanilla scene - ~2-3 weeks
-Choice made for speed: do **not** override gbuffer programs yet. Mixin `IrisRenderingPipeline.shouldOverrideShaders()` (`:1259-1261`) -> `false` (Metallium flag `metallium.iris.stage<3`), so vanilla/Sodium draw into the main target as today; at `finalizeLevelRendering` HEAD (`:1086`) copy main colour into `colortex0` main texture (`RenderTargets.get(0).getMainTexture()`; `TextureService.copySub`), then `compositeRenderer.renderAll(); finalPassRenderer.renderFinalPass()` run as Iris wrote them and write back to main colour. `depthtex0` is already the main depth; `depthtex1/2` come from `copyPreTranslucentDepth` (`:1069`) unchanged. Packs that are composite-only (post-processing: tonemap, bloom, FXAA/vignette, DOF if depth only) display.
+Choice made for speed: do **not** override gbuffer programs yet. Mixin `IrisRenderingPipeline.shouldOverrideShaders()` (`:1259-1261`) -> `false` (Nativium flag `nativium.iris.stage<3`), so vanilla/Sodium draw into the main target as today; at `finalizeLevelRendering` HEAD (`:1086`) copy main colour into `colortex0` main texture (`RenderTargets.get(0).getMainTexture()`; `TextureService.copySub`), then `compositeRenderer.renderAll(); finalPassRenderer.renderFinalPass()` run as Iris wrote them and write back to main colour. `depthtex0` is already the main depth; `depthtex1/2` come from `copyPreTranslucentDepth` (`:1069`) unchanged. Packs that are composite-only (post-processing: tonemap, bloom, FXAA/vignette, DOF if depth only) display.
 Iris classes exercised (all on the shim except the X ones): `ShaderPack`/`TransformPatcher` (unchanged, produce GLSL), `ProgramBuilder`, `ProgramCreator`, `GlShader`, `ProgramUniforms`+`gl/uniform/*`, `ProgramSamplers`, `GlSampler`, `GlFramebuffer`, `RenderTargets`/`RenderTarget`/`DepthTexture`, `ClearPass(Creator)`, `CustomTextureManager`, `NoiseTexture`, `CenterDepthSampler`, `CompositeRenderer` (X: draw), `FinalPassRenderer` (X: custom pass), `FullScreenQuadRenderer` (X), `DepthCopyStrategy`, `IrisDefines/StandardMacros`.
-Metallium APIs: `MetalliumShaderPrograms` (full: compile+link; glslang relaxed, `LayoutTransformer`-equivalent cross-stage location assignment, y-flip fix-ups per translation notes 6), `UniformBlockWriter`, `RenderTargetService`, `SamplerService`, `PipelineStateService`, `PassEncoder` (retarget, fullscreen quad, `drawShim`), H1 (retarget), H4 (custom pass; `MetalRenderPass implements RenderPassInterface`), H5. Formats: RGBA8/16F/32F, R*, RG*, RGB10_A2, R11G11B10F first; 3-component formats padded.
+Nativium APIs: `NativiumShaderPrograms` (full: compile+link; glslang relaxed, `LayoutTransformer`-equivalent cross-stage location assignment, y-flip fix-ups per translation notes 6), `UniformBlockWriter`, `RenderTargetService`, `SamplerService`, `PipelineStateService`, `PassEncoder` (retarget, fullscreen quad, `drawShim`), H1 (retarget), H4 (custom pass; `MetalRenderPass implements RenderPassInterface`), H5. Formats: RGBA8/16F/32F, R*, RG*, RGB10_A2, R11G11B10F first; 3-component formats padded.
 Constraint check: only vertex+fragment programs; reject `.gsh/.tcs/.tes/.csh` with the Iris feature-missing path.
 Exit test: a simple post pack (e.g. one with `composite.fsh` + `final.fsh` only) shows its effect; frame times logged; `iris.features.required` of the pack reports correctly.
 
 ### Stage 3 - gbuffers via Sodium (terrain) and vanilla pipelines - ~3-4 weeks
 Remove the stage-2 flag. Classes: `MixinShaderManager_Overrides` (Metal body, H2), `IrisPipelines` (unchanged; Sodium detection `:227-242`), `ShaderCreator` (+`link`), `ExtendedShader`, `FallbackShader` (+ `ShaderSynthesizer` GLSL), `PartialShader`, `IrisBindings`, `MixinGlProgram` tables -> `IrisBindingTable`, `MixinVertexFormat`, `ShaderMap/ShaderLoadingMap`, `BlendModeOverride`/`BlendModeStorage`/`DepthColorStorage`, `IrisSamplers.addGbufferOrShadowSamplers`, `DepthCopyStrategy` (`RenderTargets.copyPreTranslucentDepth`), `HandRenderer`/`MixinLevelRenderer` translucent wrap (`MixinLevelRenderer.java:266-280`, closes and recreates a vanilla pass: new encoder boundary on Metal).
-Metallium APIs: H2 (`createIrisPipeline`, `MetalIrisRenderPipeline`), H3 (`beforeDraw` calls `iris$setupBindings` + `iris$setupState`), H1 retarget to `writingToBeforeTranslucent/AfterTranslucent` FBOs (MRT up to 8), `IrisBindingTable` (UBOs `DynamicTransforms/Projection/Globals/Fog` + Sodium `u_Globals`, push constants `iris_SodiumPushConstants`, texel buffer `u_SectionTimeInfo` as AUX sampler binding 3), PSO keyed by actual attachment formats, per-attachment blend (`glEnablei/glBlendFuncSeparatei`), integer vertex attributes (`mc_Entity` uint, `at_midBlock` snorm: `MetalCrossShaderCompiler` already registers uint8/16 attrib formats `M/MetalCrossShaderCompiler.java:143-193`), `multiDrawIndexed` base-vertex (needed by Sodium anyway). Sodium side is untouched Iris mixins (`compat/sodium/mixin/*` have no GL).
+Nativium APIs: H2 (`createIrisPipeline`, `MetalIrisRenderPipeline`), H3 (`beforeDraw` calls `iris$setupBindings` + `iris$setupState`), H1 retarget to `writingToBeforeTranslucent/AfterTranslucent` FBOs (MRT up to 8), `IrisBindingTable` (UBOs `DynamicTransforms/Projection/Globals/Fog` + Sodium `u_Globals`, push constants `iris_SodiumPushConstants`, texel buffer `u_SectionTimeInfo` as AUX sampler binding 3), PSO keyed by actual attachment formats, per-attachment blend (`glEnablei/glBlendFuncSeparatei`), integer vertex attributes (`mc_Entity` uint, `at_midBlock` snorm: `MetalCrossShaderCompiler` already registers uint8/16 attrib formats `M/MetalCrossShaderCompiler.java:143-193`), `multiDrawIndexed` base-vertex (needed by Sodium anyway). Sodium side is untouched Iris mixins (`compat/sodium/mixin/*` have no GL).
 Exit test: pack with only gbuffers_terrain/basic + composite (e.g. a minimal "vanilla-like" pack) renders terrain through Iris programs into colortex, composited to screen; then entities/sky/clouds via vanilla-pipeline overrides.
 
 ### Stage 4 - shadow pass - ~2 weeks
 Classes: `ShadowRenderer` (3 pass creations L526,602,620), `ShadowRenderTargets` (D32F `shadowtex0/1`, shadowcolorN), `ShadowCompositeRenderer`, `MixinGlCommandEncoder` viewport/scissor/FBO logic -> H1 `viewportOverride/scissorOverride` while `ShadowRenderingState.areShadowsCurrentlyBeingRendered()`, `MixinGlRenderPipeline` cull/depth-flip -> H6, `RenderSystem.setProjectionMatrix` (frontend, unchanged) via `IrisRenderSystem.setShadowProjection`, Sodium shadow scope (`MixinRenderSectionManagerShadow`, `MixinDefaultChunkRenderer`, `MixinUniformData` - pure Sodium/frontend).
-Metallium APIs: depth-compare samplers (`SamplerService`: `GL_TEXTURE_COMPARE_MODE/FUNC` -> `MTLSamplerState.compareFunction`, shadow samplers `depth2d` + `sample_compare` via SPIRV-Cross), `RenderTargetService` depth-only FBO (no colour attachment: `FrontendCommandEncoder.createRenderPass` allows depth-only), `TextureService.copy` for shadowtex1 (`ShadowRenderTargets.java:184`), mipmaps for `shadowcolor` (`ShadowCompositeRenderer.java:173`).
+Nativium APIs: depth-compare samplers (`SamplerService`: `GL_TEXTURE_COMPARE_MODE/FUNC` -> `MTLSamplerState.compareFunction`, shadow samplers `depth2d` + `sample_compare` via SPIRV-Cross), `RenderTargetService` depth-only FBO (no colour attachment: `FrontendCommandEncoder.createRenderPass` allows depth-only), `TextureService.copy` for shadowtex1 (`ShadowRenderTargets.java:184`), mipmaps for `shadowcolor` (`ShadowCompositeRenderer.java:173`).
 Exit test: pack with `shadow.vsh/fsh` + `shadowcomp` shows shadows; resolution up to 4096+.
 
 ### Stage 5 - compute, images, SSBO, indirect - ~3 weeks
 Classes: `ComputeProgram`, `ProgramImages`, `ImageBinding`, `GlImage`, `ImageClearPass`, `ShaderStorageBuffer(Holder)`, `FilledIndirectPointer`, `IrisRenderingPipeline.createSetupComputes` (`:599`), `CompositeRenderer`/`FinalPassRenderer`/`ShadowCompositeRenderer` compute loops, `FeatureFlags` flipped true.
-Metallium APIs: `ComputeDispatcher` (compute encoder; local size from SPIR-V `LocalSize`; barriers = encoder boundaries or `MTLFence`; `allowConcurrentCompute`), `StorageBufferService`, `ImageBindingService` (RW textures, MSL >= 3.1 for image atomics), `MetalliumShaderPrograms.build(.., COMPUTE)`.
+Nativium APIs: `ComputeDispatcher` (compute encoder; local size from SPIR-V `LocalSize`; barriers = encoder boundaries or `MTLFence`; `allowConcurrentCompute`), `StorageBufferService`, `ImageBindingService` (RW textures, MSL >= 3.1 for image atomics), `NativiumShaderPrograms.build(.., COMPUTE)`.
 Exit test: pack using `composite_a.csh`, `image.*`, `bufferObject.*` (e.g. a compute-based bloom or SSBO-driven exposure).
 
 ### Stage 6 - deferred / known gaps
@@ -463,10 +463,10 @@ Geometry (`.gsh`) and tessellation packs: rejected (SPIRV-Cross has no GS/isolin
 
 ## 7. Module layout and build
 
-`metallium-iris/` (Fabric mod `metallium_iris`, LGPL-3.0; `depends`: `iris >=1.11.6 <1.12`, `metallium`, `minecraft ~26.3-`):
-- `dev.metallium.iris.spi` (hooks, records) - also published for `dev.metallium.backend` (backend depends on the SPI only; Iris is never on the backend classpath).
-- `dev.metallium.iris.service` (interfaces above) + `...impl` (Metal-side implementations; may live in the main mod and be bound via ServiceLoader).
-- `dev.metallium.iris.gl.MetalGL` (generated), `dev.metallium.iris.asm.RetargetPlugin` (IMixinConfigPlugin), `dev.metallium.iris.mixin.*` (Iris/vanilla/Metal-class mixins, priority 1500).
+`nativium-iris/` (Fabric mod `nativium_iris`, LGPL-3.0; `depends`: `iris >=1.11.6 <1.12`, `nativium`, `minecraft ~26.3-`):
+- `de.nprmedia.nativium.iris.spi` (hooks, records) - also published for `de.nprmedia.nativium.backend` (backend depends on the SPI only; Iris is never on the backend classpath).
+- `de.nprmedia.nativium.iris.service` (interfaces above) + `...impl` (Metal-side implementations; may live in the main mod and be bound via ServiceLoader).
+- `de.nprmedia.nativium.iris.gl.MetalGL` (generated), `de.nprmedia.nativium.iris.asm.RetargetPlugin` (IMixinConfigPlugin), `de.nprmedia.nativium.iris.mixin.*` (Iris/vanilla/Metal-class mixins, priority 1500).
 - compile against Iris + Sodium as `modCompileOnly`; no Iris/Sodium code copied; README credits row for Iris = "runtime dependency (LGPL-3.0), adapter in a separate LGPL module".
 
 ---------------------------------------------------------------------------------------------------
