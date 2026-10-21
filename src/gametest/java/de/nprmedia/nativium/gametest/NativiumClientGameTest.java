@@ -1726,6 +1726,13 @@ public final class NativiumClientGameTest implements FabricClientGameTest {
         line("voxy horizon: camera spot " + java.util.Arrays.toString(spot));
         context.runOnClient(client -> client.options.renderDistance().set(10));
         String tp = "tp @a " + spot[0] + " " + (spot[1] + 3) + " " + spot[2] + " ";
+        // Overview from above at vanilla rd 4: the ground 64-256 blocks away (ingested at rd 16) can only be Voxy's LODs.
+        context.runOnClient(client -> client.options.renderDistance().set(4));
+        tryCommand(world, "tp @a " + spot[0] + " " + (spot[1] + 60) + " " + spot[2] + " 30 30");
+        context.waitTicks(300);
+        clearChat(context);
+        context.takeScreenshot("nativium-voxy-overview-rd4");
+        context.runOnClient(client -> client.options.renderDistance().set(10));
         tryCommand(world, tp + "30 4");
         context.waitTicks(300);
         clearChat(context);

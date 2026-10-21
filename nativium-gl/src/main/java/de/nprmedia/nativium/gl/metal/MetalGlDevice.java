@@ -58,7 +58,11 @@ public final class MetalGlDevice implements GlDevice {
     public MetalGlDevice(final MetalHost host) {
         this.host = host;
         this.device = host.device();
+        this.floatFiltering = device.supports32BitFloatFiltering();
     }
+
+    /** MTLDevice.supports32BitFloatFiltering (R32F/RG32F/RGBA32F with linear samplers). */
+    private final boolean floatFiltering;
 
     // ---------------------------------------------------------------------------------------------- stores
 
@@ -833,13 +837,53 @@ public final class MetalGlDevice implements GlDevice {
 
     private String stats(final MetalTexture texture) {
         if (texture.format == TexFormat.DEPTH32F_STENCIL8) {
-            return texture.format + "(no readback)";
+            long size = (long) texture.width * texture.height * 4;
+            MTLBuffer readback = device.newBuffer(size, MTLResourceOptions.StorageModeShared);
+            blitEncoder().copyFromTexture(texture.texture, 0, 0, new MTLOrigin(0, 0, 0), new MTLSize(texture.width, texture.height, 1), readback, 0,
+                    texture.width * 4L, size, 1L /* MTLBlitOptionDepthFromDepthStencil */);
+            endEncoders();
+            commandBuffer = null;
+            submitAndWait();
+            ByteBuffer data = ObjC.byteBufferView(readback.contents(), size).order(ByteOrder.nativeOrder());
+            float min = Float.MAX_VALUE, max = -Float.MAX_VALUE;
+            int zero = 0, one = 0, pixels = texture.width * texture.height;
+            for (int i = 0; i < pixels; i++) {
+                float v = data.getFloat(i * 4);
+                min = Math.min(min, v);
+                max = Math.max(max, v);
+                if (v == 0f) zero++;
+                if (v == 1f) one++;
+            }
+            readback.release();
+            return texture.format + "[min=" + min + " max=" + max + " zeros=" + zero + " ones=" + one + "/" + pixels + "]";
         }
         int bpp = texture.format.bytesPerPixel;
         ByteBuffer data = MemoryUtil.memAlloc(texture.width * texture.height * bpp).order(ByteOrder.nativeOrder());
         try {
             if (!readTexture(texture, 0, data)) return "unreadable";
             int pixels = texture.width * texture.height;
+            String dir = System.getProperty("nativium.gl.dumpDir");
+            if (dir != null && pixels <= 4096 * 4096) {
+                try {
+                    java.awt.image.BufferedImage img = new java.awt.image.BufferedImage(texture.width, texture.height, java.awt.image.BufferedImage.TYPE_INT_RGB);
+                    for (int y = 0; y < texture.height; y++) for (int x = 0; x < texture.width; x++) {
+                        int i = y * texture.width + x;
+                        int rgb;
+                        if (texture.format == TexFormat.DEPTH32F) {
+                            float f = data.getFloat(i * 4);
+                            int g = (int) Math.min(255, Math.max(0, Math.pow(f, 0.25) * 255));
+                            rgb = f == 0f ? 0xFF0000 : (g << 16) | (g << 8) | g;
+                        } else if (bpp == 4) {
+                            int v = data.getInt(i * 4);
+                            rgb = ((v & 0xFF) << 16) | (v & 0xFF00) | ((v >>> 16) & 0xFF);
+                        } else break;
+                        img.setRGB(x, texture.height - 1 - y, rgb);
+                    }
+                    javax.imageio.ImageIO.write(img, "png", new java.io.File(dir, "dump-" + System.nanoTime() + "-" + texture.format + ".png"));
+                } catch (Exception e) {
+                    MetalGLLog.LOGGER.info("dump failed", e);
+                }
+            }
             if (texture.format == TexFormat.DEPTH32F || texture.format == TexFormat.R32F) {
                 float min = Float.MAX_VALUE, max = -Float.MAX_VALUE;
                 int zero = 0, one = 0;
@@ -1099,7 +1143,7 @@ public final class MetalGlDevice implements GlDevice {
                 for (TextureBinding binding : stage.textures()) {
                     if (binding.samplerIndex() == member.index()) {
                         MetalTexture texture = binding.texture() == null ? blackTexture() : (MetalTexture) binding.texture();
-                        sampler = sampler(binding.sampler(), texture.levels > 1);
+                        sampler = sampler(binding.sampler(), texture);
                         break;
                     }
                 }
@@ -1154,7 +1198,7 @@ public final class MetalGlDevice implements GlDevice {
         }
         for (TextureBinding binding : table != null ? new TextureBinding[0] : stage.textures()) {
             MetalTexture texture = binding.texture() == null ? blackTexture() : (MetalTexture) binding.texture();
-            MTLSamplerState sampler = sampler(binding.sampler(), texture.levels > 1);
+            MTLSamplerState sampler = sampler(binding.sampler(), texture);
             if (vertex) {
                 encoder.setVertexTexture(texture.texture, binding.textureIndex());
                 encoder.setVertexSamplerState(sampler, binding.samplerIndex());
@@ -1247,7 +1291,7 @@ public final class MetalGlDevice implements GlDevice {
         for (TextureBinding binding : bindings.textures()) {
             MetalTexture texture = binding.texture() == null ? blackTexture() : (MetalTexture) binding.texture();
             encoder.setTexture(texture.texture, binding.textureIndex());
-            encoder.setSamplerState(sampler(binding.sampler(), texture.levels > 1), binding.samplerIndex());
+            encoder.setSamplerState(sampler(binding.sampler(), texture), binding.samplerIndex());
         }
         for (BufferBinding binding : bindings.buffers()) {
             MetalBuffer buffer = binding.buffer() == null ? emptyBuffer() : (MetalBuffer) binding.buffer();
@@ -1657,6 +1701,40 @@ public final class MetalGlDevice implements GlDevice {
             case GL_INVERT -> MTLStencilOperation.Invert;
             default -> MTLStencilOperation.Keep;
         };
+    }
+
+    /** The sampler for {@code texture}: GL's filters, downgraded to nearest where Metal cannot filter the format. */
+    private MTLSamplerState sampler(final SamplerState s, final MetalTexture texture) {
+        return sampler(filterable(texture, s) ? s : nearest(s), texture.levels > 1);
+    }
+
+    /**
+     * GL filters depth textures sampled without depth comparison (and 32-bit float textures) linearly; Metal cannot
+     * filter depth formats (only compare-filter them) and 32-bit floats only where the device supports it. Sampling such
+     * a texture through a linear sampler returns 0 on Apple GPUs. Voxy's SSAO pass reads its LOD depth through a
+     * GL_LINEAR sampler at texel centres: every LOD pixel read as "far" and the LODs never reached the screen.
+     */
+    private boolean filterable(final MetalTexture texture, final SamplerState s) {
+        if (texture.format == null) {
+            return true;
+        }
+        if (texture.format.isDepth()) {
+            return s.compareMode() == GL_COMPARE_REF_TO_TEXTURE;
+        }
+        if (texture.format.kind == TexFormat.Kind.FLOAT) {
+            return floatFiltering;
+        }
+        return true;
+    }
+
+    private static SamplerState nearest(final SamplerState s) {
+        int min = switch (s.minFilter()) {
+            case GL_LINEAR -> GL_NEAREST;
+            case GL_LINEAR_MIPMAP_NEAREST, GL_NEAREST_MIPMAP_LINEAR, GL_LINEAR_MIPMAP_LINEAR -> GL_NEAREST_MIPMAP_NEAREST;
+            default -> s.minFilter();
+        };
+        return new SamplerState(min, GL_NEAREST, s.wrapS(), s.wrapT(), s.wrapR(), s.minLod(), s.maxLod(), s.lodBias(),
+                s.compareMode(), s.compareFunc(), 1f);
     }
 
     private MTLSamplerState sampler(final SamplerState s, final boolean mipmapped) {
