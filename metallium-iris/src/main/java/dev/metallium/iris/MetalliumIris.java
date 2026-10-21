@@ -22,7 +22,8 @@ public final class MetalliumIris implements ClientModInitializer {
         String pack = packName();
         if (pipeline != null) {
             return "Iris via Metallium adapter: " + (pack == null ? "shader pack" : pack) + " on Metal"
-                    + (pipeline.hasFailed() ? " (failed, vanilla fallback; see log)" : " (" + pipeline.statusSummary() + ")");
+                    + (pipeline.hasFailed() ? " (failed, vanilla fallback; see log)" : " (" + pipeline.statusSummary()
+                    + (pipeline.voxyLodsActive() ? "; Voxy LODs drawn with the pack" : "") + ")");
         }
         if (pack != null && net.irisshaders.iris.Iris.getIrisConfig().areShadersEnabled()) {
             // Selected and enabled but no Metal pipeline rendered (no world yet, or creation failed: see the log).
@@ -66,9 +67,11 @@ public final class MetalliumIris implements ClientModInitializer {
             return;
         }
         LOGGER.info("[metallium-iris] Iris adapter loaded (work in progress)");
-        // Voxy's shader integration needs Iris's OpenGL pipeline: core pauses Voxy's LODs while a pack renders on Metal.
+        // Voxy draws its LODs with the pack through VoxyIrisBridge (packs with voxy.json); otherwise (no Voxy patch in the
+        // pack, bridge failure) core pauses Voxy's LODs while a pack renders on Metal.
         dev.metallium.compat.voxy.VoxyCompat.registerShaderPackProbe(() ->
-                net.irisshaders.iris.Iris.getPipelineManager().getPipelineNullable() instanceof dev.metallium.iris.post.MetalPostPipeline);
+                net.irisshaders.iris.Iris.getPipelineManager().getPipelineNullable() instanceof dev.metallium.iris.post.MetalPostPipeline pipeline
+                        && !pipeline.voxyLodsActive());
         dev.metallium.api.MetalliumRuntime.registerStatusLine(MetalliumIris::statusLine);
         dev.metallium.api.MetalliumRuntime.registerStatusLine(MetalliumIris::problemsLine);
     }

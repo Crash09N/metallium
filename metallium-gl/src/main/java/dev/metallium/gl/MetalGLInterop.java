@@ -73,4 +73,38 @@ public final class MetalGLInterop {
         }
         return GlContext.current().externalTextures.nameOf(engine, o -> o instanceof GpuTexture t && t.isClosed());
     }
+
+    /**
+     * For engine-side adapters that hand GL names to a retargeted mod (metallium-iris → Voxy's shader-pack pipeline): a
+     * GL texture name that stays valid while the engine re-creates the texture behind {@code key} (resize). Call it again
+     * with the current texture whenever it may have changed; the name, its parameters and framebuffer attachments of it
+     * are kept, only the storage is re-pointed (like GL storage re-specification). 0 if {@code texture} has no GL name.
+     */
+    public static int stableTextureName(final Object key, final GpuTexture texture) {
+        return GlContext.current().externalTextures.stableName(key, texture);
+    }
+
+    /** The Metal texture behind a metallium-gl texture name (e.g. a retargeted mod's own depth buffer), or null. */
+    public static io.github.kokodio.metaljvm.metal.@org.jspecify.annotations.Nullable MTLTexture metalTexture(final int glName) {
+        return GlContext.current().externalTextures.nativeTexture(glName) instanceof io.github.kokodio.metaljvm.metal.MTLTexture texture ? texture : null;
+    }
+
+    /**
+     * A metallium-gl sampler object (GL name) for adapters that pass samplers to a retargeted mod: clamp-to-edge,
+     * {@code linear} or nearest filtering, no mips, {@code compare} = {@code GL_COMPARE_REF_TO_TEXTURE}/{@code LEQUAL}.
+     */
+    public static int sampler(final boolean linear, final boolean repeat, final boolean compare) {
+        int name = MetalGL4.glCreateSamplers();
+        int filter = linear ? org.lwjgl.opengl.GL11C.GL_LINEAR : org.lwjgl.opengl.GL11C.GL_NEAREST;
+        int wrap = repeat ? org.lwjgl.opengl.GL11C.GL_REPEAT : org.lwjgl.opengl.GL12C.GL_CLAMP_TO_EDGE;
+        MetalGL4.glSamplerParameteri(name, org.lwjgl.opengl.GL11C.GL_TEXTURE_MIN_FILTER, filter);
+        MetalGL4.glSamplerParameteri(name, org.lwjgl.opengl.GL11C.GL_TEXTURE_MAG_FILTER, filter);
+        MetalGL4.glSamplerParameteri(name, org.lwjgl.opengl.GL11C.GL_TEXTURE_WRAP_S, wrap);
+        MetalGL4.glSamplerParameteri(name, org.lwjgl.opengl.GL11C.GL_TEXTURE_WRAP_T, wrap);
+        if (compare) {
+            MetalGL4.glSamplerParameteri(name, org.lwjgl.opengl.GL14C.GL_TEXTURE_COMPARE_MODE, org.lwjgl.opengl.GL30C.GL_COMPARE_REF_TO_TEXTURE);
+            MetalGL4.glSamplerParameteri(name, org.lwjgl.opengl.GL14C.GL_TEXTURE_COMPARE_FUNC, org.lwjgl.opengl.GL11C.GL_LEQUAL);
+        }
+        return name;
+    }
 }

@@ -269,6 +269,11 @@ public interface GlDevice {
         return null;
     }
 
+    /** The device's own texture object behind {@code texture} (Metal: the {@code MTLTexture}), or null. */
+    default @Nullable Object nativeTexture(final TextureStore texture) {
+        return null;
+    }
+
     /**
      * Wraps a buffer owned by the engine (Metallium's {@code GpuBuffer}) so GL can bind it (SSBO, copies, pack target);
      * null if {@code engineBuffer} is not one this device understands. GPU access only.

@@ -24,7 +24,8 @@
     "RenderSystemPipelineMixin",
     "SamplerLimitsMixin",
     "StandardMacrosMixin",
-    "VanillaRenderingPipelineMixin"
+    "VanillaRenderingPipelineMixin",
+    "VoxyPipelineFactoryMixin"
   ],
   "injectors": {
     "defaultRequire": 1

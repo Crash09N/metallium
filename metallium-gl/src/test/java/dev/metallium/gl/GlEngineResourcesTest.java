@@ -57,7 +57,7 @@ class GlEngineResourcesTest {
         if (type == MTLTextureType.Type3D) d.setDepth(depthOrLayers);
         else d.setArrayLength(depthOrLayers);
         // Metal: texture atomics need ShaderAtomic usage (as Metallium gives integer storage textures)
-        d.setUsage(MTLTextureUsage.ShaderRead | MTLTextureUsage.ShaderWrite
+        d.setUsage(MTLTextureUsage.ShaderRead | MTLTextureUsage.ShaderWrite | MTLTextureUsage.RenderTarget
                 | (format == MTLPixelFormat.R32Uint ? MTLTextureUsage.ShaderAtomic : 0));
         d.setStorageMode(MTLStorageMode.Private);
         MTLTexture texture = host.device().newTexture(d);
@@ -162,5 +162,44 @@ class GlEngineResourcesTest {
         }
         assertTrue(MetalGL.glIsBuffer(buffer));
         engineBuffer.release();
+    }
+
+    /**
+     * Stable names (metallium-iris hands a shader pack's colour buffers to Voxy as GL names fixed at pipeline creation):
+     * when the engine re-creates the texture (resize), the same name and the framebuffer attachment of it now write the
+     * new texture, like GL storage re-specification.
+     */
+    @Test
+    void stableNameFollowsTheEngineTextureThroughARecreation() {
+        MTLTexture small = engineTexture(MTLTextureType.Type2D, MTLPixelFormat.RGBA32Float, 4, 1);
+        MTLTexture large = engineTexture(MTLTextureType.Type2D, MTLPixelFormat.RGBA32Float, 8, 1);
+        GlContext gl = GlContext.current();
+        Object key = "colortex6 main";
+        int name = gl.externalTextures.stableName(key, small);
+        assertEquals(name, gl.externalTextures.stableName(key, small), "same texture: same name");
+        int fb = MetalGL4.glCreateFramebuffers();
+        MetalGL4.glNamedFramebufferTexture(fb, GL_COLOR_ATTACHMENT0, name, 0);
+        assertEquals(GL_FRAMEBUFFER_COMPLETE, MetalGL4.glCheckNamedFramebufferStatus(fb, GL_FRAMEBUFFER));
+        MetalGL4.glClearNamedFramebufferfv(fb, GL_COLOR, 0, new float[]{0.25f, 0.5f, 0.75f, 1f});
+
+        assertEquals(name, gl.externalTextures.stableName(key, large), "re-created texture: the name is kept");
+        assertEquals(8, gl.textures.get(name).width);
+        assertEquals(large.handle(), ((MTLTexture) gl.externalTextures.nativeTexture(name)).handle());
+        MetalGL4.glClearNamedFramebufferfv(fb, GL_COLOR, 0, new float[]{1f, 0f, 0f, 1f});
+        assertEquals(GL_NO_ERROR, MetalGL.glGetError());
+
+        ByteBuffer out = MemoryUtil.memAlloc(8 * 8 * 16).order(ByteOrder.nativeOrder());
+        try {
+            MetalGL4.glGetTextureImage(name, 0, GL_RGBA, GL_FLOAT, out);
+            assertEquals(1f, out.getFloat(63 * 16), "the attachment now writes the new texture");
+            int old = gl.externalTextures.nameOf(small, o -> false);
+            out.clear();
+            MetalGL4.glGetTextureImage(old, 0, GL_RGBA, GL_FLOAT, out);
+            assertEquals(0.25f, out.getFloat(15 * 16), "the old texture keeps its contents");
+        } finally {
+            MemoryUtil.memFree(out);
+        }
+        small.release();
+        large.release();
     }
 }

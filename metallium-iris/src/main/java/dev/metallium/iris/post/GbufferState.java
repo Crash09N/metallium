@@ -605,6 +605,10 @@ final class GbufferState implements AutoCloseable {
             case "depthtex1" -> pass.setUniform(name, depthNoTranslucents(), owner.nearestSampler());
             case "depthtex2" -> pass.setUniform(name, depthNoHand(), owner.nearestSampler());
             case "noisetex" -> pass.setUniform(name, owner.noiseView(), owner.linearRepeatSampler());
+            case "vxDepthTexOpaque", "vxDepthTexTrans", "dhDepthTex", "dhDepthTex0", "dhDepthTex1" -> {
+                GpuTextureView lod = owner.farTerrainDepth(name);
+                pass.setUniform(name, lod != null ? lod : owner.whiteView(), owner.nearestSampler());
+            }
             case "normals" -> pass.setUniform(name, defaultNormalsView, owner.nearestSampler());
             case "specular" -> pass.setUniform(name, defaultSpecularView, owner.nearestSampler());
             // The replaced pipeline has no overlay/lightmap sampler (e.g. Physics Mod debris): bind the real textures

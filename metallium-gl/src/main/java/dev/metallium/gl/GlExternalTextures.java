@@ -21,6 +21,9 @@ import static org.lwjgl.opengl.GL46C.*;
 final class GlExternalTextures {
     private final GlContext gl;
     private final Map<Object, Integer> names = new IdentityHashMap<>();
+    /** {@link #stableName}: caller key -> GL name, and the engine texture each such name currently wraps. */
+    private final Map<Object, Integer> stableNames = new java.util.HashMap<>();
+    private final Map<Integer, Object> stableEngine = new java.util.HashMap<>();
 
     GlExternalTextures(final GlContext gl) {
         this.gl = gl;
@@ -40,6 +43,18 @@ final class GlExternalTextures {
         }
         int name = gl.textures.reserve();
         Texture texture = new Texture(name);
+        wrap(texture, store);
+        texture.minFilter = store.levels() > 1 ? GL_NEAREST_MIPMAP_LINEAR : GL_NEAREST;
+        if (texture.format.kind == TexFormat.Kind.UINT || texture.format.kind == TexFormat.Kind.SINT) {
+            texture.minFilter = GL_NEAREST;
+        }
+        texture.magFilter = GL_NEAREST;
+        gl.textures.put(name, texture);
+        names.put(engineTexture, name);
+        return name;
+    }
+
+    private static void wrap(final Texture texture, final GlDevice.TextureStore store) {
         texture.target = store.is3D() ? GL_TEXTURE_3D : store.layers() > 1 ? GL_TEXTURE_2D_ARRAY : GL_TEXTURE_2D;
         texture.depth = store.is3D() ? store.depth() : store.layers();
         texture.external = true;
@@ -50,14 +65,48 @@ final class GlExternalTextures {
         texture.width = store.width();
         texture.height = store.height();
         texture.levels = store.levels();
-        texture.minFilter = store.levels() > 1 ? GL_NEAREST_MIPMAP_LINEAR : GL_NEAREST;
-        if (texture.format.kind == TexFormat.Kind.UINT || texture.format.kind == TexFormat.Kind.SINT) {
-            texture.minFilter = GL_NEAREST;
+        texture.samplerCache = null;
+    }
+
+    /**
+     * A GL name that keeps standing for "the engine texture of {@code key}" while the engine re-creates that texture
+     * (e.g. a shader pack's colour buffer after a resize): like a GL texture whose storage is re-specified, the name,
+     * its parameters and every framebuffer attachment of it stay; only the storage now wraps {@code engineTexture}.
+     * Returns 0 if the device cannot wrap it.
+     */
+    int stableName(final Object key, final Object engineTexture) {
+        Integer existing = stableNames.get(key);
+        Texture texture = existing != null ? gl.textures.get(existing) : null;
+        if (texture != null && stableEngine.get(existing) == engineTexture) {
+            return existing;
         }
-        texture.magFilter = GL_NEAREST;
-        gl.textures.put(name, texture);
-        names.put(engineTexture, name);
-        return name;
+        GlDevice.TextureStore store = gl.device.externalTexture(engineTexture);
+        if (store == null) {
+            MetalGLLog.unsupported("engine texture " + engineTexture.getClass().getName() + " has no GL name");
+            return 0;
+        }
+        boolean fresh = texture == null;
+        if (fresh) {
+            int name = gl.textures.reserve();
+            texture = new Texture(name);
+            gl.textures.put(name, texture);
+            stableNames.put(key, name);
+        }
+        wrap(texture, store);
+        if (fresh) {
+            boolean integer = texture.format.kind == TexFormat.Kind.UINT || texture.format.kind == TexFormat.Kind.SINT;
+            texture.minFilter = store.levels() > 1 && !integer ? GL_NEAREST_MIPMAP_LINEAR : GL_NEAREST;
+            texture.magFilter = GL_NEAREST;
+        }
+        stableEngine.put(texture.name, engineTexture);
+        return texture.name;
+    }
+
+    /** The device texture behind GL name {@code name} (Metal: its {@code MTLTexture}), or null. */
+    @org.jspecify.annotations.Nullable
+    Object nativeTexture(final int name) {
+        Texture texture = gl.textures.get(name);
+        return texture == null || texture.store == null ? null : gl.device.nativeTexture(texture.store);
     }
 
     private void purge(final java.util.function.Predicate<Object> closed) {

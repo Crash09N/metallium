@@ -1489,7 +1489,23 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
                 line("voxy: ingest phase " + (i * 20) + " s, " + glSummary());
                 line("voxy debug: " + context.computeOnClient(client -> voxyDebug()));
             }
-            if (pausedCheck) {
+            // Packs with a Voxy patch: Voxy's render calls go through (nothing paused); without one the safety net pauses them.
+            boolean shaded = pausedCheck && dev.metallium.compat.voxy.VoxyCompat.suppressedCalls() == 0
+                    && dev.metallium.compat.voxy.VoxyCompat.renderCalls() > baseCalls;
+            if (shaded) {
+                // Packs with a Voxy patch (voxy.json): Voxy's own shader-pack pipeline draws the LODs into the pack's
+                // gbuffers on Metal (VoxyIrisBridge); nothing is paused and the pack stays on for the screenshots below.
+                long during = dev.metallium.compat.voxy.VoxyCompat.renderCalls() - baseCalls;
+                long suppressed = dev.metallium.compat.voxy.VoxyCompat.suppressedCalls();
+                line("voxy with pack " + voxyPack + ": LODs shaded by the pack, voxy render calls=" + during + ", suppressed=" + suppressed);
+                String packStatus = String.join("\n", dev.metallium.api.MetalliumRuntime.statusLines());
+                if (!packStatus.contains("Voxy LODs drawn with the pack")) failures.add("voxy with pack: status line does not report Voxy LODs");
+                context.takeScreenshot("metallium-voxy-pack-rd16");
+                tryCommand(world, "tp @a 0 200 0 30 10");
+                context.waitTicks(100);
+                context.takeScreenshot("metallium-voxy-pack-horizon");
+                tryCommand(world, "tp @a 0 160 0 30 35");
+            } else if (pausedCheck) {
                 // Safety net: with a shader pack on Metal Voxy's render calls are skipped; they resume with shaders off.
                 long during = dev.metallium.compat.voxy.VoxyCompat.renderCalls() - baseCalls;
                 long suppressed = dev.metallium.compat.voxy.VoxyCompat.suppressedCalls();
@@ -1510,7 +1526,7 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
             context.runOnClient(client -> client.options.renderDistance().set(4));
             context.waitTicks(400);
             clearChat(context);
-            checkTerrainVisible(context.takeScreenshot("metallium-voxy-lods-rd4"), "voxy LODs (vanilla rd 4)");
+            checkTerrainVisible(context.takeScreenshot(shaded ? "metallium-voxy-pack-lods-rd4" : "metallium-voxy-lods-rd4"), "voxy LODs (vanilla rd 4)", !shaded);
             measure(context, "voxy rd4");
             voxyResize(context);
             physicsInWorld(context, world, "voxy");

@@ -1430,6 +1430,11 @@ public final class MetalGlDevice implements GlDevice {
     }
 
     @Override
+    public @Nullable Object nativeTexture(final TextureStore texture) {
+        return texture instanceof MetalTexture metal ? metal.texture : null;
+    }
+
+    @Override
     public boolean copyTextureToBuffer(final TextureStore store, final int level, final BufferStore buffer, final long offset) {
         MetalTexture texture = (MetalTexture) store;
         MetalBuffer dst = (MetalBuffer) buffer;

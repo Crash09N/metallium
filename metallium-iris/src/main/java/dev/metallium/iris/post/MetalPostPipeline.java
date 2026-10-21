@@ -144,6 +144,8 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
     /** Set when gbuffers fail: chunk meshes are still in Iris's extended vertex format and must be rebuilt. */
     private boolean revertWorldSettings;
     private WorldRenderingPhase phase = WorldRenderingPhase.NONE;
+    /** Voxy's far terrain under this pack (docs/design/iris-voxy-dh.md); null until Voxy asks for its pipeline. */
+    private @org.jspecify.annotations.Nullable VoxyIrisBridge voxyBridge;
 
     /**
      * One entry of a pass list. {@code program} is null for a compute-only entry ({@code compositeN.csh} without
@@ -297,7 +299,7 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
     private Set<Integer> writtenBefore = Set.of();
 
     /** The custom texture for sampler {@code name}, unless it overrides a colortex buffer in {@code written}. */
-    private CustomTextures.@org.jspecify.annotations.Nullable Texture customTexture(final TextureStage stage, final String name, final Set<Integer> written) {
+    CustomTextures.@org.jspecify.annotations.Nullable Texture customTexture(final TextureStage stage, final String name, final Set<Integer> written) {
         if (!written.isEmpty()) {
             int colortex = colortexIndex(name);
             if (colortex >= 0 && written.contains(colortex)) {
@@ -501,6 +503,7 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
         }
         return switch (name) {
             case "depthtex0", "gdepthtex", "depthtex1", "depthtex2" -> nearest;
+            case "vxDepthTexOpaque", "vxDepthTexTrans", "dhDepthTex", "dhDepthTex0", "dhDepthTex1" -> nearest;
             case "noisetex" -> linearRepeat;
             default -> name.startsWith("shadow") || name.equals("watershadow") || name.equals("metallium_source") ? null : linear;
         };
@@ -704,6 +707,10 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
                 }
                 case "shadowtex1", "shadowtex1HW" -> {
                     return shadowTargets.depthNoTranslucents;
+                }
+                case "vxDepthTexOpaque", "vxDepthTexTrans", "dhDepthTex", "dhDepthTex0", "dhDepthTex1" -> {
+                    GpuTextureView lod = farTerrainDepth(name);
+                    return lod != null ? lod.texture() : white;
                 }
                 default -> {
                 }
@@ -967,6 +974,9 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
             RenderTarget main = Minecraft.getInstance().gameRenderer.mainRenderTarget();
             if (targets.resize(main.width, main.height)) {
                 onResize(main);
+            }
+            if (voxyBridge != null) {
+                voxyBridge.beginFrame();
             }
             if (Boolean.getBoolean("metallium.iris.test.failGbuffers")) {
                 throw new IllegalStateException("simulated gbuffers failure (game test)");
@@ -1320,6 +1330,10 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
             case "depthtex1" -> renderPass.setUniform(uniform, gbuffers != null ? gbuffers.depthNoTranslucents() : main.getDepthTextureView(), nearest);
             case "depthtex2" -> renderPass.setUniform(uniform, gbuffers != null ? gbuffers.depthNoHand() : main.getDepthTextureView(), nearest);
             case "noisetex" -> renderPass.setUniform(uniform, noiseView, linearRepeat);
+            case "vxDepthTexOpaque", "vxDepthTexTrans", "dhDepthTex", "dhDepthTex0", "dhDepthTex1" -> {
+                GpuTextureView lod = farTerrainDepth(name);
+                renderPass.setUniform(uniform, lod != null ? lod : whiteView, nearest);
+            }
             case "metallium_source" -> throw new IllegalStateException("copy sampler outside the copy pass");
             default -> {
                 if (name.startsWith("shadow") || name.equals("watershadow")) {
@@ -1646,6 +1660,45 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
         return shadowTargets;
     }
 
+    /** Flip state the opaque gbuffers write (Iris's flippedAfterPrepare). */
+    ImmutableSet<Integer> sceneWritesAlt() {
+        return sceneWritesAlt;
+    }
+
+    GpuTextureView depthNoTranslucents() {
+        return gbuffers != null ? gbuffers.depthNoTranslucents() : Minecraft.getInstance().gameRenderer.mainRenderTarget().getDepthTextureView();
+    }
+
+    GpuTextureView depthNoHand() {
+        return gbuffers != null ? gbuffers.depthNoHand() : Minecraft.getInstance().gameRenderer.mainRenderTarget().getDepthTextureView();
+    }
+
+    /** Voxy's shader-pack pipeline on Metal (created on first use, by Voxy's pipeline factory). */
+    public VoxyIrisBridge voxyBridge() {
+        VoxyIrisBridge bridge = voxyBridge;
+        if (bridge == null) {
+            bridge = voxyBridge = new VoxyIrisBridge(this);
+        }
+        return bridge;
+    }
+
+    /** True while Voxy draws its LODs with this pack (its shader-pack pipeline exists). */
+    public boolean voxyLodsActive() {
+        return voxyBridge != null && voxyBridge.active();
+    }
+
+    /**
+     * Far-terrain depth for {@code vxDepthTexOpaque/Trans} (Voxy's LOD depth buffers) and {@code dhDepthTex0/1}
+     * (Distant Horizons: not hooked on Metal), or null: the caller binds white = depth 1, "no far terrain here".
+     */
+    @org.jspecify.annotations.Nullable GpuTextureView farTerrainDepth(final String name) {
+        return switch (name) {
+            case "vxDepthTexOpaque" -> voxyBridge != null ? voxyBridge.voxyDepthView(true) : null;
+            case "vxDepthTexTrans" -> voxyBridge != null ? voxyBridge.voxyDepthView(false) : null;
+            default -> null;
+        };
+    }
+
     List<String> problems() {
         return problems;
     }
@@ -1654,6 +1707,9 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
     public void destroy() {
         if (lastRendering == this) {
             lastRendering = null;
+        }
+        if (voxyBridge != null) {
+            voxyBridge.close();
         }
         if (horizon != null) {
             horizon.destroy();
