@@ -223,13 +223,17 @@ final class MetalCommandEncoder implements CommandEncoderBackend {
             throw new IllegalStateException("5s timeout reached when waiting for Metal submit completion");
         }
         if (PerfCounters.ENABLED) {
-            PerfCounters.submitWaitNs += System.nanoTime() - waitStart;
+            long waited = System.nanoTime() - waitStart;
+            PerfCounters.submitWaitNs += waited;
+            de.nprmedia.nativium.backend.terrain.TerrainPerf.totalWaitNs += waited;
             PerfCounters.submitted();
         }
 
         if (toClose != null) {
             if (PerfCounters.ENABLED) {
-                PerfCounters.gpuNs += (long) ((toClose.buffer.GPUEndTime() - toClose.buffer.GPUStartTime()) * 1e9);
+                long gpu = (long) ((toClose.buffer.GPUEndTime() - toClose.buffer.GPUStartTime()) * 1e9);
+                PerfCounters.gpuNs += gpu;
+                de.nprmedia.nativium.backend.terrain.TerrainPerf.totalGpuNs += gpu;
             }
             toClose.buffer.release();
         }

@@ -192,6 +192,7 @@ loom.runs.clientGameTest {
 	// -PterrainCullTest: terrain occlusion culling must not change the image (wall / behind-camera / open views, on vs off).
 	if (project.hasProperty('terrainCullTest')) vmArg '-Dnativium.gametest.mode=terrainCull'
 	if (project.hasProperty('benchCullSeconds')) vmArg "-Dnativium.bench.cullSeconds=${project.property('benchCullSeconds')}"
+	if (project.hasProperty('benchCullModes')) vmArg "-Dnativium.bench.cullModes=${project.property('benchCullModes')}"
 	// -PmetalHud: Apple's Metal Performance HUD in the game window (+ its unified-log metrics, MTL_HUD_LOG_ENABLED).
 	if (project.hasProperty('metalHud')) {
 		environmentVariable 'MTL_HUD_ENABLED', '1'

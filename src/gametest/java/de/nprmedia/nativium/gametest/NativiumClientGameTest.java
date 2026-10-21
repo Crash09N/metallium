@@ -2266,17 +2266,36 @@ public final class NativiumClientGameTest implements FabricClientGameTest {
             } catch (AssertionError e) {
                 line("cull-tour: " + name + " " + e.getMessage());
             }
-            context.computeOnClient(c -> de.nprmedia.nativium.compat.sodium.terrain.TerrainOcclusion.snapshot()); // reset
-            List<Integer> fps = new ArrayList<>();
-            for (int s = 0; s < seconds; s++) {
-                context.waitTicks(20);
-                fps.add(context.computeOnClient(Minecraft::getFps));
-            }
-            String counts = context.computeOnClient(c -> de.nprmedia.nativium.compat.sodium.terrain.TerrainOcclusion.snapshot());
             context.takeScreenshot("nativium-cull-" + name);
             sodiumStats(context, "cull-tour " + name);
-            line(String.format(java.util.Locale.ROOT, "cull-tour: scene=%s camera=%s fps=%.0f %s", name, camera,
-                    fps.stream().mapToInt(Integer::intValue).average().orElse(0), counts));
+            // -Dnativium.bench.cullModes=off,on,off,on: A/B the culling modes at this view (same chunks, same session).
+            String[] modes = System.getProperty("nativium.bench.cullModes",
+                    de.nprmedia.nativium.compat.sodium.terrain.TerrainOcclusion.MODE).split(",");
+            for (String mode : modes) {
+                context.runOnClient(c -> de.nprmedia.nativium.compat.sodium.terrain.TerrainOcclusion.setMode(mode));
+                long warm = System.nanoTime() + 2_000_000_000L;
+                while (System.nanoTime() < warm) {
+                    context.waitTicks(5);
+                }
+                context.computeOnClient(c -> de.nprmedia.nativium.compat.sodium.terrain.TerrainOcclusion.snapshot()); // reset
+                long[] t0 = context.computeOnClient(c -> de.nprmedia.nativium.backend.terrain.TerrainPerf.totals());
+                long start = System.nanoTime();
+                List<Integer> fps = new ArrayList<>();
+                while (System.nanoTime() - start < seconds * 1_000_000_000L) {
+                    context.waitTicks(20);
+                    fps.add(context.computeOnClient(Minecraft::getFps));
+                }
+                long[] t1 = context.computeOnClient(c -> de.nprmedia.nativium.backend.terrain.TerrainPerf.totals());
+                double wall = (System.nanoTime() - start) / 1e9;
+                String counts = context.computeOnClient(c -> de.nprmedia.nativium.compat.sodium.terrain.TerrainOcclusion.snapshot());
+                double n = Math.max(1, t1[0] - t0[0]);
+                double frameMs = (t1[1] - t0[1]) / n / 1e6;
+                double waitMs = (t1[3] - t0[3]) / n / 1e6;
+                line(String.format(java.util.Locale.ROOT,
+                        "cull-tour: scene=%s mode=%s camera=%s rendered_fps=%.1f mc_fps=%.0f frame_ms=%.3f gpu_ms=%.3f cpu_ms=%.3f wait_ms=%.3f | %s",
+                        name, mode, camera, n / wall, fps.stream().mapToInt(Integer::intValue).average().orElse(0), frameMs,
+                        (t1[2] - t0[2]) / n / 1e6, frameMs - waitMs, waitMs, counts));
+            }
         }
     }
 

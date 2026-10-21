@@ -74,7 +74,9 @@ final class PerfCounters {
         long now = System.nanoTime();
         if (lastSubmitNs != 0L) {
             frameNs += now - lastSubmitNs;
+            de.nprmedia.nativium.backend.terrain.TerrainPerf.totalFrameNs += now - lastSubmitNs;
         }
+        de.nprmedia.nativium.backend.terrain.TerrainPerf.totalSubmits++;
         lastSubmitNs = now;
         if (++submits < WINDOW) {
             return;
