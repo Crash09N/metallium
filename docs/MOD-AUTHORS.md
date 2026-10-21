@@ -89,6 +89,11 @@ opts in explicitly for those packages (also when the scan finds nothing, e.g. GL
 Users can override per mod in **Video Settings → Nativium → Nativium status…** (Auto / Native / nativium-gl), or with
 `-Dnativium.gl.mods=modid` / `mods=modid` in `config/nativium-gl.properties`.
 
+Before the rename (Nativium was called **Metallium** until 0.1.0-alpha) the key was `"metallium-gl"`; it is still read
+when `"nativium-gl"` is absent, for one release. Likewise the old runtime API `dev.metallium.api.MetalliumRuntime` is a
+deprecated shim that delegates to `de.nprmedia.nativium.api.NativiumRuntime` (`isMetalActive()`, `registerStatusLine()`,
+`statusLines()`, `metalDescription()`); switch to the new class, the shim will be removed after this release.
+
 If a translated mod crashes the game, Nativium does not crash-loop: the next start runs on OpenGL and asks the user
 whether to disable the mod, keep using OpenGL, or try Metal again.
 

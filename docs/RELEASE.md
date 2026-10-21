@@ -31,6 +31,14 @@ Requirements: Apple Silicon Mac with Metal 4 (macOS 26+; the backend compiles MS
 
 Do not install the separate `nativium-gl` / `nativium-iris` jars next to this one (duplicate mod ids).
 
+**Upgrading from Metallium** (the project's name before 0.1.0-alpha): remove the old `metallium-*.jar` from `mods/`
+(Fabric refuses to start with both: `breaks: metallium`). On the first start Nativium copies `config/metallium.json`
+(engine, overrides, OpenGL choices), `config/metallium/` (mod-scan cache, own needs-OpenGL list) and
+`config/metallium-gl.properties` to `config/nativium*` and leaves the old files in place; the per-session crash marker is
+not carried over, and the old `.metallium-cache` shader cache is deleted (its entries cannot hit; the new cache in
+`.nativium-cache` fills up again in the first sessions). Old `-Dmetallium.*` JVM properties still work for this release
+(one deprecation line in the log).
+
 `./gradlew releaseJar` also writes the standalone `nativium-voxy-natives-<v>.jar` (for Voxy on a Mac without Nativium).
 With Nativium installed it is not needed (Fabric keeps the newer copy if both are present). Without these natives Voxy
 crashes the game on world join on a Mac ("librocksdbjni-osx-arm64.jnilib was not found inside JAR"); if they are missing,

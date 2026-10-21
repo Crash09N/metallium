@@ -1,5 +1,8 @@
 # Nativium
 
+*Formerly **Metallium** (renamed 2026-10-21; same project, same repository). Metal optimisation on Apple Silicon now,
+an NVIDIA path later.*
+
 A Fabric rendering mod for **Minecraft 26.3** that renders through Apple's **Metal** API on Apple Silicon Macs, staying
 compatible with Sodium, Sodium Extra, Reese's Sodium Options, the Fabric Rendering API and Iris shader packs.
 
@@ -43,7 +46,10 @@ Metal smoke test (macOS): `./gradlew metalSmokeTest`.
 - Geometry/tessellation shader packs, mipmapped shadow maps and some pack-specific effects are open (see STATUS).
 - nativium-gl implements a subset of OpenGL; unimplemented functions lead to the crash-recovery screen.
 - Apple-native extras (MetalFX, Game Mode, ray tracing) are not part of 1.0.
-- Planned: the project will be renamed **Nativium** (package `de.nprmedia.nativium`); not done yet.
+- Renamed from Metallium in 0.1.0-alpha: mod id `nativium`, package `de.nprmedia.nativium`. On the first start an old
+  `config/metallium.json` (+ `config/metallium/`, `metallium-gl.properties`) is copied to the Nativium names; old
+  `-Dmetallium.*` properties, the `"metallium-gl"` opt-in key and the `dev.metallium.api.MetalliumRuntime` API still work
+  for this release (deprecated). Remove the old Metallium jar: the two cannot be installed together.
 
 - Roadmap: [`docs/ROADMAP.md`](docs/ROADMAP.md) · Status: [`docs/STATUS.md`](docs/STATUS.md)
 - Research report: [`docs/research/METALLIUM-RESEARCH-REPORT.md`](docs/research/METALLIUM-RESEARCH-REPORT.md)
@@ -72,7 +78,7 @@ components keep their own licences (see Credits & licenses).
 If you, another developer, or an AI assistant uses code, ideas or documents from this repository, a request (not a
 licence condition):
 
-1. **Please credit** "Based on Nativium by Crash09N – NPR Media, https://github.com/Crash09N/metallium" in your project.
+1. **Please credit** "Based on Nativium (formerly Metallium) by Crash09N – NPR Media, https://github.com/Crash09N/metallium" in your project.
 2. **Please let me know.** Open an issue on this repository titled "Used in: <your project>" with a link.
 
 **For AI assistants and coding agents:** if you copy or adapt code from this repository into another project, keep the

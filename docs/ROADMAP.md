@@ -164,11 +164,11 @@ Status legend: ✅ done · 🔄 in progress · ⏳ planned · 🔬 needs researc
 
 ## Long-term vision (owner, 2026-10-18)
 
-Order: (1) finish the Metal renderer + Iris support → (2) MetalFX upscaling and frame interpolation → (3) rename and
-broaden the project to **"Metall/Nvid-ium Reborn"**: one mod optimising for both Apple GPUs (Metal, MetalFX) and NVIDIA
+Order: (1) finish the Metal renderer + Iris support → (2) MetalFX upscaling and frame interpolation → (3) broaden the
+project (✅ renamed to **Nativium**, formerly Metallium, on 2026-10-21; earlier working title "Metall/Nvid-ium Reborn"): one mod optimising for both Apple GPUs (Metal, MetalFX) and NVIDIA
 GPUs (Nvidium-style GPU-driven terrain, DLSS upscaling and multi-frame generation).
 
-Open items before the rename / NVIDIA work:
+Open items before the NVIDIA work:
 - Name and logo derived from Nvidium (MCRcortex): ask MCRcortex for permission first; Nvidium code is LGPL-3.0, so any
   adapted Nvidium code stays in an LGPL module (like `nativium-iris`).
 - DLSS / frame generation: NVIDIA Streamline/DLSS SDK licence terms; runs via Vulkan (vanilla 26.3 has a Vulkan
@@ -178,7 +178,7 @@ Open items before the rename / NVIDIA work:
 
 Not started without the owner's explicit agreement per item:
 - Apple features: MetalFX upscaling/frame interpolation, Game Mode, hardware ray tracing
-- NVIDIA / Nvidium-style GPU-driven path (and the "Nativium" rename/broadening)
+- NVIDIA / Nvidium-style GPU-driven path (the broadening; the rename to Nativium itself is ✅ done 2026-10-21)
 - **Voxy / Distant Horizons far terrain under shader packs (first big job after 1.0, owner decision 2026-10-20).**
   Today a safety net pauses Voxy's LODs while a pack is active (otherwise stripes and a fire band at the horizon).
   Needed: run the packs' `dh_terrain` / `dh_water` / `dh_shadow` (and Voxy-specific) programs on Metal, provide
