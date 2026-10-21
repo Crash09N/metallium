@@ -79,6 +79,46 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
         }
     }
 
+    /** The window's size in real pixels (SDL), {w, h}; a Retina window reports twice its point size. */
+    private static int[] windowPixels(final Minecraft client) {
+        try (org.lwjgl.system.MemoryStack stack = org.lwjgl.system.MemoryStack.stackPush()) {
+            java.nio.IntBuffer w = stack.mallocInt(1);
+            java.nio.IntBuffer h = stack.mallocInt(1);
+            org.lwjgl.sdl.SDLVideo.SDL_GetWindowSizeInPixels(client.getWindow().handle(), w, h);
+            return new int[]{w.get(0), h.get(0)};
+        }
+    }
+
+    /** Points, pixels, pixel density and display scale of the window (a 2x/1x mismatch looks zoomed/pixelated). */
+    private static String windowScale(final Minecraft client) {
+        long window = client.getWindow().handle();
+        try (org.lwjgl.system.MemoryStack stack = org.lwjgl.system.MemoryStack.stackPush()) {
+            java.nio.IntBuffer w = stack.mallocInt(1);
+            java.nio.IntBuffer h = stack.mallocInt(1);
+            org.lwjgl.sdl.SDLVideo.SDL_GetWindowSize(window, w, h);
+            int[] px = windowPixels(client);
+            return String.format(java.util.Locale.ROOT, "window_points=%dx%d window_pixels=%dx%d pixel_density=%.2f display_scale=%.2f",
+                    w.get(0), h.get(0), px[0], px[1], org.lwjgl.sdl.SDLVideo.SDL_GetWindowPixelDensity(window),
+                    org.lwjgl.sdl.SDLVideo.SDL_GetWindowDisplayScale(window));
+        }
+    }
+
+    /**
+     * Fabric's game test pins the framebuffer at 854x480, cancels resize events and restores the pinned size after every
+     * fullscreen switch, so a fullscreen/large bench window rendered 854x480 scaled up ("pixelated, zoomed in", owner).
+     * Resizes the framebuffer, main target and surface to the window's real pixel size, as a real game does.
+     */
+    private static String resizeToNative(final Minecraft client) {
+        org.lwjgl.sdl.SDLVideo.SDL_SyncWindow(client.getWindow().handle());
+        int[] px = windowPixels(client);
+        var hooks = (net.fabricmc.fabric.impl.client.gametest.util.WindowHooks) (Object) client.getWindow();
+        if (px[0] > 0 && px[1] > 0 && (client.getWindow().getWidth() != px[0] || client.getWindow().getHeight() != px[1])) {
+            hooks.fabric_resize(px[0], px[1]);
+        }
+        return "framebuffer " + client.getWindow().getWidth() + "x" + client.getWindow().getHeight() + ", main target "
+                + client.gameRenderer.mainRenderTarget().width + "x" + client.gameRenderer.mainRenderTarget().height + ", " + windowScale(client);
+    }
+
     /**
      * Moves the game window to the benchmark display: {@code -Dmetallium.bench.display} = index into SDL's display list
      * or a name substring; default the display with the highest refresh rate (benchmarks must run on the owner's 144 Hz
@@ -169,6 +209,9 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
             // Vanilla drops to 30 fps when there is no input for a while ("AFK"); a benchmark has no input.
             client.options.inactivityFpsLimit().set(net.minecraft.client.InactivityFpsLimit.MINIMIZED);
         });
+        // Native size from the start (world load, settle and measurement), not only just before measuring.
+        context.waitTicks(40); // macOS fullscreen transition
+        line("bench: native size before world load: " + context.computeOnClient(MetalliumClientGameTest::resizeToNative));
         try (TestSingleplayerContext world = context.worldBuilder()
                 .setUseConsistentSettings(false)
                 .adjustSettings(state -> state.setSeed(BENCH_SEED))
@@ -249,18 +292,10 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
                 line("bench: window display " + context.computeOnClient(MetalliumClientGameTest::moveToBenchDisplay));
                 context.waitTicks(20);
             }
-            if (window.matches("\\d+x\\d+") || Boolean.getBoolean("metallium.bench.fullscreen")) {
-                // Fabric's game test pins the framebuffer at 854x480 and cancels resize events, so fullscreen alone
-                // rendered 854x480 and scaled it up; a windowed bench kept the Metal surface at 854x480 while macOS
-                // shrank the window. Resize the framebuffer (and surface) to the real window size, as a real game does.
-                line("bench: real framebuffer " + context.computeOnClient(c -> {
-                    var hooks = (net.fabricmc.fabric.impl.client.gametest.util.WindowHooks) (Object) c.getWindow();
-                    hooks.fabric_resize(hooks.fabric_getRealWidth(), hooks.fabric_getRealHeight());
-                    return "real " + hooks.fabric_getRealWidth() + "x" + hooks.fabric_getRealHeight() + " (fb "
-                            + hooks.fabric_getRealFramebufferWidth() + "x" + hooks.fabric_getRealFramebufferHeight() + ")";
-                }));
-                context.waitTicks(20);
-            }
+            // Again after a window resize (and in case anything switched the window mode since): the framebuffer must
+            // be the window's real pixel size (resizeToNative).
+            line("bench: native size after setup: " + context.computeOnClient(MetalliumClientGameTest::resizeToNative));
+            context.waitTicks(20);
             line("bench: framebuffer " + context.computeOnClient(c -> c.getWindow().getWidth() + "x" + c.getWindow().getHeight()));
             // Ticks run faster than 20/s in the game test, so settle on wall-clock time as well as ticks.
             long settleUntil = System.nanoTime() + settleSeconds * 1_000_000_000L;
@@ -357,21 +392,38 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
                     org.lwjgl.sdl.SDLVideo.SDL_GetDisplayForWindow(c.getWindow().handle()))));
             boolean fullscreen = context.computeOnClient(c -> (org.lwjgl.sdl.SDLVideo.SDL_GetWindowFlags(c.getWindow().handle()) & org.lwjgl.sdl.SDLVideo.SDL_WINDOW_FULLSCREEN) != 0);
             String mainTarget = context.computeOnClient(c -> c.gameRenderer.mainRenderTarget().width + "x" + c.gameRenderer.mainRenderTarget().height);
+            // Display mode in real pixels (SDL reports points; pixel_density is 2 on a Retina mode).
             String displaySize = context.computeOnClient(c -> {
                 org.lwjgl.sdl.SDL_DisplayMode mode = org.lwjgl.sdl.SDLVideo.SDL_GetCurrentDisplayMode(
                         org.lwjgl.sdl.SDLVideo.SDL_GetDisplayForWindow(c.getWindow().handle()));
-                return mode == null ? "?" : mode.w() + "x" + mode.h();
+                return mode == null ? "?" : Math.round(mode.w() * mode.pixel_density()) + "x" + Math.round(mode.h() * mode.pixel_density());
             });
+            String windowPixels = context.computeOnClient(c -> {
+                int[] px = windowPixels(c);
+                return px[0] + "x" + px[1];
+            });
+            String scale = context.computeOnClient(MetalliumClientGameTest::windowScale);
             String sizes = dev.metallium.backend.PresentStats.sizes();
+            // What was actually rendered during the measurement, read back at the game side.
+            Path nativeShot = context.takeScreenshot("metallium-bench-native-" + BENCH_SCENE);
+            String shotSize;
+            try {
+                java.awt.image.BufferedImage image = javax.imageio.ImageIO.read(nativeShot.toFile());
+                shotSize = image.getWidth() + "x" + image.getHeight();
+            } catch (IOException | RuntimeException e) {
+                shotSize = "?";
+            }
             String validity = BenchEnvironment.validity(everUnfocused[0], everOccluded[0], presentedPerSecond, metal);
-            // Fullscreen must render at the display's native size (the owner saw an upscaled image once).
-            boolean wrongSize = fullscreen && (!mainTarget.equals(displaySize) || !framebuffer.equals(displaySize)
-                    || metal && !sizes.contains("presented_texture=" + displaySize + " ") || metal && !sizes.contains("drawable=" + displaySize + " "));
+            // The frame must be rendered at the window's real pixel size (owner: an upscaled 854x480 image looked
+            // pixelated and zoomed in); in fullscreen that is the display mode's pixel size.
+            boolean wrongSize = !mainTarget.equals(windowPixels) || !framebuffer.equals(windowPixels) || !shotSize.equals(windowPixels)
+                    || fullscreen && !windowPixels.equals(displaySize)
+                    || metal && !sizes.contains("presented_texture=" + windowPixels + " ") || metal && !sizes.contains("drawable=" + windowPixels + " ");
             if (wrongSize) {
                 validity = validity.equals("VALID") ? "INVALID(render size)" : validity.replace(")", ",render size)");
             }
-            line(BenchEnvironment.fmt("bench-env: %s display=%s display_mode=%s resolution=%s main_target=%s %s fullscreen=%s refresh_hz=%.1f power=%s focused_always=%s occluded_ever=%s caffeinate=%s",
-                    validity, display, displaySize, framebuffer, mainTarget, sizes, fullscreen,
+            line(BenchEnvironment.fmt("bench-env: %s display=%s display_mode=%s resolution=%s main_target=%s screenshot=%s %s %s fullscreen=%s refresh_hz=%.1f power=%s focused_always=%s occluded_ever=%s caffeinate=%s",
+                    validity, display, displaySize, framebuffer, mainTarget, shotSize, scale, sizes, fullscreen,
                     refreshHz, BenchEnvironment.powerSource(), !everUnfocused[0], everOccluded[0], caffeinate != null));
             if (caffeinate != null) {
                 caffeinate.destroy();
