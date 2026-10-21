@@ -6,7 +6,7 @@ version = project.mod_version
 group = project.maven_group
 
 base {
-	archivesName = 'metallium'
+	archivesName = 'nativium'
 }
 
 repositories {
@@ -22,13 +22,13 @@ dependencies {
 
 	include(implementation("io.github.kokodio:metal-jvm:${project.metal_jvm_version}"))
 
-	// Release jar: metallium-gl (MIT) and the Iris adapter (LGPL-3.0, stays a separate nested jar) are jar-in-jar.
+	// Release jar: nativium-gl (MIT) and the Iris adapter (LGPL-3.0, stays a separate nested jar) are jar-in-jar.
 	// Both are inert unless needed (see IrisSupport / GlRouting), so the one jar is safe to install anywhere.
-	include project(':metallium-gl')
-	include project(':metallium-iris')
+	include project(':nativium-gl')
+	include project(':nativium-iris')
 	// macOS arm64 natives for Voxy's bundled RocksDB / LWJGL zstd+LMDB (resources only; inert elsewhere and without Voxy).
 	// Dev runs load nested jars too, so -PvoxyWithoutNatives (game test of the missing-natives safe path) leaves it out.
-	if (!project.hasProperty('voxyWithoutNatives')) include project(':metallium-voxy-natives')
+	if (!project.hasProperty('voxyWithoutNatives')) include project(':nativium-voxy-natives')
 
 	testImplementation platform('org.junit:junit-bom:5.13.4')
 	testImplementation 'org.junit.jupiter:junit-jupiter'
@@ -85,7 +85,7 @@ tasks.register('metalSmokeTest', JavaExec) {
 	group = 'verification'
 	description = 'Creates a Metal device, renders offscreen and checks the result (macOS only).'
 	classpath = sourceSets.smoketest.runtimeClasspath
-	mainClass = 'dev.metallium.smoketest.MetalSmokeTest'
+	mainClass = 'de.nprmedia.nativium.smoketest.MetalSmokeTest'
 	jvmArgs '--enable-native-access=ALL-UNNAMED'
 }
 
@@ -93,7 +93,7 @@ tasks.register('metalSmokeTest', JavaExec) {
 fabricApi {
 	configureTests {
 		createSourceSet = true
-		modId = 'metallium-gametest'
+		modId = 'nativium-gametest'
 		enableGameTests = false
 		enableClientGameTests = true
 		eula = true
@@ -107,77 +107,77 @@ dependencies {
 loom.runs.clientGameTest {
 	vmArg '-Xmx4G'
 	vmArg '--enable-native-access=ALL-UNNAMED'
-	vmArg "-Dmetallium.gametest.expectBackend=${System.getenv('METALLIUM_EXPECT_BACKEND') ?: ''}"
-	if (project.hasProperty('bench')) vmArg '-Dmetallium.gametest.mode=bench'
-	if (project.hasProperty('engine')) vmArg "-Dmetallium.engine=${project.property('engine')}"
-	// -PsimulatePlatform=windows|linux|intel-mac|no-metal: Metallium behaves as on that machine (must be fully inert).
-	if (project.hasProperty('simulatePlatform')) vmArg "-Dmetallium.platform.simulate=${project.property('simulatePlatform')}"
-	if (project.hasProperty('backendOff')) vmArg '-Dmetallium.backend=off'
+	vmArg "-Dnativium.gametest.expectBackend=${System.getenv('NATIVIUM_EXPECT_BACKEND') ?: ''}"
+	if (project.hasProperty('bench')) vmArg '-Dnativium.gametest.mode=bench'
+	if (project.hasProperty('engine')) vmArg "-Dnativium.engine=${project.property('engine')}"
+	// -PsimulatePlatform=windows|linux|intel-mac|no-metal: Nativium behaves as on that machine (must be fully inert).
+	if (project.hasProperty('simulatePlatform')) vmArg "-Dnativium.platform.simulate=${project.property('simulatePlatform')}"
+	if (project.hasProperty('backendOff')) vmArg '-Dnativium.backend=off'
 	// -Pshaderpack=/abs/path/pack.zip (with -PwithIris): also load that pack in the game test. Copied into the run
 	// directory at runtime only; never commit third-party packs.
-	if (project.hasProperty('shaderpack')) vmArg "-Dmetallium.gametest.shaderpack=${project.property('shaderpack')}"
+	if (project.hasProperty('shaderpack')) vmArg "-Dnativium.gametest.shaderpack=${project.property('shaderpack')}"
 	// -PshaderpackOptions=COLORED_LIGHTING=128,FOO=1: pack options for that pack (written to Iris's <pack>.txt).
 	// -PirisHideMacOs=false: packs see MC_OS_MAC on Metal again (hidden by default, config irisHideMacOs; they gate
 	// compute/voxel features on it; see iris-stage5-compute.md). -PirisHideMacOs alone = true.
-	if (project.hasProperty('irisHideMacOs')) vmArg "-Dmetallium.iris.hideMacOs=${project.property('irisHideMacOs') ?: 'true'}"
+	if (project.hasProperty('irisHideMacOs')) vmArg "-Dnativium.iris.hideMacOs=${project.property('irisHideMacOs') ?: 'true'}"
 	// -PirisDump=/dir [-PirisDumpFrame=N]: write every colortex buffer (main/alt, all mips) as PNG at frame N of a Metal shader pipeline.
-	if (project.hasProperty('irisDump')) vmArg "-Dmetallium.iris.dumpBuffers=${project.property('irisDump')}"
-	if (project.hasProperty('irisDumpFrame')) vmArg "-Dmetallium.iris.dumpFrame=${project.property('irisDumpFrame')}"
-	if (project.hasProperty('shaderpackOptions')) vmArg "-Dmetallium.gametest.shaderpackOptions=${project.property('shaderpackOptions')}"
-	if (project.hasProperty('benchSeconds')) vmArg "-Dmetallium.bench.seconds=${project.property('benchSeconds')}"
-	if (project.hasProperty('benchScene')) vmArg "-Dmetallium.bench.scene=${project.property('benchScene')}"
+	if (project.hasProperty('irisDump')) vmArg "-Dnativium.iris.dumpBuffers=${project.property('irisDump')}"
+	if (project.hasProperty('irisDumpFrame')) vmArg "-Dnativium.iris.dumpFrame=${project.property('irisDumpFrame')}"
+	if (project.hasProperty('shaderpackOptions')) vmArg "-Dnativium.gametest.shaderpackOptions=${project.property('shaderpackOptions')}"
+	if (project.hasProperty('benchSeconds')) vmArg "-Dnativium.bench.seconds=${project.property('benchSeconds')}"
+	if (project.hasProperty('benchScene')) vmArg "-Dnativium.bench.scene=${project.property('benchScene')}"
 	// -PbenchScene=voxy: vanilla rd during the measurement (-PvoxyRd, default 4) and Voxy's LOD distance (-PvoxyDistance)
-	if (project.hasProperty('voxyRd')) vmArg "-Dmetallium.bench.voxyRd=${project.property('voxyRd')}"
-	// -PglIcbTextures=false: textured indirect-count draws use metallium-gl's per-slot fallback instead of ICBs (A/B)
-	if (project.hasProperty('glIcbTextures')) vmArg "-Dmetallium.gl.icbTextures=${project.property('glIcbTextures')}"
-	if (project.hasProperty('voxyDistance')) vmArg "-Dmetallium.bench.voxyDistance=${project.property('voxyDistance')}"
+	if (project.hasProperty('voxyRd')) vmArg "-Dnativium.bench.voxyRd=${project.property('voxyRd')}"
+	// -PglIcbTextures=false: textured indirect-count draws use nativium-gl's per-slot fallback instead of ICBs (A/B)
+	if (project.hasProperty('glIcbTextures')) vmArg "-Dnativium.gl.icbTextures=${project.property('glIcbTextures')}"
+	if (project.hasProperty('voxyDistance')) vmArg "-Dnativium.bench.voxyDistance=${project.property('voxyDistance')}"
 	// -PbenchRd=N: override the benchmark scene's render distance (default 12, rd32 scene 32).
-	if (project.hasProperty('benchRd')) vmArg "-Dmetallium.bench.renderDistance=${project.property('benchRd')}"
+	if (project.hasProperty('benchRd')) vmArg "-Dnativium.bench.renderDistance=${project.property('benchRd')}"
 	// -PbenchSettleSeconds=N: wall-clock settle time before recording.
-	if (project.hasProperty('benchSettleSeconds')) vmArg "-Dmetallium.bench.settleSeconds=${project.property('benchSettleSeconds')}"
-	// -Pterrain=key=value,key2=value2: Metallium terrain options as -Dmetallium.terrain.<key>=<value> (A/B benchmarks).
+	if (project.hasProperty('benchSettleSeconds')) vmArg "-Dnativium.bench.settleSeconds=${project.property('benchSettleSeconds')}"
+	// -Pterrain=key=value,key2=value2: Nativium terrain options as -Dnativium.terrain.<key>=<value> (A/B benchmarks).
 	if (project.hasProperty('terrain')) {
-		project.property('terrain').toString().split(',').each { opt -> if (!opt.isEmpty()) vmArg "-Dmetallium.terrain.${opt}" }
+		project.property('terrain').toString().split(',').each { opt -> if (!opt.isEmpty()) vmArg "-Dnativium.terrain.${opt}" }
 	}
-	if (project.hasProperty('perfCounters')) vmArg '-Dmetallium.perfCounters=true'
+	if (project.hasProperty('perfCounters')) vmArg '-Dnativium.perfCounters=true'
 	// -PperfTrace (with -PperfCounters): log every encoder of one submit per counter window and why it was opened.
-	if (project.hasProperty('perfTrace')) vmArg '-Dmetallium.perfTrace=true'
-	// -PglMods=voxy (with -PwithGl): retarget these mods' GL calls to metallium-gl; -PglFailFast=false logs instead of throwing.
-	if (project.hasProperty('glMods')) vmArg "-Dmetallium.gl.mods=${project.property('glMods')}"
-	if (project.hasProperty('glFailFast')) vmArg "-Dmetallium.gl.failFast=${project.property('glFailFast')}"
+	if (project.hasProperty('perfTrace')) vmArg '-Dnativium.perfTrace=true'
+	// -PglMods=voxy (with -PwithGl): retarget these mods' GL calls to nativium-gl; -PglFailFast=false logs instead of throwing.
+	if (project.hasProperty('glMods')) vmArg "-Dnativium.gl.mods=${project.property('glMods')}"
+	if (project.hasProperty('glFailFast')) vmArg "-Dnativium.gl.failFast=${project.property('glFailFast')}"
 	// -PvoxyFullscreen: the Voxy scenario also toggles fullscreen on and off after its window resizes.
-	if (project.hasProperty('voxyFullscreen')) vmArg '-Dmetallium.gametest.voxyFullscreen=true'
-	// -PglTrace=N [-PglTraceAfter=S]: log N metallium-gl device operations after S seconds (diagnostics).
-	if (project.hasProperty('glTrace')) vmArg "-Dmetallium.gl.trace=${project.property('glTrace')}"
-	if (project.hasProperty('glTraceAfter')) vmArg "-Dmetallium.gl.traceAfter=${project.property('glTraceAfter')}"
+	if (project.hasProperty('voxyFullscreen')) vmArg '-Dnativium.gametest.voxyFullscreen=true'
+	// -PglTrace=N [-PglTraceAfter=S]: log N nativium-gl device operations after S seconds (diagnostics).
+	if (project.hasProperty('glTrace')) vmArg "-Dnativium.gl.trace=${project.property('glTrace')}"
+	if (project.hasProperty('glTraceAfter')) vmArg "-Dnativium.gl.traceAfter=${project.property('glTraceAfter')}"
 	// -PvoxyScenario: run the Voxy camera scenario without Voxy (reference screenshots).
-	if (project.hasProperty('voxyScenario')) vmArg '-Dmetallium.gametest.voxyScenario=true'
-	if (project.hasProperty('glDump')) vmArg "-Dmetallium.gl.dump=${project.property('glDump')}"
-	if (project.hasProperty('benchPower')) vmArg '-Dmetallium.bench.power=true'
+	if (project.hasProperty('voxyScenario')) vmArg '-Dnativium.gametest.voxyScenario=true'
+	if (project.hasProperty('glDump')) vmArg "-Dnativium.gl.dump=${project.property('glDump')}"
+	if (project.hasProperty('benchPower')) vmArg '-Dnativium.bench.power=true'
 	// A crashed earlier test run must not put the next one into crash-recovery mode (OpenGL + dialog).
-	vmArg "-Dmetallium.crashRecovery=${project.hasProperty('crashRecovery') ? 'on' : 'off'}"
-	if (project.hasProperty('playSeconds')) vmArg "-Dmetallium.gametest.playSeconds=${project.property('playSeconds')}"
+	vmArg "-Dnativium.crashRecovery=${project.hasProperty('crashRecovery') ? 'on' : 'off'}"
+	if (project.hasProperty('playSeconds')) vmArg "-Dnativium.gametest.playSeconds=${project.property('playSeconds')}"
 	// The run directory is recreated for every game test, so keep the shader cache next to it: the second run is warm.
 	// -PshaderCache=false disables it; delete that directory for a cold run.
-	vmArg "-Dmetallium.shaderCache.dir=${layout.buildDirectory.get().asFile}/run/metallium-shader-cache"
-	if (project.hasProperty('shaderCache')) vmArg "-Dmetallium.shaderCache=${project.property('shaderCache')}"
+	vmArg "-Dnativium.shaderCache.dir=${layout.buildDirectory.get().asFile}/run/nativium-shader-cache"
+	if (project.hasProperty('shaderCache')) vmArg "-Dnativium.shaderCache=${project.property('shaderCache')}"
 	// -PsimulateArchiveFailure: the binary archive writer pretends Apple's archiver rejects one pipeline pair (tests the rebuild path).
-	if (project.hasProperty('simulateArchiveFailure')) vmArg '-Dmetallium.shaderCache.simulateArchiveFailure=true'
-	if (project.hasProperty('logArchiveMisses')) vmArg '-Dmetallium.shaderCache.logMisses=true'
+	if (project.hasProperty('simulateArchiveFailure')) vmArg '-Dnativium.shaderCache.simulateArchiveFailure=true'
+	if (project.hasProperty('logArchiveMisses')) vmArg '-Dnativium.shaderCache.logMisses=true'
 	// -PshaderDump=/abs/dir: write every compiled MSL source (and compute GLSL) there (diagnostics).
-	if (project.hasProperty('shaderDump')) vmArg "-Dmetallium.shaderDump=${project.property('shaderDump')}"
+	if (project.hasProperty('shaderDump')) vmArg "-Dnativium.shaderDump=${project.property('shaderDump')}"
 	// -PbenchBiome=minecraft:ocean: bench camera just above sea level in the nearest such biome.
-	if (project.hasProperty('benchBiome')) vmArg "-Dmetallium.bench.biome=${project.property('benchBiome')}"
+	if (project.hasProperty('benchBiome')) vmArg "-Dnativium.bench.biome=${project.property('benchBiome')}"
 	// -PbenchWindow=2560x1440: benchmark window size (default: the game test's 854x480).
-	if (project.hasProperty('benchWindow')) vmArg "-Dmetallium.bench.window=${project.property('benchWindow')}"
+	if (project.hasProperty('benchWindow')) vmArg "-Dnativium.bench.window=${project.property('benchWindow')}"
 	// -PbenchFpsLimit=165: Minecraft's frame limiter during the benchmark (10-259; default unlimited).
-	if (project.hasProperty('benchFpsLimit')) vmArg "-Dmetallium.bench.fpsLimit=${project.property('benchFpsLimit')}"
+	if (project.hasProperty('benchFpsLimit')) vmArg "-Dnativium.bench.fpsLimit=${project.property('benchFpsLimit')}"
 	// -PbenchVsync: run the benchmark with VSync on (default off) to compare presented vs rendered frames.
-	if (project.hasProperty('benchVsync')) vmArg '-Dmetallium.bench.vsync=true'
+	if (project.hasProperty('benchVsync')) vmArg '-Dnativium.bench.vsync=true'
 	// -PbenchDisplay=<index or name substring>: display for the benchmark window (default: highest refresh rate).
-	if (project.hasProperty('benchDisplay')) vmArg "-Dmetallium.bench.display=${project.property('benchDisplay')}"
+	if (project.hasProperty('benchDisplay')) vmArg "-Dnativium.bench.display=${project.property('benchDisplay')}"
 	// -PbenchFullscreen: benchmark fullscreen on that display.
-	if (project.hasProperty('benchFullscreen')) vmArg '-Dmetallium.bench.fullscreen=true'
+	if (project.hasProperty('benchFullscreen')) vmArg '-Dnativium.bench.fullscreen=true'
 	// -PmetalHud: Apple's Metal Performance HUD in the game window (+ its unified-log metrics, MTL_HUD_LOG_ENABLED).
 	if (project.hasProperty('metalHud')) {
 		environmentVariable 'MTL_HUD_ENABLED', '1'
@@ -194,57 +194,57 @@ if (project.hasProperty('withSodium')) {
 	}
 }
 
-// ./gradlew runClientGameTest -PwithIris  → Sodium + Iris + the Metallium Iris adapter.
+// ./gradlew runClientGameTest -PwithIris  → Sodium + Iris + the Nativium Iris adapter.
 if (project.hasProperty('withIris')) {
 	dependencies {
 		gametestRuntimeOnly "maven.modrinth:sodium:${project.sodium_version}"
 		gametestRuntimeOnly "maven.modrinth:iris:${project.iris_version}"
-		gametestRuntimeOnly project(':metallium-iris')
+		gametestRuntimeOnly project(':nativium-iris')
 		// also for ./gradlew :runClient -PwithIris (dev runtime only)
 		localRuntime "maven.modrinth:sodium:${project.sodium_version}"
 		localRuntime "maven.modrinth:iris:${project.iris_version}"
-		localRuntime project(':metallium-iris')
+		localRuntime project(':nativium-iris')
 	}
 }
 
-// ./gradlew runClientGameTest -PwithGl  → also loads metallium-gl; the gametest's raw-GL test mod is retargeted to Metal.
+// ./gradlew runClientGameTest -PwithGl  → also loads nativium-gl; the gametest's raw-GL test mod is retargeted to Metal.
 if (project.hasProperty('withGl')) {
 	dependencies {
-		gametestRuntimeOnly project(':metallium-gl')
-		localRuntime project(':metallium-gl')
+		gametestRuntimeOnly project(':nativium-gl')
+		localRuntime project(':nativium-gl')
 	}
 }
 
 // ./gradlew runClientGameTest -Pinstance[=/abs/run/dir]  → real-instance stress test: run directory run-instance/ (built by
 // tools/make-run-instance.sh from a real Minecraft instance; git-ignored). Its own Sodium, Iris and other mods load from
-// run-instance/mods; the dev Metallium, metallium-iris and metallium-gl come from this build. Do not combine with
+// run-instance/mods; the dev Nativium, nativium-iris and nativium-gl come from this build. Do not combine with
 // -PwithSodium/-PwithIris (duplicate mods). -PinstancePacks=a.zip,b.zip limits the shader packs.
 if (project.hasProperty('instance')) {
 	if (project.hasProperty('withSodium') || project.hasProperty('withIris')) {
 		throw new GradleException('-Pinstance loads Sodium/Iris from the instance; do not add -PwithSodium/-PwithIris')
 	}
 	dependencies {
-		gametestRuntimeOnly project(':metallium-iris')
-		if (!project.hasProperty('withGl')) gametestRuntimeOnly project(':metallium-gl')
+		gametestRuntimeOnly project(':nativium-iris')
+		if (!project.hasProperty('withGl')) gametestRuntimeOnly project(':nativium-gl')
 	}
 	def dir = project.property('instance')
 	loom.runs.clientGameTest {
 		runDir((dir instanceof String && !dir.isEmpty() && dir != 'true') ? dir : 'run-instance')
-		vmArg '-Dmetallium.gametest.mode=instance'
-		if (project.hasProperty('instancePacks')) vmArg "-Dmetallium.gametest.instancePacks=${project.property('instancePacks')}"
+		vmArg '-Dnativium.gametest.mode=instance'
+		if (project.hasProperty('instancePacks')) vmArg "-Dnativium.gametest.instancePacks=${project.property('instancePacks')}"
 		// Real crash recovery across runs (normally off in game tests); the later -D wins over the default above.
-		if (project.hasProperty('instanceCrashRecovery')) vmArg '-Dmetallium.crashRecovery=on'
+		if (project.hasProperty('instanceCrashRecovery')) vmArg '-Dnativium.crashRecovery=on'
 	}
 	// Fabric's game-test setup wipes the run directory before each run; the instance copy must survive.
 	tasks.matching { it.name == 'deleteGameTestRunDir' }.configureEach { enabled = false }
 }
 
 // ./gradlew :runClient -Pplay[=dir]  → play the real instance by hand (tools/make-run-instance.sh <src> play-instance):
-// its mods load from <dir>/mods, plus the dev Metallium, metallium-iris and metallium-gl. Default dir: metallium-research/play-instance (outside the repo; never commit instance data).
+// its mods load from <dir>/mods, plus the dev Nativium, nativium-iris and nativium-gl. Default dir: metallium-research/play-instance (outside the repo; never commit instance data).
 if (project.hasProperty('play')) {
 	dependencies {
-		localRuntime project(':metallium-iris')
-		if (!project.hasProperty('withGl')) localRuntime project(':metallium-gl')
+		localRuntime project(':nativium-iris')
+		if (!project.hasProperty('withGl')) localRuntime project(':nativium-gl')
 	}
 	def dir = project.property('play')
 	loom.runs.client {
@@ -293,12 +293,12 @@ if (project.hasProperty('withVoxy')) {
 		gametestRuntimeOnly "maven.modrinth:sodium:${project.sodium_version}"
 		gametestRuntimeOnly files(project.property('withVoxy'))
 		// The 263 Voxy build bundles RocksDB / LWJGL zstd+LMDB without macOS natives (its storage fails on world join):
-		// the metallium-voxy-natives addon nested in Metallium supplies them (dev runs load nested jars like the release jar,
+		// the nativium-voxy-natives addon nested in Nativium supplies them (dev runs load nested jars like the release jar,
 		// no Maven natives on the classpath). -PvoxyWithoutNatives leaves it out to test
-		// Metallium's safe path (Voxy disabled + VoxyNativesScreen instead of a crash on world join).
+		// Nativium's safe path (Voxy disabled + VoxyNativesScreen instead of a crash on world join).
 	}
 	if (project.hasProperty('voxyWithoutNatives')) {
-		loom.runs.clientGameTest { vmArg '-Dmetallium.gametest.voxyWithoutNatives=true' }
+		loom.runs.clientGameTest { vmArg '-Dnativium.gametest.voxyWithoutNatives=true' }
 	}
 }
 
@@ -326,14 +326,14 @@ if (project.hasProperty('withPhysics')) {
 		gametestRuntimeOnly files(physicsJar)
 	}
 	loom.runs.clientGameTest {
-		vmArg '-Dmetallium.gametest.mode=physics'
+		vmArg '-Dnativium.gametest.mode=physics'
 		// -PphysicsBench: FPS of each GPU feature scene with the feature on and off (run under gpu-lock.sh --exclusive)
-		if (project.hasProperty('physicsBench')) vmArg '-Dmetallium.gametest.physicsBench=true'
+		if (project.hasProperty('physicsBench')) vmArg '-Dnativium.gametest.physicsBench=true'
 	}
 }
 
 // ./gradlew runClientGameTest -PwithBetterF3=/abs/path/BetterF3-20.0.0-Fabric-26.3.jar  -> BetterF3 scenario (F3 overlay
-// shows the Metallium lines through BetterF3's own HUD). BetterF3 is MIT; the jar is only loaded from the given path at
+// shows the Nativium lines through BetterF3's own HUD). BetterF3 is MIT; the jar is only loaded from the given path at
 // test time. It needs Cloth Config (Modrinth, test-only). Combine with -PwithIris for the Iris adapter status line.
 if (project.hasProperty('withBetterF3')) {
 	def betterF3Jar = project.property('withBetterF3')
@@ -345,19 +345,19 @@ if (project.hasProperty('withBetterF3')) {
 		gametestRuntimeOnly 'maven.modrinth:cloth-config:fg2uyxOW'
 	}
 	loom.runs.clientGameTest {
-		vmArg '-Dmetallium.gametest.mode=betterf3'
+		vmArg '-Dnativium.gametest.mode=betterf3'
 	}
 }
 
 // ./gradlew runClientGameTest -PsessionExit=normal|sigterm|crash  -> ends the session that way at the title screen (see tools/check-session-exit.sh).
 if (project.hasProperty('sessionExit')) {
 	loom.runs.clientGameTest {
-		vmArg "-Dmetallium.gametest.sessionExit=${project.property('sessionExit')}"
-		vmArg '-Dmetallium.crashRecovery=on'
+		vmArg "-Dnativium.gametest.sessionExit=${project.property('sessionExit')}"
+		vmArg '-Dnativium.crashRecovery=on'
 	}
 }
 
-// ./gradlew runClientGameTest -PwithGl -PcrashRecovery  → simulates "the last session crashed in a metallium-gl-routed
+// ./gradlew runClientGameTest -PwithGl -PcrashRecovery  → simulates "the last session crashed in a nativium-gl-routed
 // mod": seeds a session marker and a crash report into the run directory, so this run must start on OpenGL and show the
 // crash-recovery screen before the title screen.
 if (project.hasProperty('crashRecovery')) {
@@ -365,32 +365,32 @@ if (project.hasProperty('crashRecovery')) {
 		doFirst {
 			def run = file('build/run/clientGameTest')
 			def start = System.currentTimeMillis() - 60_000
-			file("$run/config/metallium").mkdirs()
-			file("$run/config/metallium/session.json").text = """{"start": $start, "engine": "METAL", "routed": [{"id": "metallium-gametest", "name": "Metallium client game tests", "packages": ["dev.metallium.gametest.gl"]}]}"""
+			file("$run/config/nativium").mkdirs()
+			file("$run/config/nativium/session.json").text = """{"start": $start, "engine": "METAL", "routed": [{"id": "nativium-gametest", "name": "Nativium client game tests", "packages": ["de.nprmedia.nativium.gametest.gl"]}]}"""
 			file("$run/crash-reports").mkdirs()
 			file("$run/crash-reports/crash-simulated-client.txt").text = '---- Minecraft Crash Report ----\n' +
 					'Description: Rendering overlay (simulated by -PcrashRecovery)\n\n' +
-					'java.lang.UnsupportedOperationException: metallium-gl: unimplemented GL11.glAccum(IF)V (called by metallium-gametest)\n' +
-					'\tat dev.metallium.gl.MetalGLLog.unimplemented(MetalGLLog.java:44)\n' +
-					'\tat dev.metallium.gametest.gl.RawGlQuads.render(RawGlQuads.java:1)\n'
+					'java.lang.UnsupportedOperationException: nativium-gl: unimplemented GL11.glAccum(IF)V (called by nativium-gametest)\n' +
+					'\tat de.nprmedia.nativium.gl.MetalGLLog.unimplemented(MetalGLLog.java:44)\n' +
+					'\tat de.nprmedia.nativium.gametest.gl.RawGlQuads.render(RawGlQuads.java:1)\n'
 		}
 	}
 }
 
-// ./gradlew releaseJar  -> build/release/metallium-<version>.jar: the single installable alpha jar (see docs/RELEASE.md).
+// ./gradlew releaseJar  -> build/release/nativium-<version>.jar: the single installable alpha jar (see docs/RELEASE.md).
 tasks.register('releaseJar', Copy) {
 	group = 'build'
-	description = 'Builds the single installable Metallium jar (core + metallium-gl + metallium-iris + metallium-voxy-natives + metal-jvm, jar-in-jar), plus the standalone metallium-voxy-natives jar.'
+	description = 'Builds the single installable Nativium jar (core + nativium-gl + nativium-iris + nativium-voxy-natives + metal-jvm, jar-in-jar), plus the standalone nativium-voxy-natives jar.'
 	from(tasks.named('jar'))
-	from(project(':metallium-voxy-natives').tasks.named('jar'))
+	from(project(':nativium-voxy-natives').tasks.named('jar'))
 	into layout.buildDirectory.dir('release')
 }
 
-// ./gradlew runClientGameTest -PreleaseJarTest  -> runs the game test against build/release/metallium-<version>.jar installed as a
-// mod (jar-in-jar metallium-gl + metallium-iris included) instead of the dev classes of the root project and subprojects.
+// ./gradlew runClientGameTest -PreleaseJarTest  -> runs the game test against build/release/nativium-<version>.jar installed as a
+// mod (jar-in-jar nativium-gl + nativium-iris included) instead of the dev classes of the root project and subprojects.
 // -PreleaseJarSodium / -PreleaseJarIris add Sodium (+ Iris) as ordinary mods next to the jar.
 if (project.hasProperty('releaseJarTest')) {
-	def releaseJarFile = layout.buildDirectory.file("release/metallium-${project.version}.jar").get().asFile
+	def releaseJarFile = layout.buildDirectory.file("release/nativium-${project.version}.jar").get().asFile
 	if (project.hasProperty('releaseJarSodium') || project.hasProperty('releaseJarIris')) {
 		dependencies {
 			gametestRuntimeOnly "maven.modrinth:sodium:${project.sodium_version}"
@@ -407,21 +407,21 @@ if (project.hasProperty('releaseJarTest')) {
 }
 
 // ./gradlew runClientProd  -> production-style Fabric launch (fabric.development unset) of the play instance, for mods that
-// refuse Loom dev environments (Essential: "Failed to find tiny mappings file"). Metallium is the release jar
-// (build/release/metallium-<v>.jar, added with -Dfabric.addMods, includes metallium-gl + metallium-iris), not dev classes.
+// refuse Loom dev environments (Essential: "Failed to find tiny mappings file"). Nativium is the release jar
+// (build/release/nativium-<v>.jar, added with -Dfabric.addMods, includes nativium-gl + nativium-iris), not dev classes.
 // The instance (../metallium-research/play-instance by default, or -PplayProd=<dir>) supplies the other mods. Offline user, no login.
-// Voxy's 26.3 build bundles RocksDB / LWJGL zstd without macOS natives; the release jar's nested metallium-voxy-natives
+// Voxy's 26.3 build bundles RocksDB / LWJGL zstd without macOS natives; the release jar's nested nativium-voxy-natives
 // addon supplies them (no extra classpath entries, exactly like a Prism / official-launcher install).
 tasks.register('runClientProd', JavaExec) {
 	dependsOn 'releaseJar'
 	def dirProp = project.findProperty('playProd')
 	def instDir = file((dirProp instanceof String && !dirProp.isEmpty() && dirProp != 'true') ? dirProp : '../metallium-research/play-instance')
-	def rel = layout.buildDirectory.file("release/metallium-${project.version}.jar").get().asFile
+	def rel = layout.buildDirectory.file("release/nativium-${project.version}.jar").get().asFile
 	workingDir = instDir
 	classpath = files(configurations.runtimeClasspath.filter { !it.name.startsWith('metal-jvm') })
 	mainClass = 'net.fabricmc.loader.impl.launch.knot.KnotClient'
 	jvmArgs '--enable-native-access=ALL-UNNAMED', '-XstartOnFirstThread', '-Xmx6G', "-Dfabric.addMods=${rel}"
-	args '--username', 'Player', '--version', 'Metallium-play', '--gameDir', instDir.absolutePath,
+	args '--username', 'Player', '--version', 'Nativium-play', '--gameDir', instDir.absolutePath,
 		'--assetsDir', "${System.getProperty('user.home')}/.gradle/caches/fabric-loom/assets", '--assetIndex', '26.3-34',
 		'--accessToken', '0', '--userType', 'legacy'
 	// -PplayWorld=<save folder>: join that singleplayer world straight from start-up (Minecraft's quick play).

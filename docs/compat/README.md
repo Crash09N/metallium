@@ -19,10 +19,10 @@ the repository; most licences forbid redistribution. Screenshots and logs are wr
 
 ## Columns
 
-- Status: **works** = pack loaded, no crash, no unsupported-feature report; **partial** = renders, but Metallium logged
+- Status: **works** = pack loaded, no crash, no unsupported-feature report; **partial** = renders, but Nativium logged
   unsupported features, skipped programs or failed translations (or terrain coverage < 0.30); **fails** = not loaded or
   the game crashed.
-- Missing features: distinct `[metallium-iris] Unsupported shader pack feature` log entries with counts (shadow/DH
+- Missing features: distinct `[nativium-iris] Unsupported shader pack feature` log entries with counts (shadow/DH
   programs, compute, mipmapped buffers, translation failures with the translator's reason, ...).
 - Notes: pipeline class, crash, game test result, terrain coverage (share of non-sky pixels in the lower screen band of
   the natural-world pack screenshot; only detects an empty frame, not wrong colours), translated/failed gbuffers program
@@ -31,5 +31,5 @@ the repository; most licences forbid redistribution. Screenshots and logs are wr
 # Real modpack (mod compatibility)
 
 `tools/make-run-instance.sh` + `./gradlew runClientGameTest -Pinstance` run a copy of a real instance (all its mods,
-resource and shader packs) on the dev Metallium; see [real-instance-2026-10-18.md](real-instance-2026-10-18.md) for the
+resource and shader packs) on the dev Nativium; see [real-instance-2026-10-18.md](real-instance-2026-10-18.md) for the
 first run with the owner's 145-mod pack and the findings.

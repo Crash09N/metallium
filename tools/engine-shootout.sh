@@ -20,7 +20,7 @@ SHADERPACK="${SHADERPACK:-/Users/noah/Desktop/Metallium/metallium-research/shade
 SMOKE="${SMOKE:-0}"
 DATE="$(date +%Y-%m-%d)"
 OUT="${OUT:-docs/benchmarks/shootout-$DATE.md}"
-REPORT="build/run/clientGameTest/metallium-gametest-report.txt"
+REPORT="build/run/clientGameTest/nativium-gametest-report.txt"
 LABEL="${LABEL:-}"
 LOGDIR="build/shootout-logs${LABEL:+/$LABEL}"
 mkdir -p "$LOGDIR" "$(dirname "$OUT")"
