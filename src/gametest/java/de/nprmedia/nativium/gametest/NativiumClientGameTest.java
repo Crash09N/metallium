@@ -1571,6 +1571,9 @@ public final class NativiumClientGameTest implements FabricClientGameTest {
                 long suppressed = de.nprmedia.nativium.compat.voxy.VoxyCompat.suppressedCalls();
                 line("voxy with pack " + voxyPack + ": LODs shaded by the pack, voxy render calls=" + during + ", suppressed=" + suppressed);
                 String packStatus = String.join("\n", de.nprmedia.nativium.api.NativiumRuntime.statusLines());
+                for (String row : packStatus.split("\n")) {
+                    if (row.contains("Iris") || row.contains("Voxy")) line("voxy with pack: status: " + row);
+                }
                 if (!packStatus.contains("Voxy LODs drawn with the pack")) failures.add("voxy with pack: status line does not report Voxy LODs");
                 context.takeScreenshot("nativium-voxy-pack-rd16");
                 tryCommand(world, "tp @a 0 200 0 30 10");
@@ -1598,6 +1601,7 @@ public final class NativiumClientGameTest implements FabricClientGameTest {
             context.runOnClient(client -> client.options.renderDistance().set(4));
             context.waitTicks(400);
             clearChat(context);
+            if (shaded) System.setProperty("nativium.iris.dumpNow", "true"); // -PirisDump: the pack's buffers of this frame
             checkTerrainVisible(context.takeScreenshot(shaded ? "nativium-voxy-pack-lods-rd4" : "nativium-voxy-lods-rd4"), "voxy LODs (vanilla rd 4)", !shaded);
             measure(context, "voxy rd4");
             voxyResize(context);

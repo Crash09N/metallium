@@ -345,6 +345,48 @@ class GlslProgramTranslatorTest {
         compileWithMetalIfAvailable(program);
     }
 
+    /** GL binding namespaces: a UBO and an SSBO may both use binding 7 (Voxy's shader-pack compute shaders do). */
+    @Test
+    void uniformAndStorageBlockWithTheSameBindingCompileInMetal() throws Exception {
+        Map<Stage, String> sources = new EnumMap<>(Stage.class);
+        sources.put(Stage.COMPUTE, """
+                #version 460 core
+                layout(local_size_x = 32) in;
+                layout(binding = 7, std140) uniform ShaderUniformBindings { vec4 tint; };
+                layout(binding = 7, std430) restrict buffer Data { vec4 values[]; };
+                void main() { values[gl_GlobalInvocationID.x] += tint; }
+                """);
+        Program program = GlslProgramTranslator.translate("aliased_bindings", sources);
+        StageResult cs = program.stages().get(Stage.COMPUTE);
+        assertTrue(cs.resources().stream().anyMatch(r -> r.kind() == ResourceBinding.Kind.UNIFORM_BUFFER && r.glBinding() == 7), cs.resources().toString());
+        assertTrue(cs.resources().stream().anyMatch(r -> r.kind() == ResourceBinding.Kind.STORAGE_BUFFER && r.glBinding() == 7), cs.resources().toString());
+        assertFalse(cs.msl().contains("spvBufferAlias"), cs.msl());
+        compileWithMetalIfAvailable(program);
+    }
+
+    /** discard inside a helper function that the fragment shader calls (Voxy + Complementary's voxy_opaque patch). */
+    @Test
+    void discardInAHelperFunctionCompilesInMetal() throws Exception {
+        Map<Stage, String> sources = new EnumMap<>(Stage.class);
+        sources.put(Stage.VERTEX, """
+                #version 460 core
+                layout(location = 0) in vec3 pos;
+                out vec2 uv;
+                void main() { uv = pos.xy; gl_Position = vec4(pos, 1.0); }
+                """);
+        sources.put(Stage.FRAGMENT, """
+                #version 460 core
+                in vec2 uv;
+                layout(binding = 0) uniform sampler2D tex;
+                layout(location = 0) out vec4 color;
+                void cut(vec4 c) { if (c.a < 0.1) discard; }
+                vec4 shade() { vec4 c = texture(tex, uv); cut(c); return c * dFdx(uv.x); }
+                void main() { color = shade(); if (gl_HelperInvocation) color = vec4(0.0); }
+                """);
+        Program program = GlslProgramTranslator.translate("helper_discard", sources);
+        compileWithMetalIfAvailable(program);
+    }
+
     private static final String GL_COMPUTE = """
             #version 460 core
             layout(local_size_x = 128) in;

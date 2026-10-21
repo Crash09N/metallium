@@ -906,10 +906,14 @@ public final class GlslProgramTranslator {
                 check(Spvc.spvc_compiler_options_set_bool(options, Spvc.SPVC_COMPILER_OPTION_MSL_TEXTURE_BUFFER_NATIVE, true), "TEXTURE_BUFFER_NATIVE");
                 check(Spvc.spvc_compiler_options_set_bool(options, Spvc.SPVC_COMPILER_OPTION_MSL_PAD_FRAGMENT_OUTPUT_COMPONENTS, true), "PAD_FRAGMENT_OUTPUT");
                 check(Spvc.spvc_compiler_options_set_bool(options, Spvc.SPVC_COMPILER_OPTION_MSL_TEXTURE_1D_AS_2D, true), "TEXTURE_1D_AS_2D");
+                // SPIRV-Cross's manual gl_HelperInvocation tracking writes the variable at every discard, also in helper
+                // functions where it is not declared (Voxy's shader-pack fragment shaders: "use of undeclared identifier").
+                check(Spvc.spvc_compiler_options_set_bool(options, Spvc.SPVC_COMPILER_OPTION_MSL_MANUAL_HELPER_INVOCATION_UPDATES, false), "MANUAL_HELPER_INVOCATION_UPDATES");
                 if (glClipSpace && stage == Stage.VERTEX) {
                     check(Spvc.spvc_compiler_options_set_bool(options, Spvc.SPVC_COMPILER_OPTION_FIXUP_DEPTH_CONVENTION, true), "FIXUP_DEPTH_CONVENTION");
                 }
                 check(Spvc.spvc_compiler_install_compiler_options(compiler, options), "install_compiler_options");
+                separateBufferBindings(stack, compiler);
 
                 check(Spvc.spvc_compiler_compile(compiler, p), "compile");
                 String msl = MemoryUtil.memUTF8(p.get(0));
@@ -1017,6 +1021,36 @@ public final class GlslProgramTranslator {
             resources.add(new ResourceBinding(image.nameString(), ResourceBinding.Kind.STORAGE_IMAGE,
                     Spvc.spvc_compiler_msl_get_automatic_resource_binding(compiler, image.id()), binding(compiler, image.id())));
         }
+    }
+
+    /**
+     * GL has separate binding namespaces for uniform and shader-storage blocks ({@code layout(binding = 7) uniform U}
+     * next to {@code layout(binding = 7) buffer S} is legal, e.g. Voxy's shader-pack shaders); SPIR-V/SPIRV-Cross treat
+     * equal (set, binding) as aliases of one buffer and emit an invalid address-space cast. Such UBOs move to descriptor
+     * set 1; their {@code Binding} (= GL binding, used for reflection) is unchanged.
+     */
+    private static void separateBufferBindings(final MemoryStack stack, final long compiler) throws TranslationException {
+        PointerBuffer p = stack.mallocPointer(1);
+        check(Spvc.spvc_compiler_create_shader_resources(compiler, p), "create_shader_resources");
+        long shaderResources = p.get(0);
+        java.util.Set<Long> storage = new java.util.HashSet<>();
+        for (SpvcReflectedResource ssbo : list(stack, shaderResources, Spvc.SPVC_RESOURCE_TYPE_STORAGE_BUFFER)) {
+            storage.add(((long) descriptorSet(compiler, ssbo.id()) << 32) | (binding(compiler, ssbo.id()) & 0xFFFFFFFFL));
+        }
+        if (storage.isEmpty()) {
+            return;
+        }
+        for (SpvcReflectedResource ubo : list(stack, shaderResources, Spvc.SPVC_RESOURCE_TYPE_UNIFORM_BUFFER)) {
+            int binding = binding(compiler, ubo.id());
+            if (binding >= 0 && storage.contains(((long) descriptorSet(compiler, ubo.id()) << 32) | (binding & 0xFFFFFFFFL))) {
+                Spvc.spvc_compiler_set_decoration(compiler, ubo.id(), Spv.SpvDecorationDescriptorSet, descriptorSet(compiler, ubo.id()) + 1);
+            }
+        }
+    }
+
+    private static int descriptorSet(final long compiler, final int id) {
+        return Spvc.spvc_compiler_has_decoration(compiler, id, Spv.SpvDecorationDescriptorSet)
+                ? Spvc.spvc_compiler_get_decoration(compiler, id, Spv.SpvDecorationDescriptorSet) : 0;
     }
 
     private static int binding(final long compiler, final int id) {

@@ -10,7 +10,6 @@ import com.mojang.renderpearl.api.textures.GpuTexture;
 import com.mojang.renderpearl.api.textures.GpuTextureView;
 import de.nprmedia.nativium.iris.NativiumIris;
 import net.irisshaders.iris.Iris;
-import net.irisshaders.iris.gl.sampler.GlSampler;
 import net.irisshaders.iris.gl.sampler.SamplerHolder;
 import net.irisshaders.iris.gl.texture.TextureType;
 import net.irisshaders.iris.pipeline.IrisRenderingPipeline;
@@ -31,7 +30,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.function.BooleanSupplier;
 import java.util.function.IntSupplier;
-import java.util.function.Supplier;
 
 /**
  * Voxy's far terrain under a shader pack on Metal (docs/design/iris-voxy-dh.md). Voxy's own shader-pack pipeline
@@ -66,10 +64,8 @@ public final class VoxyIrisBridge {
     /** Colour buffers handed to Voxy as stable GL names (index, alt) - re-pointed every frame. */
     private final Set<Integer> stableBuffers = new LinkedHashSet<>();
     private final Set<String> warned = new LinkedHashSet<>();
-    private @Nullable GlSampler nearest;
-    private @Nullable GlSampler linear;
-    private @Nullable GlSampler linearRepeat;
-    private @Nullable GlSampler compare;
+    /** Sampling state last set per GL texture name (GL texture parameters; see {@link #addSamplers}). */
+    private final Map<Integer, Integer> sampling = new java.util.HashMap<>();
     private final DepthWrapper opaqueDepth = new DepthWrapper("voxy vxDepthTexOpaque");
     private final DepthWrapper translucentDepth = new DepthWrapper("voxy vxDepthTexTrans");
 
@@ -188,9 +184,12 @@ public final class VoxyIrisBridge {
                 }
             }
             boolean hardware = entry.getValue() != null && entry.getValue().contains("Shadow") || name.endsWith("HW");
-            IntSupplier texture = () -> textureName(name);
-            Supplier<GlSampler> sampler = sampler(name, hardware);
-            holder.addDynamicSampler(TextureType.TEXTURE_2D, texture, null, sampler, name);
+            int mode = sampling(name, hardware);
+            IntSupplier texture = () -> withSampling(textureName(name), mode);
+            // No sampler object: Iris's GlSampler class creates GL samplers in its static initializer (no GL context on
+            // Metal), so the texture names carry the sampling state as GL texture parameters (Voxy binds sampler 0).
+            holder.addDynamicSampler(TextureType.TEXTURE_2D, texture, (net.irisshaders.iris.gl.state.ValueUpdateNotifier) null,
+                    (java.util.function.Supplier<net.irisshaders.iris.gl.sampler.GlSampler>) null, name);
         }
     }
 
@@ -243,21 +242,35 @@ public final class VoxyIrisBridge {
         return owner.whiteView();
     }
 
-    private Supplier<GlSampler> sampler(final String name, final boolean hardware) {
+    private static final int LINEAR = 1;
+    private static final int REPEAT = 2;
+    private static final int COMPARE = 4;
+
+    private int sampling(final String name, final boolean hardware) {
         if (hardware) {
-            return () -> compare != null ? compare : (compare = new GlSampler(de.nprmedia.nativium.gl.MetalGLInterop.sampler(true, false, true)));
+            return LINEAR | COMPARE;
         }
         int colortex = MetalPostPipeline.colortexIndex(name);
         boolean integer = colortex >= 0 && owner.targets().integer(colortex);
         boolean depth = name.startsWith("depthtex") || name.equals("gdepthtex") || name.startsWith("vxDepthTex") || name.startsWith("dhDepthTex")
                 || name.startsWith("shadowtex") || name.equals("shadow") || name.equals("watershadow");
         if (integer || depth) {
-            return () -> nearest != null ? nearest : (nearest = new GlSampler(de.nprmedia.nativium.gl.MetalGLInterop.sampler(false, false, false)));
+            return 0;
         }
         if (name.equals("noisetex") || owner.customTexture(TextureStage.GBUFFERS_AND_SHADOW, name, Set.of()) != null) {
-            return () -> linearRepeat != null ? linearRepeat : (linearRepeat = new GlSampler(de.nprmedia.nativium.gl.MetalGLInterop.sampler(true, true, false)));
+            return LINEAR | REPEAT;
         }
-        return () -> linear != null ? linear : (linear = new GlSampler(de.nprmedia.nativium.gl.MetalGLInterop.sampler(true, false, false)));
+        return LINEAR;
+    }
+
+    private int withSampling(final int glName, final int mode) {
+        if (glName != 0) {
+            Integer current = sampling.put(glName, mode);
+            if (current == null || current != mode) {
+                de.nprmedia.nativium.gl.MetalGLInterop.setSampling(glName, (mode & LINEAR) != 0, (mode & REPEAT) != 0, (mode & COMPARE) != 0);
+            }
+        }
+        return glName;
     }
 
     private static int parse(final String digits) {

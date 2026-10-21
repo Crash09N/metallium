@@ -90,21 +90,19 @@ public final class MetalGLInterop {
     }
 
     /**
-     * A nativium-gl sampler object (GL name) for adapters that pass samplers to a retargeted mod: clamp-to-edge,
-     * {@code linear} or nearest filtering, no mips, {@code compare} = {@code GL_COMPARE_REF_TO_TEXTURE}/{@code LEQUAL}.
+     * Sampling state of a nativium-gl texture name for adapters that hand textures to a retargeted mod without a sampler
+     * object (GL texture parameters): clamp-to-edge or repeat, {@code linear} or nearest filtering without mips,
+     * {@code compare} = {@code GL_COMPARE_REF_TO_TEXTURE}/{@code LEQUAL} (for {@code sampler2DShadow}).
      */
-    public static int sampler(final boolean linear, final boolean repeat, final boolean compare) {
-        int name = MetalGL4.glCreateSamplers();
+    public static void setSampling(final int textureName, final boolean linear, final boolean repeat, final boolean compare) {
         int filter = linear ? org.lwjgl.opengl.GL11C.GL_LINEAR : org.lwjgl.opengl.GL11C.GL_NEAREST;
         int wrap = repeat ? org.lwjgl.opengl.GL11C.GL_REPEAT : org.lwjgl.opengl.GL12C.GL_CLAMP_TO_EDGE;
-        MetalGL4.glSamplerParameteri(name, org.lwjgl.opengl.GL11C.GL_TEXTURE_MIN_FILTER, filter);
-        MetalGL4.glSamplerParameteri(name, org.lwjgl.opengl.GL11C.GL_TEXTURE_MAG_FILTER, filter);
-        MetalGL4.glSamplerParameteri(name, org.lwjgl.opengl.GL11C.GL_TEXTURE_WRAP_S, wrap);
-        MetalGL4.glSamplerParameteri(name, org.lwjgl.opengl.GL11C.GL_TEXTURE_WRAP_T, wrap);
-        if (compare) {
-            MetalGL4.glSamplerParameteri(name, org.lwjgl.opengl.GL14C.GL_TEXTURE_COMPARE_MODE, org.lwjgl.opengl.GL30C.GL_COMPARE_REF_TO_TEXTURE);
-            MetalGL4.glSamplerParameteri(name, org.lwjgl.opengl.GL14C.GL_TEXTURE_COMPARE_FUNC, org.lwjgl.opengl.GL11C.GL_LEQUAL);
-        }
-        return name;
+        MetalGL4.glTextureParameteri(textureName, org.lwjgl.opengl.GL11C.GL_TEXTURE_MIN_FILTER, filter);
+        MetalGL4.glTextureParameteri(textureName, org.lwjgl.opengl.GL11C.GL_TEXTURE_MAG_FILTER, filter);
+        MetalGL4.glTextureParameteri(textureName, org.lwjgl.opengl.GL11C.GL_TEXTURE_WRAP_S, wrap);
+        MetalGL4.glTextureParameteri(textureName, org.lwjgl.opengl.GL11C.GL_TEXTURE_WRAP_T, wrap);
+        MetalGL4.glTextureParameteri(textureName, org.lwjgl.opengl.GL14C.GL_TEXTURE_COMPARE_MODE,
+                compare ? org.lwjgl.opengl.GL30C.GL_COMPARE_REF_TO_TEXTURE : org.lwjgl.opengl.GL11C.GL_NONE);
+        MetalGL4.glTextureParameteri(textureName, org.lwjgl.opengl.GL14C.GL_TEXTURE_COMPARE_FUNC, org.lwjgl.opengl.GL11C.GL_LEQUAL);
     }
 }
