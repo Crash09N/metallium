@@ -9,6 +9,9 @@
       "de.nprmedia.nativium.gametest.NativiumClientGameTest"
     ]
   },
+  "mixins": [
+    "nativium-gametest.mixins.json"
+  ],
   "depends": {
     "nativium": "*",
     "fabric-client-gametest-api-v1": "*"
