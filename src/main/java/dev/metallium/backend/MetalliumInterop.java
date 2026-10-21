@@ -114,6 +114,14 @@ public final class MetalliumInterop {
         require().createCommandEncoder().commitAndWait();
     }
 
+    /**
+     * The depth texture the currently open render encoder draws into, or null when no render encoder is open or it has
+     * no depth attachment (terrain occlusion culling reads it between its two draw phases).
+     */
+    public static @Nullable MTLTexture currentDepthAttachment() {
+        return require().createCommandEncoder().openRenderDepthAttachment();
+    }
+
     /** The Metal pixel format Metallium uses for a renderpearl {@link GpuFormat} (for textures created directly in Metal). */
     public static MTLPixelFormat pixelFormat(final GpuFormat format) {
         return MetalConversions.pixelFormat(format);

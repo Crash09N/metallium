@@ -104,6 +104,12 @@ final class MetalCommandEncoder implements CommandEncoderBackend {
         return commandBuffer;
     }
 
+    /** Depth attachment of the open render encoder (null if no render encoder is open); see {@link MetalliumInterop#currentDepthAttachment}. */
+    @Nullable
+    MTLTexture openRenderDepthAttachment() {
+        return currentEncoder instanceof MTLRenderCommandEncoder ? renderDepthAttachment : null;
+    }
+
     /** Orders Metallium's encoders; also used by external encoders ({@link MetalliumInterop}). */
     MTLFence frameFence() {
         return fence;
