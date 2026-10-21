@@ -2326,10 +2326,11 @@ public final class NativiumClientGameTest implements FabricClientGameTest {
                             if (Math.max(Math.abs(dx), Math.abs(dz)) != r) {
                                 continue;
                             }
+                            level.getChunk(dx >> 4, dz >> 4); // generate it: heightmaps of absent chunks read as the bottom
                             int top = level.getHeight(surface, dx, dz) - 20;
-                            for (int cy = -40; cy < Math.min(top, 30); cy++) {
+                            for (int cy = -55; cy < Math.min(top, 40); cy++) {
                                 net.minecraft.core.BlockPos p = new net.minecraft.core.BlockPos(dx, cy, dz);
-                                if (level.getBlockState(p).isAir() && !level.getBlockState(p.below()).isAir() && caveRoom(level, p) >= 60) {
+                                if (level.getBlockState(p).isAir() && !level.getBlockState(p.below()).isAir() && caveRoom(level, p) >= 40) {
                                     return dx + " " + (cy + 1) + " " + dz + " 110 0";
                                 }
                             }

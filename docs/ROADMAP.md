@@ -35,8 +35,10 @@ Status legend: ✅ done · 🔄 in progress · ⏳ planned · 🔬 needs researc
   (~60 ns per draw); with Complementary rd32 ~1 ms GPU, almost all in the main view. ICB/indirect for CPU savings and
   draw merging are not worth it (measured); main-view GPU occlusion culling is the remaining lever
 - Sodium's indirect draw path on Metal, then indirect command buffers (ICB)
-- GPU culling: two-phase Hi-Z occlusion in compute (ideas from mcopt / Nvidium), compatible with Sodium's culler,
-  Sodium Extra's fog culling and Iris's shadow pass
+- ✅ GPU culling: two-phase Hi-Z occlusion in compute (ideas from mcopt / Nvidium; own code), main view only, Iris's
+  shadow pass untouched (`docs/benchmarks/terrain-cull-2026-10-21.md`): pixel-identical on vs off; rd32 +4..+77%
+  shaders off, +2..+16% with Complementary; rd16 neutral/slower. Config `terrainOcclusionCulling` AUTO = on at rd ≥ 24
+  without a shader pack. Next: deterministic shader-pack exactness check, then AUTO for packs at rd ≥ 24
 - Later, optional: mesh-shader terrain for shaders-off on M3+ — only if it beats the indirect path in benchmarks
 
 ## Phase 4 — `nativium-gl`: OpenGL → Metal translation layer 🔄

@@ -54,22 +54,56 @@ import java.util.Iterator;
 public final class TerrainOcclusion {
     public static String MODE = "off";
     public static boolean COUNT, VERIFY, ENABLED;
-    /** Real culling (phase split) active. */
+    /** Real culling (phase split) enabled: on, verify, or auto (then only at {@link #AUTO_MIN_RENDER_DISTANCE} and above). */
     public static boolean CULL;
+    /** {@code auto}: cull only while the effective render distance is at least {@link #AUTO_MIN_RENDER_DISTANCE}. */
+    public static boolean AUTO;
+    /**
+     * Measured 2026-10-21 (2560x1440, M3 Max): faster at rd32 in every view, shaders off (+3..+76%) and with
+     * Complementary (+2..+21%); at rd16 neutral with Complementary and up to 8% slower with shaders off.
+     */
+    public static final int AUTO_MIN_RENDER_DISTANCE = Integer.getInteger("nativium.terrain.gpuCullAutoMinRd", 24);
     /** Sub-draw to section bookkeeping while Sodium fills its batches (cheap; on unless disabled, so a mode switch works at once). */
     public static final boolean RECORD = !"false".equals(System.getProperty("nativium.terrain.gpuCullRecord"));
 
+    /** The mode at start-up (system property, else the config). */
+    public static final String INITIAL_MODE = System.getProperty("nativium.terrain.gpuCull", configuredMode());
+
     static {
-        setMode(System.getProperty("nativium.terrain.gpuCull", "off"));
+        setMode(INITIAL_MODE);
     }
 
-    /** {@code off | count | on | verify}; takes effect at the next frame (game tests compare modes in one session). */
+    private static String configuredMode() {
+        try {
+            de.nprmedia.nativium.NativiumConfig.TerrainCulling setting = de.nprmedia.nativium.NativiumConfig.INSTANCE.terrainOcclusionCulling;
+            return setting == null ? "auto" : setting.name().toLowerCase(java.util.Locale.ROOT);
+        } catch (RuntimeException | LinkageError e) {
+            return "auto";
+        }
+    }
+
+    /** {@code off | auto | on | count | verify}; takes effect at the next frame (game tests compare modes in one session). */
     public static void setMode(final String mode) {
         MODE = mode;
         COUNT = "count".equals(mode);
         VERIFY = "verify".equals(mode);
-        CULL = "on".equals(mode) || VERIFY;
+        AUTO = "auto".equals(mode);
+        CULL = "on".equals(mode) || VERIFY || AUTO;
         ENABLED = COUNT || CULL;
+    }
+
+    /** Whether this frame culls (auto mode: render distance threshold). */
+    private static boolean cullThisFrame() {
+        if (!AUTO) {
+            return true;
+        }
+        // Shader packs: measured faster at rd32 too, but the on/off screenshot comparison is not exact there (waving
+        // leaves, temporal effects), so auto leaves packs alone until a deterministic check exists; "on" forces it.
+        if (IrisPackState.packInUse()) {
+            return false;
+        }
+        net.minecraft.client.Minecraft mc = net.minecraft.client.Minecraft.getInstance();
+        return mc != null && mc.options.getEffectiveRenderDistance() >= AUTO_MIN_RENDER_DISTANCE;
     }
     /** Box growth in blocks: block models reach up to one block outside their cell; shader packs may displace vertices. */
     private static final float BOX_MARGIN = Float.parseFloat(System.getProperty("nativium.terrain.gpuCullMargin", "1.0"));
@@ -140,7 +174,7 @@ public final class TerrainOcclusion {
     /** Head of the main view's opaque {@code drawChunkLayer}: chooses which sections phase 1 draws. */
     public static void beforeOpaque(final ChunkRenderListIterable renderLists, final double x, final double y, final double z) {
         phase = 0;
-        if (!CULL || !NativiumRuntime.isMetalActive()) {
+        if (!CULL || !NativiumRuntime.isMetalActive() || !cullThisFrame()) {
             return;
         }
         HiZCuller culler = HiZCuller.get();

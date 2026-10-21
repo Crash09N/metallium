@@ -96,7 +96,7 @@ final class TerrainCullScenario {
             compare(context, world, "deferall-wall", ground, 0, Float.NaN, true, shaders);
             compare(context, world, "deferall-open", high, 90, Float.NaN, true, shaders);
         }
-        context.runOnClient(client -> TerrainOcclusion.setMode(System.getProperty("nativium.terrain.gpuCull", "off")));
+        context.runOnClient(client -> TerrainOcclusion.setMode(TerrainOcclusion.INITIAL_MODE));
     }
 
     private static void look(final ClientGameTestContext context, final float yaw) {
