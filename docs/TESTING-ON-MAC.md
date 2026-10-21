@@ -1,4 +1,4 @@
-# Testing Metallium on your Mac
+# Testing Nativium on your Mac
 
 Requirements: Apple Silicon Mac, macOS 14 or newer, Java 25 (e.g. `brew install --cask temurin@25`), Git.
 
@@ -6,7 +6,7 @@ Requirements: Apple Silicon Mac, macOS 14 or newer, Java 25 (e.g. `brew install 
 
 ```bash
 git clone https://github.com/Crash09N/metallium.git
-cd metallium
+cd nativium
 git checkout claude/lucid-heisenberg-f4n1hp
 ```
 
@@ -20,14 +20,14 @@ git checkout claude/lucid-heisenberg-f4n1hp
 ## 3. Run the game from the source tree
 
 ```bash
-./gradlew runClient                     # vanilla + Metallium
+./gradlew runClient                     # vanilla + Nativium
 ./gradlew runClientGameTest             # automated: boots, creates two worlds, screenshots, report
 ./gradlew runClientGameTest -PwithSodium
-./gradlew runClientGameTest -PwithIris  # Sodium + Iris + Metallium Iris adapter (work in progress)
+./gradlew runClientGameTest -PwithIris  # Sodium + Iris + Nativium Iris adapter (work in progress)
 ```
 
 Game-test results land in `build/run/clientGameTest/`:
-`metallium-gametest-report.txt`, `screenshots/`, `logs/latest.log`, `crash-reports/`.
+`nativium-gametest-report.txt`, `screenshots/`, `logs/latest.log`, `crash-reports/`.
 
 The report's first line must say `backend: Metal | Apple M3 Max ...`.
 
@@ -46,18 +46,18 @@ Results in `run-instance/` (report, `screenshots/`, `logs/`). See `docs/compat/r
 ./gradlew build
 ```
 
-Copy `build/libs/metallium-<version>.jar` into the `mods` folder of a **Fabric 26.3** profile (Fabric Loader ≥ 0.19.5).
+Copy `build/libs/nativium-<version>.jar` into the `mods` folder of a **Fabric 26.3** profile (Fabric Loader ≥ 0.19.5).
 Optional: Sodium 0.9.2, Fabric API. Do **not** add Iris yet unless you also add
-`metallium-iris/build/libs/metallium-iris-<version>.jar` (with only Iris, Metallium deliberately falls back to OpenGL).
+`nativium-iris/build/libs/nativium-iris-<version>.jar` (with only Iris, Nativium deliberately falls back to OpenGL).
 
-Check the log for `Using graphics backend Metal`. To compare against OpenGL, start with `-Dmetallium.backend=off`
+Check the log for `Using graphics backend Metal`. To compare against OpenGL, start with `-Dnativium.backend=off`
 or turn off "Metal Backend" in Sodium's video settings (restart needed).
 
 ## 5. What to send back
 
-- `metallium-gametest-report.txt` and the screenshots (or your own screenshots), with and without Sodium.
+- `nativium-gametest-report.txt` and the screenshots (or your own screenshots), with and without Sodium.
 - `logs/latest.log` and any `crash-reports/*.txt`.
-- FPS with VSync off in the same world/place: Metallium vs `-Dmetallium.backend=off` (OpenGL).
+- FPS with VSync off in the same world/place: Nativium vs `-Dnativium.backend=off` (OpenGL).
 
 ## Known issues (2026-10-18, night run)
 

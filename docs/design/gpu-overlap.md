@@ -1,13 +1,13 @@
 # GPU overlap: hazard tracking instead of the frame-fence chain
 
-Status: experiment behind `-Dmetallium.gpu.overlap=true` (game test: `-PgpuOverlap`), default off. Results: see
+Status: experiment behind `-Dnativium.gpu.overlap=true` (game test: `-PgpuOverlap`), default off. Results: see
 "Measurements" below.
 
 ## Problem
 
-Every Metallium encoder waits for one `MTLFence` when it starts and updates it when it ends (inherited from
+Every Nativium encoder waits for one `MTLFence` when it starts and updates it when it ends (inherited from
 Metallum; resources are `MTLHazardTrackingModeUntracked`). External encoders (Iris compute and mip blits,
-metallium-gl) do the same through `MetalliumInterop.frameFence()`. Fences work across command buffers, so the chain
+nativium-gl) do the same through `NativiumInterop.frameFence()`. Fences work across command buffers, so the chain
 also runs from frame N's last encoder (present copy) into frame N+1's first one: the GPU executes the whole stream of
 up to three frames in flight strictly one encoder after the other. Not even the vertex stage of a pass overlaps the
 fragment stage of the previous one.
@@ -31,31 +31,31 @@ what the start of N+1 writes.
 
 ## Options considered
 
-1. **Per-resource fences / events managed by Metallium** (last-writer fence and reader set per texture/buffer, each
+1. **Per-resource fences / events managed by Nativium** (last-writer fence and reader set per texture/buffer, each
    encoder waits only for the fences of what it reads and writes). Most control, but every binding path would have
    to report its resources before the encoder is opened: renderpearl bindings, `setDrawBindings` binders (Iris
-   images/SSBOs), Iris compute, metallium-gl (argument buffers, ICBs), terrain. Java-side bookkeeping per bind on a
+   images/SSBOs), Iris compute, nativium-gl (argument buffers, ICBs), terrain. Java-side bookkeeping per bind on a
    CPU-bound renderer, and a missed resource is a silent race. Not chosen as the first step.
 2. **Hazard-tracked resources (chosen).** Create the GPU-written resources with `MTLHazardTrackingModeTracked` and
-   drop the frame-fence chain between Metallium's encoders. Metal then inserts dependencies only between encoders
+   drop the frame-fence chain between Nativium's encoders. Metal then inserts dependencies only between encoders
    that touch the same resource (across command buffers of the queue too), so frame N+1's shadow/compute work may
    start while frame N's composite chain runs. All binding paths are covered automatically (`useResource` already
-   declares the indirectly referenced resources of metallium-gl's argument buffers / ICBs). Cost: driver CPU time
+   declares the indirectly referenced resources of nativium-gl's argument buffers / ICBs). Cost: driver CPU time
    per bound tracked resource, and dependencies are per whole resource (a buffer arena is one resource).
-3. **Tracked heaps** would collapse all resources of a heap into one dependency; Metallium does not use heaps.
+3. **Tracked heaps** would collapse all resources of a heap into one dependency; Nativium does not use heaps.
 
 ## Design (option 2)
 
-- `MetalliumInterop.GPU_OVERLAP` (system property `metallium.gpu.overlap`, read once). `hazardTrackingMode()` /
+- `NativiumInterop.GPU_OVERLAP` (system property `nativium.gpu.overlap`, read once). `hazardTrackingMode()` /
   `hazardTrackingOption()` return Tracked in overlap mode, Untracked otherwise. Used by `MetalGpuTexture`,
   `MetalGpuBuffer` (incl. orphaned backings, same options), texture-buffer views (copy the buffer's mode), present
   copies, Iris `CustomImages` / `StorageBuffers`, Physics Mod's 3D textures. Buffers that the GPU only reads
   (Iris compute uniform blocks, the zero SSBO) stay untracked: no GPU write, no hazard.
-- Metallium's render and blit encoders no longer update a fence. They still *wait* for a second fence, the
-  **external-encoder fence**, which `MetalliumInterop.frameFence()` returns in overlap mode: Iris compute encoders and
-  metallium-gl encoders wait for and update it (their code is unchanged). Reason: metallium-gl found that tracking
+- Nativium's render and blit encoders no longer update a fence. They still *wait* for a second fence, the
+  **external-encoder fence**, which `NativiumInterop.frameFence()` returns in overlap mode: Iris compute encoders and
+  nativium-gl encoders wait for and update it (their code is unchanged). Reason: nativium-gl found that tracking
   alone did not reliably order a compute pass with texture atomics against the blits around it
-  (`MetalGlDevice.ownFence`), so compute results stay fence-ordered before anything that follows them. Metallium
+  (`MetalGlDevice.ownFence`), so compute results stay fence-ordered before anything that follows them. Nativium
   encoders waiting for it only wait for the last compute encoder submitted before them.
 - Iris mip blits (`MetalCompute.blitEncoder`) wait for the external fence but do not update it in overlap mode: they
   run in the composite chain, and updating it would make frame N+1's first encoders wait for frame N's mip chain.

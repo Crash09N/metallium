@@ -1,4 +1,12 @@
-# Metallium status
+# Nativium status
+
+## 2026-10-21: renamed from Metallium to Nativium
+
+Owner decision: the project is **Nativium** (Metal optimisation now, an NVIDIA path later), base package
+`de.nprmedia.nativium`, mod ids `nativium`, `nativium-gl`, `nativium-iris`, `nativium_voxy_natives`, release jar
+`nativium-0.1.0-alpha.jar`. Migration for existing installs: `LegacyMigration` (config copy, `-Dmetallium.*` fallback,
+old shader cache dropped), deprecated `dev.metallium.api.MetalliumRuntime` shim, `"metallium-gl"` author key fallback,
+`breaks: metallium`. Entries below this one predate the rename and use the old name where they quote logs or files.
 
 ## 2026-10-18 (first implementation night)
 
@@ -8,28 +16,28 @@ Verified on GitHub's macOS arm64 runners (virtual M1, "Apple Paravirtual device"
 |---|---|
 | Metal backend (renderpearl SPI, from Metallum) | Boots Minecraft 26.3; title screen, flat and natural worlds render correctly (screenshots in branch `ci-artifacts-vanilla`) |
 | Backend selection | Metal first only for "Default" on Apple Silicon; OpenGL/Vulkan fallbacks kept; Iris without adapter → OpenGL |
-| Shader-pack translator (`dev.metallium.shaders.GlslProgramTranslator`) | Iris-style GLSL → SPIR-V (glslang, Vulkan-relaxed) → MSL with uniform-block and binding reflection; unit tests pass, MSL compiles with the Metal compiler on macOS |
+| Shader-pack translator (`de.nprmedia.nativium.shaders.GlslProgramTranslator`) | Iris-style GLSL → SPIR-V (glslang, Vulkan-relaxed) → MSL with uniform-block and binding reflection; unit tests pass, MSL compiles with the Metal compiler on macOS |
 | Sodium on Metal | Loads, meshes and uploads, but **terrain renders garbled** on the virtual GPU — see `TESTING-ON-MAC.md` |
 | Distant Horizons 3.3.4 (M3 Max, `-PwithDH`) | Works on Metal: DH picks its renderpearl ("Blaze3D: VULKAN" via our mixin) renderer, far LODs render beyond vanilla RD 5 (screenshot checked), no ClassCastException/GlTexture errors. Known: closing a world with DH loaded deadlocks the Fabric client-gametest threading, so the DH test halts the JVM after writing its report |
 | Distant Horizons + Iris (+ Physics Mod) (`-PwithDH -PwithIris -Pshaderpack=…`) | Fixed a hang: with Iris installed DH forces its OpenGL renderer, whose start fails on Metal, and the client waited forever on the title screen. `DhIrisEngineMixin` keeps DH on Blaze3D on Metal. Now runs (Complementary Reimagined, Physics Mod debris on top); DH LODs are drawn but the pack fogs them at the vanilla distance ("2 DH programs are not executed yet on Metal"). |
-| Voxy (locally built branch 263, `-PwithVoxy=<jar>`) | **Runs on Metal through metallium-gl, routed automatically** (`GlRouting.WHOLE_MOD`; no `-Dmetallium.gl.mods` needed; without metallium-gl / with a NATIVE override the safe-disable mixin keeps it off). Status screen: "Voxy …: runs via metallium-gl (OpenGL 4.6 translated to Metal)". Textured indirect-count draws run as ICBs (textures in argument buffers): 0 CPU-encoded fallback draws, drawIndirect CPU time 0.27 → 0.13 ms/frame (`docs/design/metallium-gl.md` §12.5). Combinations (2026-10-19, game tests, screenshots checked): Bobby + Voxy and Physics Mod + Voxy work; Iris + Voxy (Complementary Reimagined) runs without errors but the pack fogs Voxy's LODs beyond the vanilla distance (Voxy's Iris pipeline is not used by metallium-iris). |
-| Sodium F3 label | "Terrain Rendering: metal_multidraw (sodium, via Metallium)" on Metal (verified by screenshot + programmatic check) |
-| Iris adapter stage 1 (`metallium-iris`) | Game starts on Metal with Sodium + Iris + adapter (no crash) |
+| Voxy (locally built branch 263, `-PwithVoxy=<jar>`) | **Runs on Metal through nativium-gl, routed automatically** (`GlRouting.WHOLE_MOD`; no `-Dnativium.gl.mods` needed; without nativium-gl / with a NATIVE override the safe-disable mixin keeps it off). Status screen: "Voxy …: runs via nativium-gl (OpenGL 4.6 translated to Metal)". Textured indirect-count draws run as ICBs (textures in argument buffers): 0 CPU-encoded fallback draws, drawIndirect CPU time 0.27 → 0.13 ms/frame (`docs/design/nativium-gl.md` §12.5). Combinations (2026-10-19, game tests, screenshots checked): Bobby + Voxy and Physics Mod + Voxy work; Iris + Voxy (Complementary Reimagined) runs without errors but the pack fogs Voxy's LODs beyond the vanilla distance (Voxy's Iris pipeline is not used by nativium-iris). |
+| Sodium F3 label | "Terrain Rendering: metal_multidraw (sodium, via Nativium)" on Metal (verified by screenshot + programmatic check) |
+| Iris adapter stage 1 (`nativium-iris`) | Game starts on Metal with Sodium + Iris + adapter (no crash) |
 | Iris adapter stage 2 (M3 Max, local game test) | Shader packs' begin/prepare/deferred/composite/final passes run on Metal over the vanilla/Sodium scene (`docs/design/iris-stage2-post-pipeline.md`). Test pack: effect verified by pixel check. Complementary Unbound r5.6.1: all 8 fullscreen programs + final translate and run (clouds/tonemap visible); its 20 gbuffers/shadow programs are reported as not executed yet. Shaders off afterwards renders exactly like before |
 | Iris adapter stage 3 (M3 Max, local game test) | The packs' gbuffers programs render the world into their colortex buffers on Metal (`docs/design/iris-stage3-gbuffers.md`): Sodium terrain solid/cutout/translucent, sky (basic/textured, stars, sunrise), entities, particles, lines; deferred passes between opaque and translucent geometry, composite/final afterwards. Gbuffers test pack (`gbuffers_terrain` marker in colortex1 -> composite): pixel check passes (terrain band 1.00 marked, sky 0.00). Complementary Unbound r5.6.1: `gbuffers_terrain`, `_water`, `_skybasic`, `_skytextured`, `_entities`, `_textured`, `_line` translate and run, plus `gbuffers_hand` (hand drawn inside the level with Iris's extended vertex formats, as on GL; attachments colortex0,3,4,6); not yet: DH programs |
 | Iris adapter stage 4 (M3 Max, local game test) | The packs' `shadow` programs render the shadow maps on Metal (`docs/design/iris-stage4-shadows.md`): Iris's shadow pass (adapted `ShadowRenderer`: sun-view matrices, shadow frustum culling, Sodium shadow render lists, terrain/entities/block entities/translucents) into shadowtex0/1 (D32F, `shadowMapResolution`) and shadowcolorN; gbuffers/composite programs sample them, `sampler2DShadow` through a new Metal depth-compare sampler; prepare passes after the shadow pass. Shadow test pack (floating platform at noon, composite marks shadowed pixels): shadowed 1.00 under the platform, 0.00 without it (identical numbers on Iris/OpenGL). Complementary Unbound r5.6.1: shadow 2048 px; tree canopy, trunk and wall shadows in a flat-world morning scene match Iris on OpenGL (`-Pengine=OPENGL`) screenshot for screenshot. Not yet: mipmapped shadow maps, DH shadows (shadowcomp: stage 5) |
-| Iris adapter stage 5 (M3 Max, local game test) | Compute shaders, image load/store and SSBOs on Metal - features macOS OpenGL 4.1 never had (`docs/design/iris-stage5-compute.md`): compute passes of every Iris stage (setup, shadow, shadowcomp, begin/prepare/deferred/composite incl. compute-only passes, final; `workGroups`/`workGroupsRender`/indirect) as Metal compute encoders inside Metallium's frame; colorimg/shadowcolorimg/custom 1D/2D/3D images with atomics; persistent SSBOs with `.length()`; images, SSBOs and 3D custom samplers in gbuffers/shadow/fullscreen programs; shadowcomp fragment passes; mipmapped buffers. Compute test pack (setup -> SSBO, colorimg writes, image atomics, compute-only pass, fragment SSBO/3D reads and image stores, mip chain): all checks 1.00. Complementary Unbound with `COLORED_LIGHTING=128` (needs `-PirisHideMacOs`, the pack forces it off on `MC_OS_MAC`): voxelization in `shadow.vsh` + floodfill `shadowcomp.csh` run, soul-lantern light is teal at night; all programs translate. BSL (`MULTICOLORED_BLOCKLIGHT`): all programs translate and run. Follow-up 2026-10-18: custom textures (PNG/raw 1D/2D/3D, `texture.noise`), `size.buffer.*`, >16 textures per pass (constexpr samplers), 8 pack gbuffer buffers without colortex0, built-in redefinitions (`tanh`), SSBOs in `#version 330`; `MC_OS_MAC` hidden on Metal by default. Photon v1.3b and Bliss v2.1.2 render (Bliss night sky/rain still differ from OpenGL); Unbound colored lighting with the owner's settings runs. No OpenGL comparison possible: macOS GL has no compute. |
+| Iris adapter stage 5 (M3 Max, local game test) | Compute shaders, image load/store and SSBOs on Metal - features macOS OpenGL 4.1 never had (`docs/design/iris-stage5-compute.md`): compute passes of every Iris stage (setup, shadow, shadowcomp, begin/prepare/deferred/composite incl. compute-only passes, final; `workGroups`/`workGroupsRender`/indirect) as Metal compute encoders inside Nativium's frame; colorimg/shadowcolorimg/custom 1D/2D/3D images with atomics; persistent SSBOs with `.length()`; images, SSBOs and 3D custom samplers in gbuffers/shadow/fullscreen programs; shadowcomp fragment passes; mipmapped buffers. Compute test pack (setup -> SSBO, colorimg writes, image atomics, compute-only pass, fragment SSBO/3D reads and image stores, mip chain): all checks 1.00. Complementary Unbound with `COLORED_LIGHTING=128` (needs `-PirisHideMacOs`, the pack forces it off on `MC_OS_MAC`): voxelization in `shadow.vsh` + floodfill `shadowcomp.csh` run, soul-lantern light is teal at night; all programs translate. BSL (`MULTICOLORED_BLOCKLIGHT`): all programs translate and run. Follow-up 2026-10-18: custom textures (PNG/raw 1D/2D/3D, `texture.noise`), `size.buffer.*`, >16 textures per pass (constexpr samplers), 8 pack gbuffer buffers without colortex0, built-in redefinitions (`tanh`), SSBOs in `#version 330`; `MC_OS_MAC` hidden on Metal by default. Photon v1.3b and Bliss v2.1.2 render (Bliss night sky/rain still differ from OpenGL); Unbound colored lighting with the owner's settings runs. No OpenGL comparison possible: macOS GL has no compute. |
 | Iris modpack fixes 2026-10-19 (owner session: Sodium + Iris 1.11.7 + Physics Mod + Skin Layers 3D, local game tests, screenshots checked) | Horizon "wall" at the render distance: Iris's horizon cone is now drawn before the sky (Complementary Reimagined flat-world horizon matches Iris/OpenGL). Physics Mod debris black with Photon/Rethinking Voxels: real overlay/lightmap textures for pipelines without them (entityColor was black) and atlas UVs/light for Physics Mod's non-GL layout. F3/status line follows the pipeline that actually renders ("<pack> on Metal (...)"); pipeline summary and DH notes (without DH installed) left the chat. Photon v1.2a invisible player: pack-version issue (separate entity draws default off, players are drawn in MC 26.x's translucent phase after deferred, the same on Iris/OpenGL); Photon v1.3b forces them on for MC >= 26.1 and renders the player. Game test: `-PextraMods=a.jar,...`, wheat behind the F5 player, block-breaking scene, `-PirisDump` runtime trigger. 2026-10-20: the debris fix had made every piece one atlas texel (renamed UV0 input defaulted to (0,0)) - fixed; Physics Mod objects are now also drawn into the shadow map (its Iris ShadowRenderer hooks are called from MetalShadowRenderer), so debris/ragdolls cast shadows (game test `-PextraMods=<physics jar> -PwithGl`, Complementary Reimagined + Rethinking Voxels, screenshots checked). Open: Photon 1.3b crack overlay not visible; Rethinking Voxels is dark near the camera in the flat test world; Physics Mod loaded in the normal game test hangs at world close |
 | Iris adapter stage 3 (M3 Max, local game test) | The packs' gbuffers programs render the world into their colortex buffers on Metal (`docs/design/iris-stage3-gbuffers.md`): Sodium terrain solid/cutout/translucent, sky (basic/textured, stars, sunrise), entities, particles, lines; deferred passes between opaque and translucent geometry, composite/final afterwards. Gbuffers test pack (`gbuffers_terrain` marker in colortex1 -> composite): pixel check passes (terrain band 1.00 marked, sky 0.00). Complementary Unbound r5.6.1: `gbuffers_terrain`, `_water`, `_skybasic`, `_skytextured`, `_entities`, `_textured`, `_line` translate and run, plus `gbuffers_hand` (hand drawn inside the level with Iris's extended vertex formats, as on GL; attachments colortex0,3,4,6); not yet: shadow pass, DH programs |
-| metallium-gl foundation (M3 Max, `-PwithGl`) | Raw OpenGL calls of opted-in mods are retargeted at class load and rendered on Metal into Metallium's frame (`docs/design/metallium-gl.md`). Game test: a raw-GL test mod (GLSL 330 program, VAO/VBO/EBO, texture, FBO + glClear) draws after level rendering; pixels match on Metal; with `-PbackendOff` the same calls run on real OpenGL. 23+ unit tests incl. Metal readback. Not yet: compute/SSBO/indirect (Voxy) |
-| Compatibility center (M3 Max, local game tests) | Start-up mod scan finds the gametest's raw-GL class (`RawGlQuads`, 16 GL functions) and, with `-PwithGl`, routes it through metallium-gl **without any opt-in** (pixels still match on Metal). Status screen, Sodium "Metallium" tab (General/Power) and vanilla Video Settings section verified by screenshots. `-PcrashRecovery` (seeded crash report naming the routed mod): game starts on OpenGL, recovery screen before the title, "Use OpenGL for this session" continues to the title screen. Power: Low Power caps live to 30 fps (bench light scene, 10 s each: Performance 269 fps, Low Power 30.0 fps). Vanilla, Sodium, Iris and metallium-gl game tests pass |
+| nativium-gl foundation (M3 Max, `-PwithGl`) | Raw OpenGL calls of opted-in mods are retargeted at class load and rendered on Metal into Nativium's frame (`docs/design/nativium-gl.md`). Game test: a raw-GL test mod (GLSL 330 program, VAO/VBO/EBO, texture, FBO + glClear) draws after level rendering; pixels match on Metal; with `-PbackendOff` the same calls run on real OpenGL. 23+ unit tests incl. Metal readback. Not yet: compute/SSBO/indirect (Voxy) |
+| Compatibility center (M3 Max, local game tests) | Start-up mod scan finds the gametest's raw-GL class (`RawGlQuads`, 16 GL functions) and, with `-PwithGl`, routes it through nativium-gl **without any opt-in** (pixels still match on Metal). Status screen, Sodium "Nativium" tab (General/Power) and vanilla Video Settings section verified by screenshots. `-PcrashRecovery` (seeded crash report naming the routed mod): game starts on OpenGL, recovery screen before the title, "Use OpenGL for this session" continues to the title screen. Power: Low Power caps live to 30 fps (bench light scene, 10 s each: Performance 269 fps, Low Power 30.0 fps). Vanilla, Sodium, Iris and nativium-gl game tests pass |
 | CI | Linux build + unit tests; macOS: Metal smoke test, translator tests compiled with Metal, game tests (vanilla / Sodium / Iris) with screenshot-based terrain check; results pushed to `ci-artifacts-*` branches |
 
 Full plan: `docs/ROADMAP.md`.
 
 ### Backend performance (Roadmap phase 2), M3 Max, 2026-10-18
 
-Bench: `./gradlew :runClientGameTest -PwithSodium -Pbench` (seed `metallium`, fixed spectator camera, RD16, VSync off,
+Bench: `./gradlew :runClientGameTest -PwithSodium -Pbench` (seed `nativium`, fixed spectator camera, RD16, VSync off,
 854×480 window). Add `-PperfCounters` for per-submit backend counters (encoders, blits by kind, draws, submit wait, GPU time).
 
 | | avg fps | frame p50 |
@@ -56,7 +64,7 @@ Next steps:
    (see the stage-3 design note); stage-2 gaps: mipmapped buffers, viewport
    scale, blend overrides in composite passes, custom textures (see the stage-2 design note).
 4. Benchmark baseline: vanilla 26.3's own Vulkan backend on macOS through MoltenVK (and Mesa KosmicKrisp if available),
-   next to OpenGL and Metallium, same world/camera path (see report §L.4). Comparison only; it cannot run Iris.
+   next to OpenGL and Nativium, same world/camera path (see report §L.4). Comparison only; it cannot run Iris.
 5. Later stage, geometry/tessellation shaders for packs: study Mesa's compute-based geometry/tessellation emulation for
    Apple GPUs (Asahi/Honeykrisp; Mesa is MIT, credit in README if code is adapted) as the route to packs that need `.gsh`.
    Rejected: Zink (OpenGL→Vulkan) + MoltenVK under unmodified Iris — three translation layers, missing Vulkan features
@@ -67,12 +75,12 @@ Next steps:
 Owner's Metal HUD flagged "Shader Compiler Activity" (178 pipeline states, 283 shaders compiled at runtime). Findings:
 the MSL front-end compile (`newLibraryWithSource`, ~40–55 ms per library) is the cost; macOS keeps its own per-app
 cache (`$DARWIN_USER_CACHE_DIR/net.java.openjdk.java/com.apple.metal`), shared by every Java app and evicted often
-(cold in 2 of 4 runs here), so we cannot rely on it. Implemented (`dev.metallium.shadercache`, `MetalPipelineCache`):
+(cold in 2 of 4 runs here), so we cannot rely on it. Implemented (`de.nprmedia.nativium.shadercache`, `MetalPipelineCache`):
 
-- `<game dir>/.metallium-cache/env-<hash>/` (versioned by Metallium, Minecraft, macOS, GPU, MSL, LWJGL and a hash of
+- `<game dir>/.nativium-cache/env-<hash>/` (versioned by Nativium, Minecraft, macOS, GPU, MSL, LWJGL and a hash of
   the translator classes; stale environments deleted). Entries: magic + format + length + CRC32, atomic writes, LRU size
-  cap 1 GiB. `-Dmetallium.shaderCache=false` disables, `.maxMB=`, `.dir=` override.
-- SPIR-V→MSL (SPIRV-Cross) and GLSL→SPIR-V (shaderc, Iris adapter / metallium-gl) results cached by content hash.
+  cap 1 GiB. `-Dnativium.shaderCache=false` disables, `.maxMB=`, `.dir=` override.
+- SPIR-V→MSL (SPIRV-Cross) and GLSL→SPIR-V (shaderc, Iris adapter / nativium-gl) results cached by content hash.
 - Metal binary archive, one segment per session (`pipelines-<time>.mtlarchive`): pipeline states are looked up with
   `FailOnBinaryArchiveMiss` in all segments; misses are added (exactly once per full-descriptor key) to this session's
   fresh archive, written every 20 s / on close. Never appended to a loaded archive: Metal then re-serializes it at
@@ -102,7 +110,7 @@ builds a pack's programs synchronously on the render thread; when warm they need
 0 SPIRV-Cross, 0 MSL compiles, 20/20 archive hits). Binary archive after these runs: ~9 MB.
 
 ### Note on VSync-off frame rates (2026-10-18)
-With VSync off, Metallium uses mailbox semantics: every frame is rendered and submitted, but a frame is only handed to
+With VSync off, Nativium uses mailbox semantics: every frame is rendered and submitted, but a frame is only handed to
 the display once the previous one was shown (CAMetalLayer returns drawables at display refresh). FPS counters therefore
 count **rendered** frames, not displayed frames — the same as Vulkan MAILBOX, and comparable to macOS OpenGL with
 swap interval 0 (the compositor also shows at most one frame per refresh). Benchmark comparisons must say this.
@@ -112,7 +120,7 @@ Metal Performance HUD shows only ~70 displayed fps; VSync on shows 144 correctly
 - The bench report now has a `bench-present:` line: display refresh (SDL), rendered fps, submitted presents/s,
   presented/s (drawable presented handler with `presentedTime > 0`), dropped presents (`presentedTime == 0`),
   skipped frames and the window state (visible/occluded/focused, sampled every second). `-PbenchVsync` runs the
-  bench with VSync on. Counters live in `dev.metallium.backend.PresentStats`.
+  bench with VSync on. Counters live in `de.nprmedia.nativium.backend.PresentStats`.
 - Allowing more than one present in flight (instead of waiting for the presented handler) makes things worse. Light
   bench, exclusive GPU, window visible, 60 Hz E2211: 1 in flight → 3918 rendered / 179 shown per s; 2 → 3427 / 83
   (53 dropped/s); 3 → 963 / 74; 100 → 381 / 63. The layer drops superseded presents and rendering stalls. Kept at 1.
@@ -127,7 +135,7 @@ Metal Performance HUD shows only ~70 displayed fps; VSync on shows 144 correctly
   handler), or a separate small present command buffer so the decision doesn't wait for frame end.
 - Do not release a presented drawable from Java before its presented handler has run: Quartz then calls the handler
   synchronously inside the (critical) `release` downcall and the JVM aborts ("wrong thread state for upcall").
-- 2026-10-19 follow-up: `-PpresentPacing=gpu` (`-Dmetallium.present.pacing=gpu`, default stays `handler`) presents
+- 2026-10-19 follow-up: `-PpresentPacing=gpu` (`-Dnativium.present.pacing=gpu`, default stays `handler`) presents
   when the GPU finished the previous present and half a refresh period passed; the drawable blit + present go into a
   small command buffer of their own after the frame's (the frame is copied first, so no frame waits for the display).
   While the screen is locked every client is throttled by macOS (Metal either pacing: 59.6 rendered, all presents
@@ -151,7 +159,7 @@ Metal Performance HUD shows only ~70 displayed fps; VSync on shows 144 correctly
   log here; `-PmetalHud` sets both variables). The "HUD shows no GPU time" report is not investigated yet. `bench-present:` also has `displayed_fps` now (presents with a distinct `presentedTime`);
   windowed it still reports 142.8/s on the 60 Hz display, so it is the compositor latch, not scan-out.
 - 2026-10-19, owner with Voxy (modpack, 2560x1440 windowed on the G5, HUD on): Minecraft 165 fps, HUD 65-70; VSync
-  on 140/140. Ruled out on the metallium-gl side (docs/design/metallium-gl.md §12.6): 0 GPU waits and 0 ICB
+  on 140/140. Ruled out on the nativium-gl side (docs/design/nativium-gl.md §12.6): 0 GPU waits and 0 ICB
   allocations during a 30 s Voxy bench measurement. Working hypothesis: handler pacing at frame times close to the
   refresh period. A present is decided only at frame end and needs the previous present's handler, which comes about
   1-2 refreshes later. At ~6 ms frames that means one present every 2-3 frames (55-83/s), while the light scene
@@ -240,10 +248,10 @@ Complementary Unbound r5.6.1 (shaders bench, 854x480, exclusive GPU, AC, screen 
   through mapped memory), store-action DontCare, replacing the global fence chain. Metal HUD numbers from the owner's
   setup are needed to see which of these still matter after the clear fix.
 - Pipeline binary archive "expecting 'fragment' stage in pipeline no. N" (2026-10-18 22:13 to 10-19 03:43 only):
-  not reproducible since, on current code or on 11210cc (the commit of a failing run), cold Metallium cache and cold
+  not reproducible since, on current code or on 11210cc (the commit of a failing run), cold Nativium cache and cold
   macOS Metal compiler cache, nor in standalone Swift tests (same functions + different blend/write mask/formats,
   concurrent adds, functions from the archive library). The exact functions that failed then
-  (`mtl_vs_f71ece…`/`mtl_fs_231d29…`, old key) serialize fine now, so the cause was outside Metallium (state of
+  (`mtl_vs_f71ece…`/`mtl_fs_231d29…`, old key) serialize fine now, so the cause was outside Nativium (state of
   Apple's archiver / compiler service). Now handled: the archive is rebuilt without the culprits (above), no more
   lost archives. Found on the way: the archive grew several-fold per warm session (append path, above; the owner's
   play instance had 178 MiB) and some pipelines missed every warm session; both gone with segments.
