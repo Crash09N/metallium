@@ -140,6 +140,8 @@ loom.runs.clientGameTest {
 		project.property('terrain').toString().split(',').each { opt -> if (!opt.isEmpty()) vmArg "-Dnativium.terrain.${opt}" }
 	}
 	if (project.hasProperty('perfCounters')) vmArg '-Dnativium.perfCounters=true'
+	// -PgpuOverlap: hazard-tracked resources instead of the frame-fence chain (docs/design/gpu-overlap.md; A/B).
+	if (project.hasProperty('gpuOverlap')) vmArg "-Dnativium.gpu.overlap=${project.property('gpuOverlap') ?: 'true'}"
 	// -PperfTrace (with -PperfCounters): log every encoder of one submit per counter window and why it was opened.
 	if (project.hasProperty('perfTrace')) vmArg '-Dnativium.perfTrace=true'
 	// -PglMods=voxy (with -PwithGl): retarget these mods' GL calls to nativium-gl; -PglFailFast=false logs instead of throwing.

@@ -67,7 +67,7 @@ final class MetalGpuTexture extends BaseGpuTexture {
         descriptor.setMipmapLevelCount(Math.max(mipLevels, 1));
         descriptor.setUsage(toMtlTextureUsage(usage, format));
         descriptor.setStorageMode(MTLStorageMode.Private);
-        descriptor.setHazardTrackingMode(MTLHazardTrackingMode.Untracked);
+        descriptor.setHazardTrackingMode(NativiumInterop.hazardTrackingMode());
         this.metalTexture = MetalUtilities.nonNil(device.metalDevice().newTexture(descriptor), "newTextureWithDescriptor:");
         descriptor.release();
         if (!label.isEmpty()) {

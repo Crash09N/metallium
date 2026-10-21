@@ -10,7 +10,6 @@ import com.mojang.renderpearl.api.buffers.GpuBuffer;
 import com.mojang.renderpearl.api.buffers.GpuBufferSlice;
 import com.mojang.renderpearl.backend.common.BaseGpuBuffer;
 import io.github.kokodio.metaljvm.metal.MTLBuffer;
-import io.github.kokodio.metaljvm.metal.MTLHazardTrackingMode;
 import io.github.kokodio.metaljvm.metal.MTLStorageMode;
 import io.github.kokodio.metaljvm.objc.ObjC;
 import net.fabricmc.api.EnvType;
@@ -46,7 +45,7 @@ class MetalGpuBuffer extends BaseGpuBuffer {
         this.dynamic = isDynamic(usage);
         this.cpuAccessible = isCpuAccessible(usage) || this.dynamic;
         this.storageMode = this.cpuAccessible ? MTLStorageMode.Shared : MTLStorageMode.Private;
-        this.resourceOptions = MetalConversions.resourceOptions(this.storageMode, MTLHazardTrackingMode.Untracked);
+        this.resourceOptions = MetalConversions.resourceOptions(this.storageMode, NativiumInterop.hazardTrackingMode());
         this.allocationSize = (size + 15L) & ~15L;
         this.nativeBuffer = MetalUtilities.nonNil(device.metalDevice().newBuffer(this.allocationSize, this.resourceOptions), "newBufferWithLength:options:");
         if (label != null) {
