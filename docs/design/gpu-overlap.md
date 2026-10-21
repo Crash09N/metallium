@@ -1,6 +1,6 @@
 # GPU overlap: hazard tracking instead of the frame-fence chain
 
-Status: experiment behind `-Dnativium.gpu.overlap=true` (game test: `-PgpuOverlap`), default off. Results: see
+Status: opt-in toggle `-Dnativium.gpu.overlap=true` (game test: `-PgpuOverlap`), default off (not faster for every pack). Results: see
 "Measurements" below.
 
 ## Problem
@@ -77,6 +77,46 @@ frame N's last compute); whole-resource dependencies (one terrain buffer arena, 
 - Metal System Trace (`xctrace` + `tools/metal-trace-encoders.py`) to show encoders of consecutive command buffers
   overlapping.
 
-## Measurements
+## Measurements (2026-10-21, M3 Max, Odyssey G5 144 Hz, 2560x1440 fullscreen, VSync off)
 
-(filled in below)
+Exclusive GPU lock, every row `bench-env: VALID` (fullscreen, focused, display mode / main target / drawable all
+2560x1440), lock-step fix on, `-PperfCounters`. One run per cell (off and on back to back).
+
+| scene | overlap off: avg fps / p50 ms | overlap on: avg fps / p50 ms | change |
+|---|---|---|---|
+| Complementary Unbound r5.6.1, `COLORED_LIGHTING=512`, `shadowDistance=256` | 74.5 / 13.37 | 81.6 / 12.22 | **+9.5 %** |
+| Complementary Reimagined r5.9.3 (defaults) | 129.8 / 7.62 | 158.2 / 6.27 | **+21.9 %** |
+| Rethinking Voxels r0.1-beta9 (defaults) | 84.2 / 11.82 | 75.5 / 13.13 | **-10.3 %** |
+| shaders off (Sodium, `light` scene) | 2637.6 / 0.37 | 2736.9 / 0.36 | +3.8 % (noise level) |
+
+Displayed fps followed (Unbound 69.7 -> 76.0, Reimagined 112.1 -> 129.0, Rethinking Voxels 78.4 -> 70.0).
+
+Metal System Trace (3 s during the measurement, `tools/metal-trace-encoders.py`, new `overlap:` lines):
+
+| run | frame start-to-start | overlap with previous frame | GPU busy per frame | channel time per frame | concurrency |
+|---|---|---|---|---|---|
+| Unbound, off | 13.42 ms | 0.00 ms (0/273 frames) | 13.40 ms | 13.40 ms | 1.00 |
+| Unbound, on | 12.34 ms | 1.19 ms (296/296) | 12.33 ms | 17.67 ms | 1.43 |
+| Rethinking Voxels, on | 13.91 ms | 1.84 ms (265/265) | 14.13 ms | 16.00 ms | 1.13 |
+
+(The Rethinking Voxels "off" trace was not recorded; its bench result is in the table above.) With overlap off the
+GPU executes strictly serially (concurrency 1.00, no frame overlaps the previous one). With overlap on, every frame
+starts ~1.2-1.8 ms before the previous one ends and encoders run concurrently. In Unbound that shortens the frame;
+in Rethinking Voxels the concurrent work slows down more than it gains (channel time grows with little extra
+concurrency) - consistent with its bandwidth-heavy voxel volumes competing with the previous frame's passes.
+
+Correctness: Iris game test with overlap on: all test packs 1.00 (inverted, gbuffers, block-selected, shadow,
+compute incl. image atomics/SSBO/3D reads/mip band, custom textures, history: previous-frame buffers/uniforms),
+`result: PASS`; screenshots vs overlap off identical except moving entities/particles (spinning item, particle
+positions; timing, not rendering). `MTL_DEBUG_LAYER=1` with overlap on: PASS, no validation messages (after fixing a
+pre-existing zero-height mip clear copy that aborted the debug run with overlap off too). metallium-gl game test
+(`-PwithGl -PwithSodium -PgpuOverlap`): PASS, pixel checks unchanged.
+
+### Decision
+
+Not enabled by default: it is not faster for every pack (Rethinking Voxels -10 %). The toggle stays (off = the
+old fence chain and untracked resources, bit-for-bit the previous behaviour) so heavy compute-light packs can use
+it (`-Dnativium.gpu.overlap=true`). Next steps if pursued: per-pack measurements with more runs; finding what in
+Rethinking Voxels loses (trace per encoder with `-PperfTrace` mapping; candidates: shared-storage 3D custom images
+tracked, the compute chain through the external fence); possibly limit cross-frame overlap (e.g. let the first
+encoder of a frame wait for the previous frame's last fence update unless the pack is known to benefit).
