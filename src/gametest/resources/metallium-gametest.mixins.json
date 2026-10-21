@@ -1,0 +1,12 @@
+{
+  "required": true,
+  "package": "dev.metallium.gametest.mixin",
+  "compatibilityLevel": "JAVA_25",
+  "client": [
+    "DeltaTrackerTimerAccessor",
+    "LockstepTickMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

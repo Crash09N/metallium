@@ -9,6 +9,9 @@
       "dev.metallium.gametest.MetalliumClientGameTest"
     ]
   },
+  "mixins": [
+    "metallium-gametest.mixins.json"
+  ],
   "depends": {
     "metallium": "*",
     "fabric-client-gametest-api-v1": "*"

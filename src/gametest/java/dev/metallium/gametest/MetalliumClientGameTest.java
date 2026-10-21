@@ -343,7 +343,14 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
                     + ", occluded at start=" + context.computeOnClient(c -> BenchEnvironment.occluded(c.getWindow().handle())));
             boolean[] everUnfocused = {false};
             boolean[] everOccluded = {false};
+            if (Boolean.getBoolean("metallium.bench.rephase")) {
+                // Repro for the lock-step 20 fps state (LockstepStats): a 4 s server stall makes the integrated server
+                // log "Can't keep up" and restart its tick schedule at a random phase relative to the client's.
+                world.getServer().runOnServer(server -> java.util.concurrent.locks.LockSupport.parkNanos(4_000_000_000L));
+                context.waitTicks(60);
+            }
             long[] present0 = presentCounters();
+            long[] lockstep0 = context.computeOnClient(c -> LockstepStats.snapshot());
             java.util.Set<String> windowStates = new java.util.TreeSet<>(); // sampled once per second
             startRecording();
             for (int second = 0; second < BENCH_SECONDS; second++) {
@@ -365,6 +372,8 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
             List<Double> frameMs = stopRecording();
             long[] present1 = presentCounters();
             double seconds = (System.nanoTime() - startNs) / 1e9;
+            long[] lockstep1 = context.computeOnClient(c -> LockstepStats.snapshot());
+            line(LockstepStats.describe(lockstep0, lockstep1, seconds));
             float refreshHz = context.computeOnClient(c -> dev.metallium.backend.PresentStats.displayRefreshHz());
             if (frameMs.isEmpty()) {
                 throw new AssertionError("no frames recorded");
