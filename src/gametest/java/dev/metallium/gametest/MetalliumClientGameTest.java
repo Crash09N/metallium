@@ -585,6 +585,7 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
             tryCommand(world, "time set 6000");
             context.waitTicks(40);
             playerModelScene(context, world);
+            otherPlayersScene(context, world);
         }
 
         line("iris shaders off: pipeline=" + context.computeOnClient(client -> irisSelectPack(TEST_PACK, false)));
@@ -685,6 +686,70 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
     }
 
     /** Fractions of {near-white (all channels > 200, low saturation), sky-like blue} pixels in a screen rectangle. */
+    /**
+     * Owner report 2026-10-21 (Photon, server): another player next to him sometimes renders completely black. Other
+     * players are avatars like mannequins: profiles resolved by name download their skin asynchronously (default skin
+     * first, then the real one), one has a fixed default skin. Shots right after spawning (skins loading), after the
+     * download, in shade at night and while hurt. Near-black pixels in the band where the models stand are counted.
+     */
+    private void otherPlayersScene(ClientGameTestContext context, TestSingleplayerContext world) {
+        tryCommand(world, "gamemode creative @a");
+        tryCommand(world, "time set 6000");
+        tryCommand(world, "execute as @p at @s run tp @s ~ ~ ~ ~ 5");
+        String[] spawns = {
+            "^-2.4 ^ ^4 {profile:{name:\"Crash09N\"}}",
+            "^-0.8 ^ ^4 {profile:{name:\"jeb_\"}}",
+            "^0.8 ^ ^4 {profile:{name:\"Notch\"}}",
+            "^2.4 ^ ^4 {profile:{texture:\"minecraft:entity/player/wide/steve\"}}",
+        };
+        for (String spawn : spawns) {
+            tryCommand(world, "execute as @p at @s rotated ~ 0 run summon minecraft:mannequin " + spawn);
+        }
+        context.waitTicks(2);
+        clearChat(context);
+        darkFraction(context.takeScreenshot("metallium-iris-other-players-spawn"), "spawn (skins loading)", false);
+        context.waitTicks(100);
+        clearChat(context);
+        darkFraction(context.takeScreenshot("metallium-iris-other-players"), "skins loaded", true);
+        tryCommand(world, "effect give @e[type=minecraft:mannequin] minecraft:glowing 3 0 true");
+        context.waitTicks(10);
+        clearChat(context);
+        darkFraction(context.takeScreenshot("metallium-iris-other-players-glowing"), "glowing", true);
+        tryCommand(world, "damage @e[type=minecraft:mannequin,limit=2,sort=nearest] 1");
+        context.waitTicks(2);
+        clearChat(context);
+        darkFraction(context.takeScreenshot("metallium-iris-other-players-hurt"), "hurt flash", true);
+        tryCommand(world, "time set 18000");
+        tryCommand(world, "execute as @p at @s rotated ~ 0 run setblock ^ ^ ^3 minecraft:torch");
+        context.waitTicks(40);
+        clearChat(context);
+        darkFraction(context.takeScreenshot("metallium-iris-other-players-night-torch"), "night + torch", false);
+        tryCommand(world, "kill @e[type=minecraft:mannequin]");
+        tryCommand(world, "execute as @p at @s rotated ~ 0 run setblock ^ ^ ^3 minecraft:air");
+        tryCommand(world, "time set 6000");
+        tryCommand(world, "gamemode spectator @a");
+    }
+
+    /** Near-black fraction (max channel below 16) where the other-player models stand; daytime scenes fail above 0.05. */
+    private void darkFraction(Path screenshot, String scene, boolean daytime) {
+        try {
+            java.awt.image.BufferedImage image = javax.imageio.ImageIO.read(screenshot.toFile());
+            int w = image.getWidth(), h = image.getHeight(), total = 0, dark = 0;
+            for (int y = (int) (h * 0.35); y < (int) (h * 0.85); y += 2) {
+                for (int x = (int) (w * 0.15); x < (int) (w * 0.85); x += 2) {
+                    int rgb = image.getRGB(x, y);
+                    total++;
+                    if (Math.max((rgb >> 16) & 0xFF, Math.max((rgb >> 8) & 0xFF, rgb & 0xFF)) < 16) dark++;
+                }
+            }
+            double fraction = (double) dark / Math.max(1, total);
+            line(String.format("other players (%s): near-black=%.3f", scene, fraction));
+            if (daytime && fraction > 0.05) failures.add(String.format("other players render black (%s, near-black %.2f)", scene, fraction));
+        } catch (IOException e) {
+            failures.add("could not analyse other-players screenshot: " + e);
+        }
+    }
+
     private static double[] paleAndSkyFraction(java.awt.image.BufferedImage image, double fromY, double toY, double fromX, double toX) {
         int w = image.getWidth();
         int h = image.getHeight();
@@ -1507,6 +1572,7 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
                 if (after <= 0) failures.add("voxy pause: Voxy render calls did not resume with shaders off");
             }
             context.takeScreenshot("metallium-voxy-rd16");
+            voxyHorizon(context, world);
             context.runOnClient(client -> client.options.renderDistance().set(4));
             context.waitTicks(400);
             clearChat(context);
@@ -1636,6 +1702,79 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
                 + " rd=" + client.options.getEffectiveRenderDistance());
     }
 
+    /**
+     * Owner bug 2026-10-21 "Voxy's horizon looks weird without shaders": eye-level camera looking at the horizon at
+     * vanilla rd 10, so the seam between vanilla chunks and Voxy's LODs (fog blend, depth) is in view.
+     */
+    private void voxyHorizon(ClientGameTestContext context, TestSingleplayerContext world) {
+        // Highest dry land within the loaded area: a hilly spot gives a horizon with terrain on both sides of the seam.
+        int[] spot = context.computeOnClient(client -> {
+            int[] best = {0, client.level.getHeight(net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING, 0, 0), 0};
+            int bestY = Integer.MIN_VALUE;
+            for (int x = -192; x <= 192; x += 8) {
+                for (int z = -192; z <= 192; z += 8) {
+                    int y = client.level.getHeight(net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING, x, z);
+                    if (!client.level.getFluidState(new net.minecraft.core.BlockPos(x, y - 1, z)).isEmpty()) continue;
+                    if (y > bestY) {
+                        bestY = y;
+                        best = new int[] {x, y, z};
+                    }
+                }
+            }
+            return best;
+        });
+        line("voxy horizon: camera spot " + java.util.Arrays.toString(spot));
+        context.runOnClient(client -> client.options.renderDistance().set(10));
+        String tp = "tp @a " + spot[0] + " " + (spot[1] + 3) + " " + spot[2] + " ";
+        tryCommand(world, tp + "30 4");
+        context.waitTicks(300);
+        clearChat(context);
+        line("voxy horizon: fog " + context.computeOnClient(client -> voxyFog()));
+        context.takeScreenshot("metallium-voxy-horizon-rd10");
+        tryCommand(world, tp + "210 4");
+        context.waitTicks(200);
+        clearChat(context);
+        context.takeScreenshot("metallium-voxy-horizon-rd10-back");
+        if (Boolean.getBoolean("metallium.gametest.voxyHorizonVariants")) {
+            // Diagnostics: the same view without Voxy's fog, and with Voxy's rendering off (vanilla only).
+            String previous = context.computeOnClient(client -> voxyFogMode("OFF"));
+            line("voxy horizon: fog mode was " + previous);
+            context.waitTicks(40);
+            clearChat(context);
+            context.takeScreenshot("metallium-voxy-horizon-rd10-back-fogoff");
+            context.runOnClient(client -> voxyFogMode(previous));
+            context.runOnClient(client -> voxyRendering(false));
+            context.waitTicks(40);
+            clearChat(context);
+            context.takeScreenshot("metallium-voxy-horizon-rd10-back-voxyoff");
+            context.runOnClient(client -> voxyRendering(true));
+            context.waitTicks(40);
+        }
+    }
+
+    /** Sets VoxyConfig's fog mode (FOG_AND_FADE / FOG / FADE / OFF); returns the previous one. */
+    private static String voxyFogMode(String mode) {
+        try {
+            Object config = Class.forName("me.cortex.voxy.client.config.VoxyConfig").getField("CONFIG").get(null);
+            Object previous = config.getClass().getMethod("getFogMode").invoke(config);
+            Class<?> enumType = Class.forName("me.cortex.voxy.client.core.NormalRenderPipeline$FogMode");
+            Object value = enumType.getMethod("valueOf", String.class).invoke(null, mode);
+            config.getClass().getMethod("setFogMode", enumType).invoke(config, value);
+            return String.valueOf(previous);
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            return "unavailable: " + e;
+        }
+    }
+
+    private static void voxyRendering(boolean enabled) {
+        try {
+            Object config = Class.forName("me.cortex.voxy.client.config.VoxyConfig").getField("CONFIG").get(null);
+            config.getClass().getField("enableRendering").setBoolean(config, enabled);
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            throw new IllegalStateException("cannot toggle Voxy rendering", e);
+        }
+    }
+
     /** Sets Voxy's LOD distance (VoxyConfig.sectionRenderDistance) via reflection; returns the value read back. */
     private static String voxySetDistance(float distance) {
         try {
@@ -1743,6 +1882,24 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
     }
 
     /** Voxy's own F3 debug lines (instance + render system), via reflection; render thread only. */
+    /** Voxy's fog mode and the fog parameters of its current viewport (what its final blit fogs the LODs with). */
+    private static String voxyFog() {
+        try {
+            Object config = Class.forName("me.cortex.voxy.client.config.VoxyConfig").getField("CONFIG").get(null);
+            Object mode = config.getClass().getMethod("getFogMode").invoke(config);
+            Object render = Class.forName("me.cortex.voxy.client.core.IVoxyRenderSystemHolder").getMethod("getNullable").invoke(null);
+            Object fog = null;
+            if (render != null) {
+                Object viewport = render.getClass().getMethod("getViewport").invoke(render);
+                fog = viewport.getClass().getField("fogParameters").get(viewport);
+            }
+            return "mode=" + mode + " params=" + fog + " vanillaRd=" + Class.forName("me.cortex.voxy.client.core.VoxyRenderSystem")
+                    .getMethod("getVanillaRenderDistance").invoke(null);
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            return "unavailable: " + e;
+        }
+    }
+
     private static String voxyDebug() {
         java.util.List<String> lines = new java.util.ArrayList<>();
         try {
