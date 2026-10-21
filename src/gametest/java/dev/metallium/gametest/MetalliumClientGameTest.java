@@ -1406,6 +1406,17 @@ public final class MetalliumClientGameTest implements FabricClientGameTest {
                         clearChat(context);
                         packCoverage(context.takeScreenshot("metallium-iris-external-pack-natural"));
                         measure(context, "natural world, external pack");
+                        // Sky around a high sun (owner report: a dark-edged ring in the sky with Complementary
+                        // Reimagined, sun ~60 degrees up): facing east, looking up, then straight up.
+                        tryCommand(world, "time set 3500");
+                        tryCommand(world, "execute as @p at @s run tp @s ~ ~ ~ -90 -55");
+                        context.waitTicks(40);
+                        clearChat(context);
+                        context.takeScreenshot("metallium-iris-external-pack-natural-sun");
+                        tryCommand(world, "execute as @p at @s run tp @s ~ ~ ~ 0 -88");
+                        context.waitTicks(20);
+                        clearChat(context);
+                        context.takeScreenshot("metallium-iris-external-pack-natural-zenith");
                         context.computeOnClient(client -> irisSelectPack(external, false));
                         context.waitTicks(20);
                     }
