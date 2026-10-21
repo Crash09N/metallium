@@ -1,4 +1,4 @@
-# Metallium roadmap
+# Nativium roadmap
 
 **Goal:** Minecraft running perfectly on Apple Silicon Macs through Metal — everything that can be done natively is done
 natively on Metal; everything that cannot be rewritten (other mods' OpenGL code) is translated; anything that still
@@ -8,7 +8,7 @@ Guiding rules
 - **Native first:** vanilla, Sodium, Sodium Extra, Reese's Sodium Options and Fabric rendering mods run on Metal through
   Minecraft's own graphics layer (renderpearl), unmodified.
 - **Translate second:** mods that call OpenGL directly (Iris, Distant Horizons, Voxy, older HUD/minimap mods) go through
-  the `metallium-gl` translation layer.
+  the `nativium-gl` translation layer.
 - **Fall back last:** if something is unsupported, switch to OpenGL at the next start and say exactly why.
 - **Measure everything:** no optimisation stays without a benchmark showing it helps (`docs/research/…` §L).
 - Evidence and reasoning: `docs/research/METALLIUM-RESEARCH-REPORT.md`. Current state: `docs/STATUS.md`.
@@ -39,22 +39,22 @@ Status legend: ✅ done · 🔄 in progress · ⏳ planned · 🔬 needs researc
   Sodium Extra's fog culling and Iris's shadow pass
 - Later, optional: mesh-shader terrain for shaders-off on M3+ — only if it beats the indirect path in benchmarks
 
-## Phase 4 — `metallium-gl`: OpenGL → Metal translation layer 🔄
-- ✅ Foundation (design: `docs/design/metallium-gl.md`): module `metallium-gl`, opt-in bytecode retargeting with
+## Phase 4 — `nativium-gl`: OpenGL → Metal translation layer 🔄
+- ✅ Foundation (design: `docs/design/nativium-gl.md`): module `nativium-gl`, opt-in bytecode retargeting with
   OpenGL fallback bridges, per-mod unimplemented-function log, GL state tracker + Metal device for buffers (persistent
   mapping), 2D textures, FBOs, GLSL 330+ programs, VAOs, draws, blend/depth/cull state, fences; unit tests incl. real
   Metal readback; game test `-PwithGl` (raw-GL test mod renders on Metal, pixel-checked)
-- ✅ Voxy runs unmodified through metallium-gl and renders its LOD terrain (routed automatically on Metal; macOS storage natives via the nested metallium-voxy-natives addon;
+- ✅ Voxy runs unmodified through nativium-gl and renders its LOD terrain (routed automatically on Metal; macOS storage natives via the nested nativium-voxy-natives addon;
   compute, SSBO + atomics, image load/store, indirect + indirect-count draws, UBOs, DSA — design §12)
-- Calls to `org.lwjgl.opengl.*` in mod code are redirected at load time to Metallium's layer
+- Calls to `org.lwjgl.opengl.*` in mod code are redirected at load time to Nativium's layer
 - Emulated GL state (textures, buffers, framebuffers, programs, blend/depth) with synthetic GL names → Metal objects
-- Draws are recorded into Metallium's current render pass; GLSL goes through `GlslProgramTranslator`
+- Draws are recorded into Nativium's current render pass; GLSL goes through `GlslProgramTranslator`
 - Logs every unimplemented GL function per mod → coverage grows from real mods, not guesses
 - First user: the Iris adapter (~110 GL functions); then Distant Horizons, Voxy, HUD/minimap mods
 - ✅ **Goal reached: Voxy runs on macOS** (on no other Mac setup today — Apple's OpenGL stops at 4.1, Voxy needs 4.6).
-  Requires metallium-gl to cover compute shaders, SSBOs + atomics, indirect-count draws and persistent mapping.
+  Requires nativium-gl to cover compute shaders, SSBOs + atomics, indirect-count draws and persistent mapping.
   Voxy runs unmodified through the layer (its licence forbids porting/copying). Parallel option: ask MCRcortex about a
-  Metal path on Metallium's extension API (together with the Nvidium-Reborn name/logo question).
+  Metal path on Nativium's extension API (together with the Nvidium-Reborn name/logo question).
 - Limits: readbacks and frequent framebuffer switches are slower; immediate mode / geometry shaders later or never
 - ⏸ Deferred until after the alpha (owner decision 2026-10-18): the broad coverage campaign (scan the top ~200
   Fabric 26.3 client mods, implement missing GL functions until ≥90% of mods work). Only the GL coverage that
@@ -79,7 +79,7 @@ Status legend: ✅ done · 🔄 in progress · ⏳ planned · 🔬 needs researc
   mipmapped shadow maps, DH shadows, `ShadowRenderCallbacks`
 - 🔄 Stage 5: compute, image load/store, SSBO (packs that macOS OpenGL 4.1 cannot run today; design:
   `docs/design/iris-stage5-compute.md`): compute passes in every Iris stage (setup, shadow, shadowcomp, begin/prepare/
-  deferred/composite incl. compute-only, final; indirect dispatch) as Metal compute encoders inside Metallium's frame,
+  deferred/composite incl. compute-only, final; indirect dispatch) as Metal compute encoders inside Nativium's frame,
   colorimg/shadowcolorimg/custom 2D/3D images with atomics, persistent SSBOs with `.length()`, images/SSBOs/3D custom
   samplers in gbuffers/shadow/fullscreen programs, shadowcomp fragment passes, mipmapped buffers. Verified with a
   synthetic compute pack; custom textures, `size.buffer.*`, >16 textures, `MC_OS_MAC` hidden (Photon, Bliss, Unbound
@@ -101,14 +101,14 @@ Status legend: ✅ done · 🔄 in progress · ⏳ planned · 🔬 needs researc
   (it forces its OpenGL renderer when Iris is present) → later, together with the Iris adapter (DH ships LGPL/GPL: no code copying).
 - ⏳ **Voxy**: raw OpenGL 4.6, compute-heavy (compute shaders, SSBOs, atomics, indirect-count draws); refuses non-OpenGL
   backends. macOS's OpenGL 4.1 cannot run it either. Licence "all rights reserved" → no porting/copying. Only realistic
-  route: run Voxy **unmodified** through `metallium-gl` once that layer supports compute/SSBO/indirect (long-term,
+  route: run Voxy **unmodified** through `nativium-gl` once that layer supports compute/SSBO/indirect (long-term,
   months). Short-term: make the game start cleanly with Voxy installed (disable it with a message instead of crashing).
 - ⏳ HUD/minimap/overlay mods: most work as-is (vanilla API); CI test that loads popular mods and takes screenshots
 - 🔬 Owner's must-work list (audit running → `docs/research/notes/mod-compat-batch1.md`): **ReGlass** (liquid-glass UI),
-  **Meshelium** (mesh-shader terrain; must be installable alongside Metallium; evaluate its ideas for Metal mesh shaders),
+  **Meshelium** (mesh-shader terrain; must be installable alongside Nativium; evaluate its ideas for Metal mesh shaders),
   **Light Overlay**, **Cull Leaves**, **More Culling**. Each gets a game-test scenario once supported.
-- ⏳ Rule of thumb verified in CI: mods that work on vanilla's Vulkan backend should work on Metallium
-- ✅ Automatic fallback: detect a mod Metallium cannot handle → OpenGL at next start, with message (Phase 6c)
+- ⏳ Rule of thumb verified in CI: mods that work on vanilla's Vulkan backend should work on Nativium
+- ✅ Automatic fallback: detect a mod Nativium cannot handle → OpenGL at next start, with message (Phase 6c)
 
 ## Phase 6b — Apple-native features ⏳ / 🔬
 - 🔬 **MetalFX upscaling** (research: `docs/research/notes/metalfx-upscaling.md`): spatial upscaler first (render scale
@@ -121,28 +121,28 @@ Status legend: ✅ done · 🔄 in progress · ⏳ planned · 🔬 needs researc
   savings: FPS cap + VSync; lower internal resolution + MetalFX upscaling; worker/chunk-builder threads at a lower QoS
   class so they run on efficiency cores; fewer frames in flight; optionally reduced shader-pack cost (shadow resolution).
   Measure watts (powermetrics / Metal HUD) per mode in the benchmark stage.
-- ✅ **"Metallium" settings tab** (MetalFX/validation options still to come) (Sodium config API → also shown by Reese's Sodium Options): Graphics Engine, Power mode
+- ✅ **"Nativium" settings tab** (MetalFX/validation options still to come) (Sodium config API → also shown by Reese's Sodium Options): Graphics Engine, Power mode
   (Automatic / Performance / Balanced / Low Power), FPS limit on battery, MetalFX options (later), Display P3, diagnostics
   (Metal HUD toggle, validation).
 - ⏳ Later, optional: hardware ray-traced effects (M3+), and a Metal-native GPU-driven terrain path (owner may start a
   separate Nvidium-style project)
 
 ## Phase 6c — Compatibility center ✅ (first version, 2026-10-18)
-- ✅ Startup scan of all mods for direct OpenGL use (ASM, cached) → status per mod: native on Metal / via metallium-gl /
+- ✅ Startup scan of all mods for direct OpenGL use (ASM, cached) → status per mod: native on Metal / via nativium-gl /
   partial (unimplemented GL functions seen) / will not render on Metal / disabled jars
-- ✅ Order: native Metal first → automatic routing through metallium-gl (per-mod override, author opt-out) → on a crash
-  in a routed mod, metallium-gl or the Metal backend: next start on OpenGL + screen "Disable mod (rename jar) / OpenGL
+- ✅ Order: native Metal first → automatic routing through nativium-gl (per-mod override, author opt-out) → on a crash
+  in a routed mod, nativium-gl or the Metal backend: next start on OpenGL + screen "Disable mod (rename jar) / OpenGL
   this session / always OpenGL / try Metal again" (no crash loops). Game test `-PwithGl -PcrashRecovery` simulates it
 - ✅ Status screen (engine, Sodium on Metal, Iris adapter, DH, Voxy, per-mod table with overrides, power state; from the
-  Sodium tab or vanilla Video Settings) + "Metallium" Sodium tab (General + Power pages)
+  Sodium tab or vanilla Video Settings) + "Nativium" Sodium tab (General + Power pages)
 - ✅ `docs/MOD-AUTHORS.md`
 - ✅ Power mode "Performance" ignores macOS Low Power Mode
-- ⏳ metallium-gl is still a separate jar (not jar-in-jar in the core); GL calls from mod *mixins* merged into Minecraft
+- ⏳ nativium-gl is still a separate jar (not jar-in-jar in the core); GL calls from mod *mixins* merged into Minecraft
   classes are not attributed/retargeted; scan does not look into reflection-based GL use
 
 ## Phase 7 — Benchmarks and comparison ⏳
 **Engine shootout (fixed test stage, owner requirement: Metal must prove it is the fastest engine on Apple Silicon)**
-- Engines: Metal (Metallium) vs OpenGL (Apple GL 4.1, itself layered on Metal) vs Vulkan (MoltenVK → Metal)
+- Engines: Metal (Nativium) vs OpenGL (Apple GL 4.1, itself layered on Metal) vs Vulkan (MoltenVK → Metal)
 - Scenes: (1) vanilla light, (2) Sodium RD 32 CPU-heavy, (3) Complementary shaders GPU-heavy, (4) chunk loading while flying
 - Metrics: avg FPS + 1% lows, frame-time p50/p95/p99, rendered vs displayed frames, memory; identical seed, camera,
   window size, settings; one run at a time on an idle Mac
@@ -151,7 +151,7 @@ Status legend: ✅ done · 🔄 in progress · ⏳ planned · 🔬 needs researc
 - Built right after the Graphics Engine selector (Metal / OpenGL / Vulkan) lands.
 - Same world, seed and camera path; every frame presented; frame time median/p95/p99, CPU/GPU time, memory
 - Baselines: vanilla OpenGL, vanilla Vulkan via MoltenVK (and Mesa KosmicKrisp), Sodium on OpenGL, mcopt (pacing off)
-- Metal Performance HUD (`MTL_HUD_ENABLED=1`) as extra GPU-side view for Metallium
+- Metal Performance HUD (`MTL_HUD_ENABLED=1`) as extra GPU-side view for Nativium
 
 ## Phase 8 — Release 🔄
 - ✅ VSync-off present pacing (one present per refresh, up to 3 in flight; Complementary fullscreen 54.7 -> 131.5 shown/s)
@@ -170,7 +170,7 @@ GPUs (Nvidium-style GPU-driven terrain, DLSS upscaling and multi-frame generatio
 
 Open items before the rename / NVIDIA work:
 - Name and logo derived from Nvidium (MCRcortex): ask MCRcortex for permission first; Nvidium code is LGPL-3.0, so any
-  adapted Nvidium code stays in an LGPL module (like `metallium-iris`).
+  adapted Nvidium code stays in an LGPL module (like `nativium-iris`).
 - DLSS / frame generation: NVIDIA Streamline/DLSS SDK licence terms; runs via Vulkan (vanilla 26.3 has a Vulkan
   backend) or DirectX, not Metal → a separate backend path with its own module.
 
@@ -183,7 +183,7 @@ Not started without the owner's explicit agreement per item:
   Today a safety net pauses Voxy's LODs while a pack is active (otherwise stripes and a fire band at the horizon).
   Needed: run the packs' `dh_terrain` / `dh_water` / `dh_shadow` (and Voxy-specific) programs on Metal, provide
   `dhDepthTex` and the `dhNearPlane` / `dhFarPlane` / `dhRenderDistance` uniforms, merge far terrain into the pack's
-  later passes (fog, shadows, water), and hand Voxy's metallium-gl draws to the Metal shader pipeline; DH benefits
+  later passes (fog, shadows, water), and hand Voxy's nativium-gl draws to the Metal shader pipeline; DH benefits
   from the same work. Then remove the safety net.
 - GPU culling (two-phase Hi-Z occlusion)
-- Broad metallium-gl coverage campaign
+- Broad nativium-gl coverage campaign

@@ -1,8 +1,8 @@
 # Iris adapter stage 5: compute shaders, images, SSBOs and mipmapped buffers on Metal
 
-Status: implemented 2026-10-18 (`metallium-iris`, package `dev.metallium.iris.post`: `ComputePass`, `MetalCompute`,
-`StorageBuffers`, `CustomImages`, `StorageBindings`; core: `dev.metallium.shaders.ComputeTranslator`; backend
-extensions in `MetalliumInterop`). Previous stages: `iris-stage2-post-pipeline.md` .. `iris-stage4-shadows.md`.
+Status: implemented 2026-10-18 (`nativium-iris`, package `de.nprmedia.nativium.iris.post`: `ComputePass`, `MetalCompute`,
+`StorageBuffers`, `CustomImages`, `StorageBindings`; core: `de.nprmedia.nativium.shaders.ComputeTranslator`; backend
+extensions in `NativiumInterop`). Previous stages: `iris-stage2-post-pipeline.md` .. `iris-stage4-shadows.md`.
 
 macOS OpenGL stops at 4.1: no compute shaders, no SSBOs, no image load/store. Packs that need them (Photon's sky
 lighting, every pack's voxel / floodfill / LPV coloured-lighting option) have never run on a Mac through Iris; on
@@ -37,11 +37,11 @@ Work groups follow Iris's `ComputeProgram`: `workGroups` (absolute), `workGroups
 otherwise one thread per pixel; `indirect.<pass> = <buffer> <offset>` uses `dispatchThreadgroupsWithIndirectBuffer` on
 the SSBO. `colorimgN` binds the texture the pass reads from (Iris: "image bindings are impacted by buffer flips").
 
-**Encoding.** `MetalCompute` opens an `MTLComputeCommandEncoder` on Metallium's frame command buffer through the
-`MetalliumInterop` external-encoder contract (end Metallium's encoder, wait for / update the frame fence, closed again as
-soon as Metallium encodes). Compute work is therefore ordered exactly where Iris issues it between render passes.
+**Encoding.** `MetalCompute` opens an `MTLComputeCommandEncoder` on Nativium's frame command buffer through the
+`NativiumInterop` external-encoder contract (end Nativium's encoder, wait for / update the frame fence, closed again as
+soon as Nativium encodes). Compute work is therefore ordered exactly where Iris issues it between render passes.
 Dispatches in one encoder are serial (default dispatch type), which provides `glMemoryBarrier` ordering. All resources
-are untracked like Metallium's own. Mipmap generation uses a blit encoder on the same path.
+are untracked like Nativium's own. Mipmap generation uses a blit encoder on the same path.
 
 **Threadgroup memory.** GLSL `shared vec3 x[256][9]` is 27 KiB in GL but 36 KiB as MSL `float3` (16-byte stride),
 over Metal's 32 KiB. When Metal reports that, `ComputeTranslator.packThreadgroupVectors` switches the threadgroup
@@ -56,8 +56,8 @@ kernel needs this.
 - `CustomImages` (Iris's `GlImage`): `image.<name> = <sampler> <format> <internalFormat> <type> <clear> <relative> w h [d]`
   as Metal textures (1D as 2D, 2D, 3D; relative sizes; `ShaderAtomic` usage for R32 integer formats), zeroed on
   creation, per frame when `clear = true`. They are wrapped as renderpearl `GpuTexture`s
-  (`MetalliumInterop.wrapTexture`), so `<sampler>` names bind in render programs like any pack sampler, 3D included.
-- colortex/shadowcolor buffers used as images are created with `MetalliumInterop.TEXTURE_USAGE_STORAGE` (a usage bit
+  (`NativiumInterop.wrapTexture`), so `<sampler>` names bind in render programs like any pack sampler, 3D included.
+- colortex/shadowcolor buffers used as images are created with `NativiumInterop.TEXTURE_USAGE_STORAGE` (a usage bit
   the renderpearl frontend passes through; the backend adds ShaderWrite / ShaderAtomic). Which buffers need it is known
   from the compiled computes plus a scan of all pack sources (gbuffers programs compile lazily, mid-frame).
 
@@ -67,7 +67,7 @@ gbuffers/shadow/fullscreen programs may also use them (voxelization in `shadow.v
 data or SSBOs). renderpearl's binding table has no storage resources, so `StorageBindings` writes Metal indices above
 the backend's own into the SPIR-V binding decorations (images `texture(32+k)`, SSBOs `buffer(30..26)`; the backend
 leaves bindings outside its table alone and SPIRV-Cross uses them as MSL indices). They are bound per draw through a
-new backend hook, `MetalliumInterop.setDrawBindings(pass, binder)`: `MetalRenderPass` applies the binder before the
+new backend hook, `NativiumInterop.setDrawBindings(pass, binder)`: `MetalRenderPass` applies the binder before the
 next draw and again whenever it re-creates its encoder.
 
 ## Mipmapped buffers
@@ -92,7 +92,7 @@ and `image.` directives.
 
 ## Results (M3 Max, 2026-10-18)
 
-- Synthetic test pack `src/gametest/resources/metallium-computepack` (game test `metallium-iris-computepack`): setup
+- Synthetic test pack `src/gametest/resources/nativium-computepack` (game test `nativium-iris-computepack`): setup
   pass fills an SSBO and a 3D custom image; `composite.csh` writes colorimg2 and counts every pixel with an image atomic
   into a cleared custom image; compute-only `composite1.csh` verifies counter, SSBO and `.length()`; `composite2.fsh`
   reads the SSBO and the 3D image from a fragment program, stores into colorimg5, and checks the mip chain of the
@@ -114,7 +114,7 @@ and `image.` directives.
 
 **`MC_OS_MAC` (owner decision 2026-10-18):** hidden from packs on Metal by default (packs see `MC_OS_UNKNOWN`):
 packs use it as "Apple OpenGL 4.1" and disable compute/voxel features. Config `irisHideMacOs = false` (or
-`-Dmetallium.iris.hideMacOs=false`, game test `-PirisHideMacOs=false`) restores it.
+`-Dnativium.iris.hideMacOs=false`, game test `-PirisHideMacOs=false`) restores it.
 
 ### Photon / Bliss / Unbound follow-up (2026-10-18)
 
@@ -126,7 +126,7 @@ packs use it as "Apple OpenGL 4.1" and disable compute/voxel features. Config `i
 - **`size.buffer.<colortexN>`**: absolute or relative buffer sizes (`PostTargets.size`).
 - **More than 16 textures in one pass** (Bliss's composite4): Metal has 16 sampler states per stage. Textures whose
   sampler is fixed (colortex/depthtex/noise/custom; not mipmapped or integer buffers, not shadow maps) move to the
-  end of the binding list and are compiled as MSL `constexpr sampler`s (`MetalliumInterop.setConstexprSamplers`,
+  end of the binding list and are compiled as MSL `constexpr sampler`s (`NativiumInterop.setConstexprSamplers`,
   per pipeline name, part of the MSL cache key). Metal counts identical constexpr samplers once (verified: 16 bound +
   2 identical constexpr = 17 fails, 2 bound + 18 identical constexpr compiles). Textures at index >= 16 are bound
   without a sampler state.
@@ -137,7 +137,7 @@ packs use it as "Apple OpenGL 4.1" and disable compute/voxel features. Config `i
   `fma`) are renamed (glslang: "'highp' : overloaded functions must have the same parameter precision qualifiers");
   `#version 330` sources with `GL_ARB_shader_storage_buffer_object` are raised to 430, other pre-4.20 sources with
   `binding` qualifiers get `GL_ARB_shading_language_420pack` (Unbound's colored lighting SSBO).
-- Test pack `metallium-texpack` (game test `metallium-iris-texpack`): PNG override with repeat, raw RGB16F 3D texture,
+- Test pack `nativium-texpack` (game test `nativium-iris-texpack`): PNG override with repeat, raw RGB16F 3D texture,
   custom noise, `size.buffer`, an 18-texture pass that also passes textures to a function; all 1.00.
 - Results (M3 Max, game test with `-Pshaderpack`): Photon v1.3b renders (volumetric clouds, shadows, night lights);
   Bliss v2.1.2 renders day scenes like Iris on OpenGL, but its night sky shows a noisy terrain-like pattern and rain

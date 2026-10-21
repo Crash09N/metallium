@@ -1,27 +1,27 @@
-Metallium
+Nativium
 Copyright (c) 2026 Crash09N – NPR Media (https://github.com/Crash09N)
 
-Metallium's own code is released under the MIT License (see LICENSE). The only licence requirement is that the copyright
+Nativium's own code is released under the MIT License (see LICENSE). The only licence requirement is that the copyright
 and permission notice stay in copies of the code.
 
-Request (not a licence condition): if you use Metallium's code, ideas or documents, please credit "Crash09N – NPR Media"
-and the Metallium project (https://github.com/Crash09N/metallium), and let the author know by opening a GitHub issue
+Request (not a licence condition): if you use Nativium's code, ideas or documents, please credit "Crash09N – NPR Media"
+and the Nativium project (https://github.com/Crash09N/metallium), and let the author know by opening a GitHub issue
 titled "Used in: <your project>" on that repository.
 
 Third-party code included in this distribution:
 - Metallum (https://github.com/kokodio/metallum), Copyright (c) 2026 kokodio, MIT License
-  (LICENSES/MIT-metallum.txt). Basis of the Metal backend in dev.metallium.backend.
+  (LICENSES/MIT-metallum.txt). Basis of the Metal backend in de.nprmedia.nativium.backend.
 - metal-jvm (https://github.com/kokodio/metal-jvm), Copyright (c) 2026 kokodio, MIT License
   (LICENSES/MIT-metal-jvm.txt). Bundled as a dependency.
 - Iris (https://github.com/IrisShaders/Iris), Copyright (c) IrisShaders contributors, LGPL-3.0
-  (metallium-iris/LICENSE). Adapted code only in the separate metallium-iris module (LGPL-3.0):
-  dev.metallium.iris.post.MetalShadowRenderer is adapted from Iris's ShadowRenderer.
+  (nativium-iris/LICENSE). Adapted code only in the separate nativium-iris module (LGPL-3.0):
+  de.nprmedia.nativium.iris.post.MetalShadowRenderer is adapted from Iris's ShadowRenderer.
 
-- metallium-voxy-natives (nested jar, also standalone) redistributes unmodified macOS arm64 native libraries from Maven
+- nativium-voxy-natives (nested jar, also standalone) redistributes unmodified macOS arm64 native libraries from Maven
   Central: RocksDB 10.2.1 (Apache-2.0, with LevelDB BSD code), LWJGL 3.4.1 zstd / LMDB bindings (BSD-3-Clause) containing
   Zstandard (BSD-3-Clause) and LMDB (OpenLDAP Public License 2.8). Licence texts and origins: META-INF/licenses/ in that jar.
 
-Release jar layout: the single installable jar bundles metal-jvm, metallium-gl (MIT), metallium-iris (LGPL-3.0) and
-metallium-voxy-natives (natives only) as separate nested jars (META-INF/jars/). The LGPL-3.0 Iris adapter is never merged into the
-MIT-licensed core; its complete corresponding source is the metallium-iris/ directory of
+Release jar layout: the single installable jar bundles metal-jvm, nativium-gl (MIT), nativium-iris (LGPL-3.0) and
+nativium-voxy-natives (natives only) as separate nested jars (META-INF/jars/). The LGPL-3.0 Iris adapter is never merged into the
+MIT-licensed core; its complete corresponding source is the nativium-iris/ directory of
 https://github.com/Crash09N/metallium (see SOURCE.txt in the nested jar).

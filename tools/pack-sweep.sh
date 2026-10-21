@@ -22,7 +22,7 @@ OUT="${OUT:-docs/compat/shaderpacks-$DATE.md}"
 REFERENCE="${REFERENCE:-0}"
 SMOKE="${SMOKE:-0}"
 RUNDIR="build/run/clientGameTest"
-REPORT="$RUNDIR/metallium-gametest-report.txt"
+REPORT="$RUNDIR/nativium-gametest-report.txt"
 LOG="$RUNDIR/logs/latest.log"
 mkdir -p "$RESULTS_DIR" "$(dirname "$OUT")"
 
@@ -64,10 +64,10 @@ run_one() { # run_one <zip> <engine> <tag>: runs the game test, copies report/lo
   STATUS_RUN=$?
   [ -f "$REPORT" ] && cp "$REPORT" "$RESULTS_DIR/$tag-report.txt"
   [ -f "$LOG" ] && cp "$LOG" "$RESULTS_DIR/$tag-latest.log"
-  # screenshots are numbered by the game test (0011_metallium-iris-external-pack-natural.png): match by suffix
+  # screenshots are numbered by the game test (0011_nativium-iris-external-pack-natural.png): match by suffix
   local f
-  for f in "$RUNDIR"/screenshots/*_metallium-iris-external-pack-natural.png; do [ -f "$f" ] && cp "$f" "$RESULTS_DIR/$tag-natural.png"; done
-  for f in "$RUNDIR"/screenshots/*_metallium-iris-external-pack.png; do [ -f "$f" ] && cp "$f" "$RESULTS_DIR/$tag-flat.png"; done
+  for f in "$RUNDIR"/screenshots/*_nativium-iris-external-pack-natural.png; do [ -f "$f" ] && cp "$f" "$RESULTS_DIR/$tag-natural.png"; done
+  for f in "$RUNDIR"/screenshots/*_nativium-iris-external-pack.png; do [ -f "$f" ] && cp "$f" "$RESULTS_DIR/$tag-flat.png"; done
 }
 
 for zip in "${LIST[@]}"; do

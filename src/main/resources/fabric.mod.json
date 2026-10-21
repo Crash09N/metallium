@@ -1,26 +1,26 @@
 {
   "schemaVersion": 1,
-  "id": "metallium",
+  "id": "nativium",
   "version": "${version}",
-  "name": "Metallium",
+  "name": "Nativium",
   "description": "Metal rendering backend for Minecraft on Apple Silicon. Runs vanilla, Sodium and Fabric rendering mods on Metal.",
   "authors": ["Crash09N – NPR Media"],
   "contact": {"homepage": "https://github.com/Crash09N/metallium", "sources": "https://github.com/Crash09N/metallium", "issues": "https://github.com/Crash09N/metallium/issues"},
   "contributors": ["Based on Metallum by kokodio (MIT)"],
   "license": "MIT",
-  "icon": "assets/metallium/icon.png",
+  "icon": "assets/nativium/icon.png",
   "environment": "client",
   "entrypoints": {
-    "client": ["dev.metallium.Metallium"],
-    "sodium:config_api_user": ["dev.metallium.compat.sodium.MetalliumSodiumConfig"]
+    "client": ["de.nprmedia.nativium.Nativium"],
+    "sodium:config_api_user": ["de.nprmedia.nativium.compat.sodium.NativiumSodiumConfig"]
   },
   "mixins": [
-    "metallium.mixins.json",
-    "metallium.distanthorizons.mixins.json",
-    "metallium.sodium.mixins.json",
-    "metallium.voxy.mixins.json",
-    "metallium.physicsmod.mixins.json",
-    "metallium.betterf3.mixins.json"
+    "nativium.mixins.json",
+    "nativium.distanthorizons.mixins.json",
+    "nativium.sodium.mixins.json",
+    "nativium.voxy.mixins.json",
+    "nativium.physicsmod.mixins.json",
+    "nativium.betterf3.mixins.json"
   ],
   "depends": {
     "fabricloader": ">=0.19.5",
