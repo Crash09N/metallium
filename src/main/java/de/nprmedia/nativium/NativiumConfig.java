@@ -49,6 +49,17 @@ public final class NativiumConfig {
      */
     public boolean voxySuppressWithShaders = true;
     /**
+     * GPU occlusion culling of Sodium's main-view terrain on Metal ({@code docs/benchmarks/terrain-cull-2026-10-21.md}).
+     * AUTO: on at render distance 24 and above without a shader pack (measured +4..+77% at rd32), off below (neutral or
+     * up to 8% slower) and with shader packs (+2..+16% at rd32, but exactness there is not verified by an exact
+     * screenshot comparison yet). ON: always (also with packs). The system property {@code -Dnativium.terrain.gpuCull=off|on|count|verify|auto} overrides this.
+     */
+    public TerrainCulling terrainOcclusionCulling = TerrainCulling.AUTO;
+
+    public enum TerrainCulling {
+        AUTO, ON, OFF
+    }
+    /**
      * Answers to "this mod needs OpenGL" ({@code de.nprmedia.nativium.compat.OpenGlRequirements}), by mod id. Missing = ask
      * before the next title screen (and use OpenGL until answered).
      */

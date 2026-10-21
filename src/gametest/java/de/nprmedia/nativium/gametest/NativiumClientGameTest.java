@@ -445,6 +445,9 @@ public final class NativiumClientGameTest implements FabricClientGameTest {
             if (Boolean.getBoolean("nativium.bench.power")) {
                 powerBench(context);
             }
+            if (Boolean.getBoolean("nativium.bench.cullTour")) {
+                cullTour(context, world, rd);
+            }
             line("result: PASS");
         }
     }
@@ -1289,6 +1292,22 @@ public final class NativiumClientGameTest implements FabricClientGameTest {
         if ("physics".equals(System.getProperty("nativium.gametest.mode")) && !lodCombo) {
             try {
                 new PhysicsScenario(this::line, failures).run(context, backend);
+                line(failures.isEmpty() ? "result: PASS" : "result: FAIL " + failures);
+            } catch (Throwable t) {
+                line("result: FAIL " + t);
+                throw t;
+            } finally {
+                writeReport();
+            }
+            if (!failures.isEmpty()) throw new AssertionError(String.join("; ", failures));
+            return;
+        }
+        if ("terrainCull".equals(System.getProperty("nativium.gametest.mode"))) {
+            try {
+                new TerrainCullScenario(this::line, failures, ctx -> {
+                    String installed = externalPack(ctx);
+                    return installed + " pipeline=" + ctx.computeOnClient(client -> irisSelectPack(installed, true));
+                }).run(context);
                 line(failures.isEmpty() ? "result: PASS" : "result: FAIL " + failures);
             } catch (Throwable t) {
                 line("result: FAIL " + t);
@@ -2207,6 +2226,136 @@ public final class NativiumClientGameTest implements FabricClientGameTest {
         if (loaded < expected * 0.5) {
             throw new AssertionError("render distance " + rd + " not loaded: " + loaded + " chunks, expected ~" + expected);
         }
+    }
+
+    /**
+     * Bench add-on ({@code -Dnativium.bench.cullTour=true}, with {@code -Dnativium.terrain.gpuCull=count|on}): visits
+     * typical views (above the land, eye level on plains / in a forest / in mountains, inside a cave) and logs, per view,
+     * the terrain occlusion counters and fps over {@code nativium.bench.cullSeconds} (default 8).
+     */
+    private void cullTour(ClientGameTestContext context, TestSingleplayerContext world, int rd) {
+        int seconds = Integer.getInteger("nativium.bench.cullSeconds", 8);
+        int settle = Integer.getInteger("nativium.bench.cullSettleSeconds", rd >= 24 ? 60 : 30);
+        String only = System.getProperty("nativium.bench.cullScenes", "");
+        String[][] scenes = {
+                {"elevated", ""}, {"ground", ""}, {"plains", "minecraft:plains"}, {"forest", "minecraft:forest"},
+                {"mountains", "minecraft:jagged_peaks"}, {"cave", ""}};
+        for (String[] scene : scenes) {
+            String name = scene[0];
+            if (!only.isEmpty() && !java.util.Arrays.asList(only.split(",")).contains(name)) {
+                continue;
+            }
+            String camera = world.getServer().computeOnServer(server -> cullTourCamera(server.overworld(), name, scene[1]));
+            if (camera == null) {
+                line("cull-tour: " + name + " SKIPPED (no position found)");
+                continue;
+            }
+            tryCommand(world, "tp @a " + camera);
+            context.waitTicks(20);
+            try {
+                world.getConnection().waitForChunksDownload(20 * 120);
+            } catch (Throwable t) {
+                line("cull-tour: " + name + " waitForChunksDownload failed (continuing): " + t.getMessage());
+            }
+            long until = System.nanoTime() + settle * 1_000_000_000L;
+            while (System.nanoTime() < until) {
+                context.waitTicks(20);
+            }
+            try {
+                waitForRenderDistanceLoaded(context, rd);
+            } catch (AssertionError e) {
+                line("cull-tour: " + name + " " + e.getMessage());
+            }
+            context.takeScreenshot("nativium-cull-" + name);
+            sodiumStats(context, "cull-tour " + name);
+            // -Dnativium.bench.cullModes=off,on,off,on: A/B the culling modes at this view (same chunks, same session).
+            String[] modes = System.getProperty("nativium.bench.cullModes",
+                    de.nprmedia.nativium.compat.sodium.terrain.TerrainOcclusion.MODE).split(",");
+            for (String mode : modes) {
+                context.runOnClient(c -> de.nprmedia.nativium.compat.sodium.terrain.TerrainOcclusion.setMode(mode));
+                long warm = System.nanoTime() + 2_000_000_000L;
+                while (System.nanoTime() < warm) {
+                    context.waitTicks(5);
+                }
+                context.computeOnClient(c -> de.nprmedia.nativium.compat.sodium.terrain.TerrainOcclusion.snapshot()); // reset
+                long[] t0 = context.computeOnClient(c -> de.nprmedia.nativium.backend.terrain.TerrainPerf.totals());
+                long start = System.nanoTime();
+                List<Integer> fps = new ArrayList<>();
+                while (System.nanoTime() - start < seconds * 1_000_000_000L) {
+                    context.waitTicks(20);
+                    fps.add(context.computeOnClient(Minecraft::getFps));
+                }
+                long[] t1 = context.computeOnClient(c -> de.nprmedia.nativium.backend.terrain.TerrainPerf.totals());
+                double wall = (System.nanoTime() - start) / 1e9;
+                String counts = context.computeOnClient(c -> de.nprmedia.nativium.compat.sodium.terrain.TerrainOcclusion.snapshot());
+                double n = Math.max(1, t1[0] - t0[0]);
+                double frameMs = (t1[1] - t0[1]) / n / 1e6;
+                double waitMs = (t1[3] - t0[3]) / n / 1e6;
+                line(String.format(java.util.Locale.ROOT,
+                        "cull-tour: scene=%s mode=%s camera=%s rendered_fps=%.1f mc_fps=%.0f frame_ms=%.3f gpu_ms=%.3f cpu_ms=%.3f wait_ms=%.3f | %s",
+                        name, mode, camera, n / wall, fps.stream().mapToInt(Integer::intValue).average().orElse(0), frameMs,
+                        (t1[2] - t0[2]) / n / 1e6, frameMs - waitMs, waitMs, counts));
+            }
+        }
+    }
+
+    /** Camera ({@code x y z yaw pitch}) for a cull-tour view, computed on the server thread; null if none found. */
+    private static String cullTourCamera(net.minecraft.server.level.ServerLevel level, String name, String biome) {
+        net.minecraft.world.level.levelgen.Heightmap.Types surface = net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES;
+        int x = 0;
+        int z = 0;
+        if (!biome.isEmpty()) {
+            var found = level.findClosestBiome3d(
+                    holder -> holder.unwrapKey().map(key -> key.identifier().toString().equals(biome)).orElse(false),
+                    net.minecraft.core.BlockPos.ZERO.atY(80), 6400, 32, 64);
+            if (found == null) {
+                return null;
+            }
+            x = found.getFirst().getX();
+            z = found.getFirst().getZ();
+        }
+        int y = level.getHeight(surface, x, z);
+        switch (name) {
+            case "elevated":
+                return x + " " + (y + 25) + " " + z + " 110 15";
+            case "cave": {
+                // An air pocket well below the surface, with room around the camera (a cave, not a one-block gap).
+                for (int r = 0; r <= 160; r += 8) {
+                    for (int dx = -r; dx <= r; dx += 8) {
+                        for (int dz = -r; dz <= r; dz += 8) {
+                            if (Math.max(Math.abs(dx), Math.abs(dz)) != r) {
+                                continue;
+                            }
+                            level.getChunk(dx >> 4, dz >> 4); // generate it: heightmaps of absent chunks read as the bottom
+                            int top = level.getHeight(surface, dx, dz) - 20;
+                            for (int cy = -55; cy < Math.min(top, 40); cy++) {
+                                net.minecraft.core.BlockPos p = new net.minecraft.core.BlockPos(dx, cy, dz);
+                                if (level.getBlockState(p).isAir() && !level.getBlockState(p.below()).isAir() && caveRoom(level, p) >= 40) {
+                                    return dx + " " + (cy + 1) + " " + dz + " 110 0";
+                                }
+                            }
+                        }
+                    }
+                }
+                return null;
+            }
+            default: // eye level
+                return x + " " + (y + 1) + " " + z + " 110 0";
+        }
+    }
+
+    private static int caveRoom(net.minecraft.server.level.ServerLevel level, net.minecraft.core.BlockPos p) {
+        int air = 0;
+        for (int dx = -2; dx <= 2; dx++) {
+            for (int dy = 0; dy <= 3; dy++) {
+                for (int dz = -2; dz <= 2; dz++) {
+                    if (level.getBlockState(p.offset(dx, dy, dz)).isAir()) {
+                        air++;
+                    }
+                }
+            }
+        }
+        return air;
     }
 
     private void measure(ClientGameTestContext context, String scene) {

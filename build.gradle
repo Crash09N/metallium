@@ -185,6 +185,16 @@ loom.runs.clientGameTest {
 	if (project.hasProperty('benchDisplay')) vmArg "-Dnativium.bench.display=${project.property('benchDisplay')}"
 	// -PbenchFullscreen: benchmark fullscreen on that display.
 	if (project.hasProperty('benchFullscreen')) vmArg '-Dnativium.bench.fullscreen=true'
+	// -PbenchCullTour[=elevated,ground,plains,forest,mountains,cave]: after the measurement, visit those views and log
+	// terrain occlusion counters per view (with -Pterrain=gpuCull=count|on). -PbenchCullSeconds=N per view (default 8).
+	if (project.hasProperty('benchCullTour')) {
+		vmArg '-Dnativium.bench.cullTour=true'
+		if (!project.property('benchCullTour').toString().isEmpty()) vmArg "-Dnativium.bench.cullScenes=${project.property('benchCullTour')}"
+	}
+	// -PterrainCullTest: terrain occlusion culling must not change the image (wall / behind-camera / open views, on vs off).
+	if (project.hasProperty('terrainCullTest')) vmArg '-Dnativium.gametest.mode=terrainCull'
+	if (project.hasProperty('benchCullSeconds')) vmArg "-Dnativium.bench.cullSeconds=${project.property('benchCullSeconds')}"
+	if (project.hasProperty('benchCullModes')) vmArg "-Dnativium.bench.cullModes=${project.property('benchCullModes')}"
 	// -PmetalHud: Apple's Metal Performance HUD in the game window (+ its unified-log metrics, MTL_HUD_LOG_ENABLED).
 	if (project.hasProperty('metalHud')) {
 		environmentVariable 'MTL_HUD_ENABLED', '1'

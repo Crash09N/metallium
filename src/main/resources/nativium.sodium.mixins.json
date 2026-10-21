@@ -6,11 +6,16 @@
   "mixins": [
   ],
   "client": [
+    "DefaultChunkRendererCullMixin",
     "DefaultChunkRendererPerfMixin",
+    "GLDrawBatchCullMixin",
+    "MultiDrawBatchCullMixin",
+    "RenderRegionCullMixin",
     "DrawBackendMixin",
     "EnumOptionMixin",
     "GLDrawBatchDrawMixin",
-    "StatefulOptionMixin"
+    "StatefulOptionMixin",
+    "SodiumWorldRendererCullMixin"
   ],
   "injectors": {
     "defaultRequire": 0
