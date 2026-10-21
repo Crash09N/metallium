@@ -6,8 +6,8 @@ pluginManagement {
 	}
 }
 
-rootProject.name = 'metallium'
+rootProject.name = 'nativium'
 
-include 'metallium-iris'
-include 'metallium-gl'
-include 'metallium-voxy-natives'
+include 'nativium-iris'
+include 'nativium-gl'
+include 'nativium-voxy-natives'

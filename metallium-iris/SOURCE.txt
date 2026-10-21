@@ -1,9 +1,0 @@
-Metallium Iris Adapter (metallium-iris) - LGPL-3.0-only (see LICENSE in this jar)
-
-This module adapts parts of Iris (https://github.com/IrisShaders/Iris, LGPL-3.0) and is shipped as a separate nested jar
-inside the Metallium release jar so that you can replace it. The complete corresponding source code of this exact build is
-in the metallium-iris/ directory of https://github.com/Crash09N/metallium (tag/commit matching the Metallium version in
-the jar's fabric.mod.json). To use a modified adapter: build it from that source (./gradlew :metallium-iris:remapJar) and
-replace META-INF/jars/metallium-iris-*.jar inside the Metallium jar, or install the modified metallium-iris jar next to a
-Metallium build.
-Written offer: on request (GitHub issue on the repository above) the maintainers provide the source of this build.

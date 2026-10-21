@@ -1,0 +1,27 @@
+/*
+ * SPDX-License-Identifier: MIT
+ * Copyright (c) 2026 Crash09N – NPR Media
+ */
+package de.nprmedia.nativium.compat.sodium.mixin;
+
+import de.nprmedia.nativium.compat.sodium.terrain.TerrainOptions;
+import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Pseudo;
+import org.spongepowered.asm.mixin.injection.At;
+import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+
+/**
+ * Measurement only ({@code -Dnativium.terrain.skipDraws=all/main/shadow}): Sodium's terrain multi-draws are not submitted at all.
+ * The CPU/GPU time difference to a normal run is the upper bound of what any terrain culling could save.
+ */
+@Pseudo
+@Mixin(targets = "net.caffeinemc.mods.sodium.client.gpu.device.batch.GLDrawBatch", remap = false)
+public class GLDrawBatchDrawMixin {
+    @Inject(method = "draw", at = @At("HEAD"), cancellable = true, require = 0)
+    private void nativium$skipDraws(final CallbackInfo ci) {
+        if (TerrainOptions.skipDraw()) {
+            ci.cancel();
+        }
+    }
+}

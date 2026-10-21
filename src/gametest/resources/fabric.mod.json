@@ -1,19 +1,19 @@
 {
   "schemaVersion": 1,
-  "id": "metallium-gametest",
+  "id": "nativium-gametest",
   "version": "1.0.0",
-  "name": "Metallium client game tests",
+  "name": "Nativium client game tests",
   "environment": "client",
   "entrypoints": {
     "fabric-client-gametest": [
-      "dev.metallium.gametest.MetalliumClientGameTest"
+      "de.nprmedia.nativium.gametest.NativiumClientGameTest"
     ]
   },
   "mixins": [
-    "metallium-gametest.mixins.json"
+    "nativium-gametest.mixins.json"
   ],
   "depends": {
-    "metallium": "*",
+    "nativium": "*",
     "fabric-client-gametest-api-v1": "*"
   }
 }
