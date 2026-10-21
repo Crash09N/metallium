@@ -60,7 +60,9 @@ public final class NativiumMixinPlugin implements IMixinConfigPlugin {
 
     @Override
     public void onLoad(final String mixinPackage) {
+        LegacyMigration.aliasLegacyProperties(); // -Dmetallium.* (pre-rename names) before anything reads a property
         NativiumPlatform.status(); // the platform decision (and its single log line) happens at the first config load
+        if (NativiumPlatform.supported()) LegacyMigration.logDeprecatedProperties();
     }
 
     @Override

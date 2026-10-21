@@ -45,6 +45,7 @@ public final class NativiumGlBootstrap {
             return;
         }
         installed = true;
+        de.nprmedia.nativium.LegacyMigration.aliasLegacyProperties(); // -Dmetallium.* fallback, before the platform check
         if (!de.nprmedia.nativium.NativiumPlatform.supported()) {
             optIn = OptInMods.none();
             return; // unsupported platform: no hook, no routing, no status line, nothing written

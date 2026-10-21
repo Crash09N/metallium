@@ -73,6 +73,8 @@ public final class NativiumConfig {
         /** Never retarget (the mod's GL calls stay as they are; they fail on Metal). */
         NATIVE,
         /** Retarget all of the mod's classes through nativium-gl, even if the scan found no GL calls. */
+        // written as METALLIUM_GL by Metallium (before the rename); still read from migrated configs
+        @com.google.gson.annotations.SerializedName(value = "NATIVIUM_GL", alternate = "METALLIUM_GL")
         NATIVIUM_GL
     }
 
@@ -81,7 +83,8 @@ public final class NativiumConfig {
 
     private static Path configFile() {
         try {
-            return FabricLoader.getInstance().getConfigDir().resolve("nativium.json");
+            LegacyMigration.migrateConfigOnce(); // copies config/metallium.json etc. on the first start after the rename
+            return FabricLoader.getInstance().getConfigDir().resolve(LegacyMigration.CONFIG_FILE);
         } catch (RuntimeException | LinkageError e) {
             return null; // unit tests: no game directory
         }

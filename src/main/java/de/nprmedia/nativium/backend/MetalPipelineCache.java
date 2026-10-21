@@ -136,6 +136,7 @@ final class MetalPipelineCache {
         }
         ShaderDiskCache disk = null;
         try {
+            de.nprmedia.nativium.LegacyMigration.dropLegacyShaderCacheOnce(FabricLoader.getInstance().getGameDir());
             disk = ShaderCache.open(ShaderCache.root(FabricLoader.getInstance().getGameDir()), environment(deviceName));
         } catch (RuntimeException | LinkageError e) {
             Nativium.LOGGER.warn("[nativium] Shader cache unavailable: {}", e.toString());

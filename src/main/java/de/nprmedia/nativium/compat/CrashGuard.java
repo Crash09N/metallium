@@ -108,7 +108,8 @@ public final class CrashGuard {
     }
 
     private static Path dir() {
-        return FabricLoader.getInstance().getConfigDir().resolve("nativium");
+        de.nprmedia.nativium.LegacyMigration.migrateConfigOnce();
+        return FabricLoader.getInstance().getConfigDir().resolve(de.nprmedia.nativium.LegacyMigration.CONFIG_DIR);
     }
 
     /** Reads the previous session's marker and starts this session's. Idempotent. */

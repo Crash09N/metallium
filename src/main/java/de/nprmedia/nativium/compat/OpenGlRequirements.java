@@ -5,6 +5,7 @@
 package de.nprmedia.nativium.compat;
 
 import com.google.gson.Gson;
+import com.google.gson.annotations.SerializedName;
 import com.google.gson.JsonParseException;
 import de.nprmedia.nativium.Nativium;
 import de.nprmedia.nativium.NativiumConfig;
@@ -50,8 +51,10 @@ public final class OpenGlRequirements {
      * @param nativiumGl {@code "all"}: when the compatibility code applies, route every class of the mod through
      *                    nativium-gl (its OpenGL paths run translated on Metal; see {@link GlRouting})
      */
-    public record KnownMod(String id, @Nullable String name, @Nullable String reason, @Nullable String nativiumCompat,
-                           @Nullable String nativiumGl) {
+    public record KnownMod(String id, @Nullable String name, @Nullable String reason,
+                           // user lists in config/nativium/needs-opengl.json migrated from Metallium use the old keys
+                           @SerializedName(value = "nativiumCompat", alternate = "metalliumCompat") @Nullable String nativiumCompat,
+                           @SerializedName(value = "nativiumGl", alternate = "metalliumGl") @Nullable String nativiumGl) {
         public KnownMod(final String id, final @Nullable String name, final @Nullable String reason, final @Nullable String nativiumCompat) {
             this(id, name, reason, nativiumCompat, null);
         }
@@ -226,7 +229,8 @@ public final class OpenGlRequirements {
             Nativium.LOGGER.warn("[nativium] could not read {}: {}", RESOURCE, e.toString());
         }
         try {
-            Path user = FabricLoader.getInstance().getConfigDir().resolve("nativium").resolve("needs-opengl.json");
+            de.nprmedia.nativium.LegacyMigration.migrateConfigOnce();
+            Path user = FabricLoader.getInstance().getConfigDir().resolve(de.nprmedia.nativium.LegacyMigration.CONFIG_DIR).resolve("needs-opengl.json");
             if (Files.isRegularFile(user)) {
                 try (Reader reader = Files.newBufferedReader(user)) {
                     List<KnownMod> extra = parse(reader);

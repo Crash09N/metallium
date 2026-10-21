@@ -12,6 +12,7 @@ import java.util.Set;
 public final class NativiumIrisMixinPlugin implements IMixinConfigPlugin {
     @Override
     public void onLoad(final String mixinPackage) {
+        de.nprmedia.nativium.LegacyMigration.aliasLegacyProperties(); // -Dmetallium.* fallback, idempotent
     }
 
     @Override

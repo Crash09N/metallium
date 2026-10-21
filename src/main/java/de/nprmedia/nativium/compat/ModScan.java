@@ -105,7 +105,8 @@ public final class ModScan {
 
     private static List<ModReport> scanAll() {
         FabricLoader loader = FabricLoader.getInstance();
-        Path cacheFile = loader.getConfigDir().resolve("nativium").resolve("scan-cache.json");
+        de.nprmedia.nativium.LegacyMigration.migrateConfigOnce();
+        Path cacheFile = loader.getConfigDir().resolve(de.nprmedia.nativium.LegacyMigration.CONFIG_DIR).resolve("scan-cache.json");
         Map<String, CacheEntry> cache = readCache(cacheFile);
         Map<String, CacheEntry> updated = new LinkedHashMap<>();
         List<ModReport> reports = new ArrayList<>();

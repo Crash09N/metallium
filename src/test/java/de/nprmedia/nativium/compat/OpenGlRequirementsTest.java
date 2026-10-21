@@ -102,6 +102,19 @@ class OpenGlRequirementsTest {
     }
 
     @Test
+    void userListWithPreRenameKeysStillParses() {
+        // a config/metallium/needs-opengl.json copied over by the rename migration uses metalliumCompat / metalliumGl
+        List<OpenGlRequirements.KnownMod> mods = OpenGlRequirements.parse(new StringReader(
+                "{\"mods\": [{\"id\": \"old\", \"metalliumCompat\": \"1.0\", \"metalliumGl\": \"all\"},"
+                        + " {\"id\": \"new\", \"nativiumCompat\": \"2.0\", \"nativiumGl\": \"all\"}]}"));
+        assertEquals(2, mods.size());
+        assertEquals("1.0", mods.get(0).nativiumCompat());
+        assertEquals("all", mods.get(0).nativiumGl());
+        assertEquals("2.0", mods.get(1).nativiumCompat());
+        assertEquals("all", mods.get(1).nativiumGl());
+    }
+
+    @Test
     void fabricVersionPredicates() {
         assertTrue(OpenGlRequirements.matches("3.2.5", ">=3.2.5 <3.3"));
         assertFalse(OpenGlRequirements.matches("3.3.0", ">=3.2.5 <3.3"));

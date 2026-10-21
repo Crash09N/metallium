@@ -40,6 +40,8 @@ import java.util.function.Supplier;
  */
 public final class GlRouting {
     public static final String GL_MOD_ID = "nativium-gl";
+    /** Pre-rename spelling of the author opt-in key ({@code "custom": {"metallium-gl": ...}}); still read for one release. */
+    public static final String LEGACY_GL_KEY = "metallium-gl";
 
     /** Routing state of one mod before the game runs (the status screen adds runtime findings). */
     public enum Status {
@@ -202,7 +204,8 @@ public final class GlRouting {
     private static Map<String, AuthorChoice> authorChoices() {
         Map<String, AuthorChoice> choices = new LinkedHashMap<>();
         for (ModContainer mod : FabricLoader.getInstance().getAllMods()) {
-            CustomValue value = mod.getMetadata().getCustomValue(GL_MOD_ID);
+            CustomValue value = mod.getMetadata().containsCustomValue(GL_MOD_ID) ? mod.getMetadata().getCustomValue(GL_MOD_ID)
+                    : mod.getMetadata().getCustomValue(LEGACY_GL_KEY);
             if (value == null) continue;
             String id = mod.getMetadata().getId();
             if (value.getType() == CustomValue.CvType.BOOLEAN) {
@@ -225,7 +228,8 @@ public final class GlRouting {
     private static Set<String> userList() {
         Set<String> ids = new LinkedHashSet<>();
         String property = System.getProperty("nativium.gl.mods", "");
-        Path config = FabricLoader.getInstance().getConfigDir().resolve("nativium-gl.properties");
+        de.nprmedia.nativium.LegacyMigration.migrateConfigOnce();
+        Path config = FabricLoader.getInstance().getConfigDir().resolve(de.nprmedia.nativium.LegacyMigration.GL_PROPERTIES);
         if (Files.isRegularFile(config)) {
             Properties properties = new Properties();
             try (InputStream in = Files.newInputStream(config)) {
