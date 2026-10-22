@@ -68,7 +68,9 @@ final class GbufferProgram implements AutoCloseable {
             "tex", List.of("Sampler0", "u_BlockTex"),
             "texture", List.of("Sampler0", "u_BlockTex"),
             "u_MainSampler", List.of("Sampler0", "u_BlockTex"),
-            "lightmap", List.of("Sampler2", "u_LightTex"),
+            "lightmap", List.of("Sampler2", "u_LightTex", "uLightMap"),
+            // Distant Horizons' Blaze3D terrain pipeline (DhIrisBridge): DH's own sampler names.
+            "dhBlockAtlas", List.of("uBlockAtlas"),
             "iris_overlay", List.of("Sampler1"));
     /** Iris prefixes vanilla's uniform blocks with {@code iris_} in gbuffers programs. */
     private static final Set<String> VANILLA_BLOCKS = Set.of("DynamicTransforms", "Projection", "Globals", "Fog", "Lighting", "CloudInfo");

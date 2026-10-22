@@ -80,6 +80,9 @@ import java.util.TreeSet;
 final class GbufferState implements AutoCloseable {
     private static final Object NO_KEY = new Object();
     private static final Object NO_KEY_SHADOW = new Object();
+    private static final Object DH_KEY = new Object();
+    /** Programs compiled from dh_terrain/dh_water (their matrices are DH's, set per draw). */
+    private final Set<GbufferProgram> dhPrograms = java.util.Collections.newSetFromMap(new IdentityHashMap<>());
 
     private final MetalPostPipeline owner;
     private final ProgramSet programSet;
@@ -124,7 +127,7 @@ final class GbufferState implements AutoCloseable {
         this.resolver = new ProgramFallbackResolver(programSet);
         TreeSet<Integer> used = new TreeSet<>();
         for (ProgramId id : ProgramId.values()) {
-            if (id.getGroup() == ProgramGroup.Gbuffers) {
+            if (id.getGroup() == ProgramGroup.Gbuffers || id.getGroup() == ProgramGroup.Dh && id != ProgramId.DhShadow && DhIrisBridge.installed()) {
                 programSet.get(id).ifPresent(source -> {
                     // A program without any fragment output (Bliss's gbuffers_skybasic: "discard;") writes nothing,
                     // even though its draw buffers default to colortex0.
@@ -341,6 +344,22 @@ final class GbufferState implements AutoCloseable {
             report("unknown", "a pipeline that was not compiled through RenderSystem cannot be redirected into the gbuffers");
             return original;
         }
+        if (!shadowPass() && isDhTerrain(source)) {
+            CompiledRenderPipeline cached = byKey.get(DH_KEY);
+            if (cached != null && !cached.isClosed()) {
+                return cached;
+            }
+            boolean water = source.getLocation().getPath().contains("transparent");
+            ProgramSource dhSource = resolver.resolveNullable(water ? ProgramId.DhWater : ProgramId.DhTerrain);
+            GbufferProgram program = dhSource == null ? null : compileDhProgram(dhSource, source, water);
+            CompiledRenderPipeline result = program != null ? program.pipeline : vanillaVariant(source);
+            if (program != null) {
+                programs.put(program.pipeline, program);
+                dhPrograms.add(program);
+            }
+            byKey.put(DH_KEY, result);
+            return result;
+        }
         ShaderKey key = null;
         try {
             key = IrisPipelines.getPipeline(null, source);
@@ -429,6 +448,73 @@ final class GbufferState implements AutoCloseable {
             dumpSources(name, transformed);
             return null;
         }
+    }
+
+    /** DH's Blaze3D terrain pipelines ({@code opaque_terrain}, {@code transparent_terrain}). */
+    private static boolean isDhTerrain(final RenderPipeline source) {
+        Identifier location = source.getLocation();
+        return location.getNamespace().equals("distanthorizons") && location.getPath().contains("terrain");
+    }
+
+    /** Like Iris's IrisLodRenderProgram.createProgram, for DH's Blaze3D terrain pipeline (see {@link DhIrisBridge}). */
+    @Nullable
+    private GbufferProgram compileDhProgram(final ProgramSource source, final RenderPipeline replaced, final boolean water) {
+        String name = source.getName() + "/dh/" + replaced.getLocation().getPath();
+        if (source.getGeometrySource().isPresent() || source.getTessControlSource().isPresent() || source.getTessEvalSource().isPresent()) {
+            report(source.getName(), "geometry/tessellation shaders are not supported on Metal (DH's own shader used)");
+            return null;
+        }
+        Map<PatchShaderType, String> transformed = null;
+        try {
+            ProgramDirectives directives = source.getDirectives();
+            transformed = TransformPatcher.patchDHTerrain(source.getName(), source.getVertexSource().orElseThrow(), null, null, null,
+                    source.getFragmentSource().orElseThrow(), owner.getTextureMap(), owner.getTextureOverrides(TextureStage.GBUFFERS_AND_SHADOW));
+            String vertex = DhIrisBridge.adaptVertex(transformed.get(PatchShaderType.VERTEX));
+            BlendModeOverride override = directives.getBlendModeOverride().orElse(null);
+            Optional<BlendFunction> blend = override != null ? toBlend(override)
+                    : replaced.getColorTargetStates().isEmpty() || replaced.getColorTargetStates().getFirst() == null ? Optional.empty()
+                    : replaced.getColorTargetStates().getFirst().blendFunction();
+            Map<Integer, Optional<BlendFunction>> bufferBlends = new HashMap<>();
+            for (BufferBlendInformation information : directives.getBufferBlendOverrides()) {
+                bufferBlends.put(information.index(), toBlend(information.blendMode()));
+            }
+            GbufferProgram program = GbufferProgram.compile(new GbufferProgram.Spec(name, vertex, transformed.get(PatchShaderType.FRAGMENT), replaced,
+                    replaced.getVertexFormatBinding(0), directives.getDrawBuffers(), attachments, attachmentFormats, blend, bufferBlends, 0.0f, false),
+                    owner.storageValidator());
+            var customUniforms = owner.customUniforms();
+            CommonUniforms.addDynamicUniforms(program.uniforms, FogMode.PER_VERTEX);
+            customUniforms.assignTo(program.uniforms);
+            BuiltinReplacementUniforms.addBuiltinReplacementUniforms(program.uniforms);
+            customUniforms.mapholderToPass(program.uniforms, program);
+            compiledNames.add(source.getName());
+            NativiumIris.LOGGER.info("[nativium-iris] DH program {} replaces {}", source.getName(), replaced.getLocation());
+            return program;
+        } catch (Exception | LinkageError e) {
+            String message = e.getMessage() == null ? e.toString() : e.getMessage().lines().findFirst().orElse(e.toString());
+            report(source.getName(), "failed to translate (" + message + "); DH's own shader used");
+            NativiumIris.LOGGER.warn("[nativium-iris] DH program {} for {} could not be translated for Metal", source.getName(), replaced.getLocation(), e);
+            dumpSources(name, transformed);
+            return null;
+        }
+    }
+
+    /** Iris's per-draw matrices of a DH program (IrisLodRenderProgram.fillUniformData): camera model-view, DH projection. */
+    private void bindDhMatrices(final GbufferProgram program) {
+        Matrix4f modelView = new Matrix4f(CapturedRenderingState.INSTANCE.getGbufferModelView());
+        Matrix4f projection = net.irisshaders.iris.compat.dh.DHCompat.getProjection();
+        setMatrix(program, "iris_ModelViewMatrix", modelView);
+        setMatrix(program, "iris_ModelViewMatrixInverse", new Matrix4f(modelView).invert());
+        setMatrix(program, "iris_ProjectionMatrix", projection);
+        setMatrix(program, "iris_ProjectionMatrixInverse", new Matrix4f(projection).invert());
+        program.uniforms.location("iris_NormalMatrix", net.irisshaders.iris.gl.uniform.UniformType.MAT3)
+                .ifPresent(location -> PostUniforms.setMatrix(location, 3, new Matrix4f(modelView).invert().transpose3x3(tempMatrix3).get(floats9)));
+        program.uniforms.location("clipDistance", net.irisshaders.iris.gl.uniform.UniformType.FLOAT)
+                .ifPresent(location -> PostUniforms.setFloats(location, DhIrisBridge.nearClipDistance()));
+    }
+
+    private void setMatrix(final GbufferProgram program, final String name, final Matrix4f matrix) {
+        program.uniforms.location(name, net.irisshaders.iris.gl.uniform.UniformType.MAT4)
+                .ifPresent(location -> PostUniforms.setMatrix(location, 4, matrix.get(floats16)));
     }
 
     /** The replaced pipeline itself, rebuilt with the gbuffer attachment layout (writes colortex0 only). */
@@ -558,6 +644,9 @@ final class GbufferState implements AutoCloseable {
             Matrix4f projection = shadowPass() ? net.irisshaders.iris.helpers.MatrixUtils.undoRevZ(net.irisshaders.iris.shadows.ShadowRenderer.PROJECTION)
                     : new Matrix4f(CapturedRenderingState.INSTANCE.getGbufferProjection());
             PostUniforms.setMatrix(program.projectionInverse, 4, projection.invert().get(floats16));
+        }
+        if (dhPrograms.contains(program)) {
+            bindDhMatrices(program);
         }
         CommandEncoder encoder = RenderSystem.getDevice().createCommandEncoder();
         int alignment = RenderSystem.getDevice().getDeviceInfo().limits().minUniformOffsetAlignment();
@@ -705,6 +794,7 @@ final class GbufferState implements AutoCloseable {
         NativiumIris.LOGGER.info("[nativium-iris] gbuffers programs used on Metal: {}", compiledNames);
         programs.values().forEach(GbufferProgram::close);
         programs.clear();
+        dhPrograms.clear();
         substitutes.clear();
         formatFixes.clear();
         closeDepthCopies();

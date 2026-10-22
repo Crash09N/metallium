@@ -93,6 +93,15 @@ public final class GbufferPasses {
         if (pipeline == null || suspended > 0 || descriptor.colorAttachments().isEmpty()) {
             return descriptor;
         }
+        RenderPassDescriptor dh = pipeline.dhBridge().retarget(descriptor);
+        if (dh != null) {
+            // DH's terrain pass is captured like a vanilla one (its pipelines become dh_terrain/dh_water); its
+            // copy/apply passes only move DH's colour into a scratch texture.
+            if (DhIrisBridge.TERRAIN_PASS.equals(descriptor.label().get())) {
+                lastRetargeted = dh;
+            }
+            return dh;
+        }
         RenderPassDescriptor.Attachment<Optional<Vector4fc>> first = descriptor.colorAttachments().getFirst();
         RenderTarget main = Minecraft.getInstance().gameRenderer.mainRenderTarget();
         if (first == null || descriptor.colorAttachments().size() != 1 || first.textureView().texture() != main.getColorTexture()) {

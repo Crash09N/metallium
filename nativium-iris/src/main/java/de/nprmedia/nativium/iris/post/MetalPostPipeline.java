@@ -150,6 +150,8 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
     private WorldRenderingPhase phase = WorldRenderingPhase.NONE;
     /** Voxy's far terrain under this pack (docs/design/iris-voxy-dh.md); null until Voxy asks for its pipeline. */
     private @org.jspecify.annotations.Nullable VoxyIrisBridge voxyBridge;
+    /** Distant Horizons' LODs under this pack (docs/design/iris-voxy-dh.md, section 4). */
+    private final DhIrisBridge dhBridge = new DhIrisBridge(this);
 
     /**
      * One entry of a pass list. {@code program} is null for a compute-only entry ({@code compositeN.csh} without
@@ -845,7 +847,10 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
             }
         }
         if (!dhSkipped.isEmpty()) {
-            if (dhInstalled) {
+            if (dhInstalled && programSet.get(ProgramId.DhTerrain).isPresent() && gbuffersRun) {
+                NativiumIris.LOGGER.info("[nativium-iris] Distant Horizons: dh_terrain/dh_water draw the LODs into the gbuffers; not executed yet: {}",
+                        String.join(", ", dhSkipped.stream().filter(n -> n.equals("dh_shadow") || n.equals("dh_generic")).toList()));
+            } else if (dhInstalled) {
                 problems.add(dhSkipped.size() + " DH programs are not executed yet on Metal (Distant Horizons LODs are drawn without the pack)");
                 chatProblems.add(problems.getLast());
                 NativiumIris.LOGGER.warn("[nativium-iris] DH programs not executed: {}", String.join(", ", dhSkipped));
@@ -1686,6 +1691,15 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
         return bridge;
     }
 
+    DhIrisBridge dhBridge() {
+        return dhBridge;
+    }
+
+    /** True once Distant Horizons' LODs were drawn with this pack's dh_terrain. */
+    public boolean dhLodsActive() {
+        return dhBridge.active();
+    }
+
     /** True while Voxy draws its LODs with this pack (its shader-pack pipeline exists). */
     public boolean voxyLodsActive() {
         return voxyBridge != null && voxyBridge.active();
@@ -1698,6 +1712,7 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
     @org.jspecify.annotations.Nullable GpuTextureView farTerrainDepth(final String name) {
         return switch (name) {
             case "vxDepthTexOpaque" -> voxyBridge != null ? voxyBridge.voxyDepthView(true) : null;
+            case "dhDepthTex", "dhDepthTex0", "dhDepthTex1" -> dhBridge.depthView();
             case "vxDepthTexTrans" -> voxyBridge != null ? voxyBridge.voxyDepthView(false) : null;
             default -> null;
         };
@@ -1712,6 +1727,7 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
         if (lastRendering == this) {
             lastRendering = null;
         }
+        dhBridge.close();
         if (voxyBridge != null) {
             voxyBridge.close();
         }
