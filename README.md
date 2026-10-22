@@ -42,7 +42,9 @@ Metal smoke test (macOS): `./gradlew metalSmokeTest`.
 ### Known limitations
 
 - Voxy's far terrain under shader packs works for packs with Voxy support (`voxy.json`: Complementary Reimagined, Photon,
-  BSL); with other packs Voxy pauses while the pack is on. Distant Horizons under shader packs is not supported yet.
+  BSL); with other packs Voxy pauses while the pack is on.
+- Distant Horizons' far terrain under shader packs works for packs with DH support (`dh_terrain`); LOD shadows
+  (`dh_shadow`) and DH's own clouds/beacons (`dh_generic`) are not drawn with a pack yet.
 - The Voxy natives addon covers macOS arm64 only (no Intel Macs).
 - Geometry/tessellation shader packs, mipmapped shadow maps and some pack-specific effects are open (see STATUS).
 - nativium-gl implements a subset of OpenGL; unimplemented functions lead to the crash-recovery screen.

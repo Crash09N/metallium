@@ -291,4 +291,10 @@ At a fixed camera above the test world (vanilla rd 4, ground 64-150 blocks away 
 Reimagined r5.9.3, Photon 1.3b and BSL 10.1.8 draw Voxy's LODs lit by the pack. Earlier "invisible / white" reports
 were the test camera: spots without LODs beyond the vanilla area, and the y = 200 shot looked at the packs' cloud
 layer from above. Packs without `voxy.json` (Complementary Unbound) keep the safety net. Not yet measured: fps cost
-at 2560x1440 in the owner's modpack; Distant Horizons not done.
+at 2560x1440 in the owner's modpack.
+
+Distant Horizons (2026-10-23, `DhIrisBridge`, design section 4): DH's Blaze3D terrain pass draws into the pack's
+gbuffers with the pack's `dh_terrain`/`dh_water` (Iris's DH patch + a Blaze3D vertex/uniform adapter), DH's depth is
+`dhDepthTex0/1`. Game test `-PwithIris -PwithDH -Pshaderpack=...`: Complementary Reimagined, Photon 1.3b and BSL 10.1.8
+draw shaded LODs to the horizon (far-LOD coverage 0.63 / 0.71 / 0.40, was 0.16 = fogged out). Not yet: `dh_shadow`
+(no LOD shadows), `dh_generic` (DH clouds/beacons while a pack is on), fps cost.

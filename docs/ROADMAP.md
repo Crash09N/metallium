@@ -182,13 +182,14 @@ Not started without the owner's explicit agreement per item:
 - Apple features: MetalFX upscaling/frame interpolation, Game Mode, hardware ray tracing
 - NVIDIA / Nvidium-style GPU-driven path (the broadening; the rename to Nativium itself is ✅ done 2026-10-21)
 - **Voxy / Distant Horizons far terrain under shader packs (first big job after 1.0, owner decision 2026-10-20).**
-  In progress (design: docs/design/iris-voxy-dh.md). Done 2026-10-21: Voxy's own shader-pack pipeline
+  ✅ Done (design: docs/design/iris-voxy-dh.md). 2026-10-21: Voxy's own shader-pack pipeline
   (`IrisVoxyRenderPipeline`, pack `voxy.json` + `voxy_*.glsl`) runs on Metal via `VoxyIrisBridge` for packs with a Voxy
   patch (Complementary Reimagined: pipeline created, LOD draws land in the pack's colortex0/6, `vxDepthTexOpaque/Trans`
   bound in the pack's passes, game test PASS incl. resizes); the safety net now only pauses Voxy when the bridge is
   not active (packs without `voxy.json`, failures). 2026-10-22: verified in the final image with Complementary
   Reimagined, Photon and BSL (fix: constant expressions in `layout(binding)`, see STATUS). Open: fps cost at
-  2560x1440 in the owner's modpack; Distant Horizons (Blaze3D renderer, no DH-API program overrides) needs `dh_terrain` substitution in DH's
-  Blaze3D terrain pass - not started (`dhDepthTex*` bound white meanwhile).
+  2560x1440 in the owner's modpack. Distant Horizons: done 2026-10-23 (`DhIrisBridge`: DH's Blaze3D terrain pass
+  runs the pack's `dh_terrain`/`dh_water` into the gbuffers; Reimagined, Photon, BSL verified). Open: `dh_shadow`,
+  `dh_generic`, fps cost.
 - GPU culling (two-phase Hi-Z occlusion)
 - Broad nativium-gl coverage campaign
