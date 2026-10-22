@@ -1660,7 +1660,10 @@ public final class NativiumClientGameTest implements FabricClientGameTest {
                 }
                 if (!packStatus.contains("Voxy LODs drawn with the pack")) failures.add("voxy with pack: status line does not report Voxy LODs");
                 context.takeScreenshot("nativium-voxy-pack-rd16");
-                tryCommand(world, "tp @a 0 200 0 30 10");
+                // Below the packs' cloud layer (y ~190), looking at the horizon. Spectator: the camera must not fall
+                // (the rd 4 comparison below needs the same view every run).
+                tryCommand(world, "gamemode spectator @a");
+                tryCommand(world, "tp @a 0 150 0 30 5");
                 context.waitTicks(100);
                 context.takeScreenshot("nativium-voxy-pack-horizon");
                 tryCommand(world, "tp @a 0 160 0 30 35");
@@ -1683,6 +1686,12 @@ public final class NativiumClientGameTest implements FabricClientGameTest {
             }
             context.takeScreenshot("nativium-voxy-rd16");
             voxyHorizon(context, world);
+            if (shaded) {
+                // Fixed camera for the pack shots (voxyHorizon's spot depends on the terrain): high above the test
+                // world's forest, looking over ground 64-256 blocks away that only Voxy's LODs cover at vanilla rd 4.
+                tryCommand(world, "gamemode spectator @a");
+                tryCommand(world, "tp @a -24 161 -48 30 30");
+            }
             context.runOnClient(client -> client.options.renderDistance().set(4));
             context.waitTicks(400);
             clearChat(context);

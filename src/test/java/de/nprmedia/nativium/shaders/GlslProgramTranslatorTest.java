@@ -435,6 +435,22 @@ class GlslProgramTranslatorTest {
     }
 
     @Test
+    void explicitLayoutsEvaluateConstantExpressions() {
+        // Voxy's shader-pack samplers: layout(binding=(BASE_SAMPLER_BINDING_INDEX+N)) after preprocessing.
+        Map<String, GlslProgramTranslator.ExplicitLayout> layouts = GlslProgramTranslator.explicitLayouts("""
+                layout(binding=(6+0)) uniform sampler2D shadowtex1;
+                layout(binding = (6 + 12)) uniform sampler2D gaux2;
+                layout(std140, binding = 2*3+1u) uniform Block { vec4 a; };
+                layout(location = (1+1)) out vec4 colour;
+                layout(binding = SOME_UNKNOWN) uniform sampler2D unknown;
+                """);
+        assertEquals(new GlslProgramTranslator.ExplicitLayout(6, -1), layouts.get("shadowtex1"));
+        assertEquals(new GlslProgramTranslator.ExplicitLayout(18, -1), layouts.get("gaux2"));
+        assertEquals(new GlslProgramTranslator.ExplicitLayout(7, -1), layouts.get("Block"));
+        assertEquals(null, layouts.get("unknown"));
+    }
+
+    @Test
     void glInstanceIdExcludesBaseInstanceForGlPrograms() throws Exception {
         String vs = """
                 #version 460 core

@@ -562,8 +562,8 @@ public final class GlslProgramTranslator {
     }
 
     private static final Pattern LAYOUT_DECLARATION = Pattern.compile(
-            "layout\\s*\\(([^)]*)\\)\\s*((?:\\w+\\s+)*?)(uniform|buffer)\\s+((?:(?:restrict|readonly|writeonly|coherent|volatile|highp|mediump|lowp)\\s+)*)(\\w+)\\s*(\\{|\\w+)");
-    private static final Pattern LAYOUT_INT = Pattern.compile("\\b(binding|location)\\s*=\\s*(\\d+)");
+            "layout\\s*\\(((?:[^()]|\\([^()]*\\))*)\\)\\s*((?:\\w+\\s+)*?)(uniform|buffer)\\s+((?:(?:restrict|readonly|writeonly|coherent|volatile|highp|mediump|lowp)\\s+)*)(\\w+)\\s*(\\{|\\w+)");
+    private static final Pattern LAYOUT_INT = Pattern.compile("\\b(binding|location)\\s*=\\s*([^,]+)");
 
     /**
      * Explicit bindings and locations declared in {@code preprocessed} GLSL (see {@link #preprocess}), keyed by the name
@@ -579,8 +579,10 @@ public final class GlslProgramTranslator {
             int location = -1;
             Matcher q = LAYOUT_INT.matcher(m.group(1));
             while (q.find()) {
-                if (q.group(1).equals("binding")) binding = Integer.parseInt(q.group(2));
-                else location = Integer.parseInt(q.group(2));
+                int value = constant(q.group(2));
+                if (value < 0) continue;
+                if (q.group(1).equals("binding")) binding = value;
+                else location = value;
             }
             if (binding < 0 && location < 0) {
                 continue;
@@ -589,6 +591,53 @@ public final class GlslProgramTranslator {
             result.put(name, new ExplicitLayout(binding, location));
         }
         return result;
+    }
+
+    /**
+     * Value of a layout qualifier's integer constant expression after preprocessing: a literal or simple arithmetic
+     * such as Voxy's {@code binding=(BASE_SAMPLER_BINDING_INDEX+3)} → {@code (6+3)}; -1 if it is anything else.
+     */
+    static int constant(final String expression) {
+        String e = expression.replaceAll("\\s+", "");
+        if (!e.matches("[0-9u()+*-]+")) return -1;
+        try {
+            int[] at = {0};
+            long value = sum(e.replace("u", ""), at);
+            return at[0] == e.replace("u", "").length() && value >= 0 && value <= Integer.MAX_VALUE ? (int) value : -1;
+        } catch (RuntimeException ex) {
+            return -1;
+        }
+    }
+
+    private static long sum(final String e, final int[] at) {
+        long value = product(e, at);
+        while (at[0] < e.length() && (e.charAt(at[0]) == '+' || e.charAt(at[0]) == '-')) {
+            char op = e.charAt(at[0]++);
+            long rhs = product(e, at);
+            value = op == '+' ? value + rhs : value - rhs;
+        }
+        return value;
+    }
+
+    private static long product(final String e, final int[] at) {
+        long value = atom(e, at);
+        while (at[0] < e.length() && e.charAt(at[0]) == '*') {
+            at[0]++;
+            value *= atom(e, at);
+        }
+        return value;
+    }
+
+    private static long atom(final String e, final int[] at) {
+        if (e.charAt(at[0]) == '(') {
+            at[0]++;
+            long value = sum(e, at);
+            if (e.charAt(at[0]++) != ')') throw new IllegalArgumentException(e);
+            return value;
+        }
+        int start = at[0];
+        while (at[0] < e.length() && Character.isDigit(e.charAt(at[0]))) at[0]++;
+        return Long.parseLong(e.substring(start, at[0]));
     }
 
     /** Runs only the GLSL preprocessor (macros, {@code #if}); used to read layout qualifiers that use macros. */

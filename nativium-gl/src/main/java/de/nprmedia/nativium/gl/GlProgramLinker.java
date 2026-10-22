@@ -142,6 +142,7 @@ final class GlProgramLinker {
         Map<Stage, SpirvStage> spirv;
         try {
             for (Map.Entry<Stage, String> entry : sources.entrySet()) {
+                de.nprmedia.nativium.shaders.ShaderDump.write("gl-" + label + "." + entry.getKey().name().toLowerCase(), "glsl", entry.getValue());
                 explicit.putAll(GlslProgramTranslator.explicitLayouts(GlslProgramTranslator.preprocess(label, entry.getKey(), entry.getValue())));
             }
             spirv = GlslProgramTranslator.compileToSpirv(label, sources);
@@ -153,6 +154,8 @@ final class GlProgramLinker {
             SpirvStage fs = compute ? null : spirv.get(Stage.FRAGMENT);
             StageResult vertex = GlslProgramTranslator.spirvToMsl(vs, MSL_VERSION, !compute);
             StageResult fragment = fs == null ? null : GlslProgramTranslator.spirvToMsl(fs, MSL_VERSION, true);
+            de.nprmedia.nativium.shaders.ShaderDump.write("gl-" + label + (compute ? ".comp" : ".vert"), "metal", vertex.msl());
+            if (fragment != null) de.nprmedia.nativium.shaders.ShaderDump.write("gl-" + label + ".frag", "metal", fragment.msl());
 
             Map<String, BlockMember> vsMembers = byName(vs.defaultBlock());
             Map<String, BlockMember> fsMembers = fs == null ? Map.of() : byName(fs.defaultBlock());
