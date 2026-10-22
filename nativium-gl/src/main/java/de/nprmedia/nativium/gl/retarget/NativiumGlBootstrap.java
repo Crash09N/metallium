@@ -125,8 +125,13 @@ public final class NativiumGlBootstrap {
             }
             CLASSES.incrementAndGet();
             CALL_SITES.addAndGet(result.callSites());
-            MetalGLLog.LOGGER.info("[nativium-gl] {}: {} GL call sites retargeted ({} distinct functions without implementation)",
-                    className, result.callSites(), result.unimplemented());
+            // Per class only at debug (a mod like Voxy has dozens); classes with unimplemented functions stay visible.
+            if (result.unimplemented() > 0) {
+                MetalGLLog.LOGGER.info("[nativium-gl] {}: {} GL call sites retargeted ({} distinct functions without implementation)",
+                        className, result.callSites(), result.unimplemented());
+            } else {
+                MetalGLLog.LOGGER.debug("[nativium-gl] {}: {} GL call sites retargeted", className, result.callSites());
+            }
             return result.bytes();
         } catch (RuntimeException e) {
             MetalGLLog.LOGGER.error("[nativium-gl] retargeting {} failed; class left unchanged", className, e);

@@ -1,3 +1,7 @@
+/*
+ * SPDX-License-Identifier: MIT
+ * Copyright (c) 2026 Crash09N – NPR Media
+ */
 import java.awt.image.BufferedImage;
 import java.io.File;
 import java.util.Locale;

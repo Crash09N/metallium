@@ -1,3 +1,7 @@
+/*
+ * SPDX-License-Identifier: MIT
+ * Copyright (c) 2026 Crash09N – NPR Media
+ */
 package de.nprmedia.nativium.gametest;
 
 import de.nprmedia.nativium.compat.sodium.terrain.TerrainOcclusion;

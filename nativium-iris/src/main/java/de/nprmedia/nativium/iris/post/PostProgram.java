@@ -1,3 +1,7 @@
+/*
+ * SPDX-License-Identifier: LGPL-3.0-only
+ * Copyright (c) 2026 Crash09N – NPR Media
+ */
 package de.nprmedia.nativium.iris.post;
 
 import com.mojang.blaze3d.systems.RenderSystem;

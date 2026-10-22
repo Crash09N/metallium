@@ -112,9 +112,12 @@ public final class VoxyIrisBridge {
             Object pipeline = r.pipelineConstructor.newInstance(properties, built, nodeManager, nodeCleaner, traversal, frexStillHasWork);
             this.data = built;
             lastError = null;
-            NativiumIris.LOGGER.info("[nativium-iris] Voxy: shader-pack LOD pipeline created on Metal (draw buffers {} / {}, samplers {})",
-                    java.util.Arrays.toString((int[]) r.getOpaqueTargets.invoke(patch)), java.util.Arrays.toString((int[]) r.getTranslucentTargets.invoke(patch)),
-                    declaredSamplers.keySet());
+            // Voxy re-creates its pipeline on every render-system rebuild (world join, settings): log the first one per pack.
+            if (warned.add("created")) {
+                NativiumIris.LOGGER.info("[nativium-iris] Voxy: shader-pack LOD pipeline created on Metal (draw buffers {} / {}, samplers {})",
+                        java.util.Arrays.toString((int[]) r.getOpaqueTargets.invoke(patch)), java.util.Arrays.toString((int[]) r.getTranslucentTargets.invoke(patch)),
+                        declaredSamplers.keySet());
+            }
             return pipeline;
         } catch (InvocationTargetException e) {
             return failed(e.getCause() != null ? e.getCause() : e);

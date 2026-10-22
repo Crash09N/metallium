@@ -162,7 +162,7 @@ final class IndirectCountDraws {
         long alive = ICBS_ALIVE.incrementAndGet();
         long aliveBytes = ICB_BYTES_ALIVE.addAndGet(bytes);
         long total = ICB_ALLOCATIONS.incrementAndGet();
-        de.nprmedia.nativium.gl.MetalGLLog.LOGGER.info("[nativium-gl] indirect command buffer for {} draws ({} MiB; {} ICBs alive, {} MiB; {} allocated so far)",
+        de.nprmedia.nativium.gl.MetalGLLog.LOGGER.debug("[nativium-gl] indirect command buffer for {} draws ({} MiB; {} ICBs alive, {} MiB; {} allocated so far)",
                 capacity, bytes >> 20, alive, aliveBytes >> 20, total);
         return new Icb(icb, arguments, bytes);
     }

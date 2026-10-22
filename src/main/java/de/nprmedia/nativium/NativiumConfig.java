@@ -44,8 +44,9 @@ public final class NativiumConfig {
      */
     public boolean irisHideMacOs = true;
     /**
-     * Safety net: while a shader pack renders through the Metal Iris adapter, Voxy's LOD rendering is skipped (its
-     * shader-pack integration needs Iris's OpenGL pipeline and draws stripes / fire textures). Set to false to test.
+     * Safety net: while a shader pack without Voxy support (no {@code voxy.json}) renders through the Metal Iris adapter,
+     * or Voxy's shader-pack pipeline could not be created, Voxy's LOD rendering is skipped (it would draw unshaded LODs
+     * the pack does not expect: stripes / fire textures). Packs with Voxy support draw the LODs. Set to false to test.
      */
     public boolean voxySuppressWithShaders = true;
     /**

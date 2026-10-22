@@ -1,3 +1,7 @@
+/*
+ * SPDX-License-Identifier: MIT
+ * Copyright (c) 2026 Crash09N – NPR Media
+ */
 package de.nprmedia.nativium.compat.voxy;
 
 import de.nprmedia.nativium.Nativium;
@@ -17,7 +21,7 @@ public final class VoxyCompat {
     private static boolean noticeShown;
     private static boolean disabledForNatives;
 
-    public static final String SHADER_PAUSE_MESSAGE = "Voxy's far terrain is paused while a shader pack is active (not supported on Metal yet)";
+    public static final String SHADER_PAUSE_MESSAGE = "Voxy's far terrain is paused while this shader pack is active (the pack has no Voxy support, or Voxy's pack pipeline failed: see the log)";
     private static volatile java.util.function.BooleanSupplier shaderPackProbe = () -> false;
     private static final java.util.concurrent.atomic.AtomicLong renderCalls = new java.util.concurrent.atomic.AtomicLong();
     private static final java.util.concurrent.atomic.AtomicLong suppressedCalls = new java.util.concurrent.atomic.AtomicLong();
@@ -87,8 +91,8 @@ public final class VoxyCompat {
     }
 
     /**
-     * Called at the head of {@code VoxyRenderSystem.renderOpaque}: true = skip Voxy's render call (Voxy's shader-pack
-     * integration hooks Iris's OpenGL pipeline, which the Metal adapter does not support yet: stripes and fire textures).
+     * Called at the head of {@code VoxyRenderSystem.renderOpaque}: true = skip Voxy's render call (a pack renders on
+     * Metal without Voxy's shader-pack pipeline: no {@code voxy.json}, or nativium-iris's bridge failed).
      * Voxy's world storage and ingest keep running, so LODs are ready when shaders are switched off.
      */
     public static boolean suppressRender() {

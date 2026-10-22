@@ -1,3 +1,7 @@
+/*
+ * SPDX-License-Identifier: MIT
+ * Copyright (c) 2026 Crash09N – NPR Media
+ */
 package de.nprmedia.nativium.backend;
 
 import com.mojang.renderpearl.api.GpuFormat;
