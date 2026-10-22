@@ -60,11 +60,31 @@ nativium-gl) and over translating `dh_*` programs for Voxy geometry (packs write
 4. Ordering: Voxy draws inside Sodium's opaque pass via nativium-gl (Nativium's encoder is ended and resumed, as
    without shaders); the deferred passes run at `beginTranslucents`, after that, and read the LOD gbuffers + depth.
 
-## 4. Distant Horizons
+## 4. Distant Horizons (implemented 2026-10-22: `DhIrisBridge`)
 
 On Metal DH runs its Blaze3D (renderpearl) renderer (`DhIrisEngineMixin`); Iris's DH integration only exists for DH's
-OpenGL renderer (DH API program/framebuffer overrides with GL program and framebuffer ids). Shading DH's LODs with
-`dh_terrain` would mean substituting DH's Blaze3D terrain pipeline with a translated `dh_terrain` program in DH's
-vertex format and redirecting DH's render target to the pack's gbuffers (similar to `GbufferPasses`), plus
-`dhDepthTex0/1` from DH's depth and the DH uniforms. Not done in this step (see ROADMAP); `dhDepthTex*` are bound to
-white so packs that sample them do not read garbage.
+OpenGL renderer (DH API program/framebuffer overrides with GL ids). DH's GL renderer cannot run on Metal (DH checks that
+Minecraft itself renders with OpenGL and reads Minecraft's targets as GL textures), so the Blaze3D passes are
+redirected instead, with the same machinery as the vanilla/Sodium passes (`GbufferPasses`):
+
+1. **Terrain pass** (label `distantHorizons:TerrainRenderer`, DH's `DhColorTexture` + `DhDepthTexture`): captured;
+   its colour attachments become the pack's gbuffer attachments (no clear: the vanilla scene is already there), the
+   depth stays DH's own depth texture. That texture is `dhDepthTex`/`dhDepthTex0`/`dhDepthTex1` in the pack's passes
+   (DH's opaque and transparent terrain share the pass, so `dhDepthTex1` = `dhDepthTex0` for now).
+2. **Programs**: DH's pipelines `distanthorizons:opaque_terrain` / `transparent_terrain` are replaced by the pack's
+   `dh_terrain` / `dh_water` (Iris's fallback chain), patched by Iris's own `TransformPatcher.patchDHTerrain` and then
+   adapted (`DhIrisBridge.adaptVertex`): Iris's DH patch expects DH's OpenGL layout (`uvec4 vPosition` = position +
+   meta, `vec4 iris_color`, `uvec4 irisExtra` = material, normal, texture tile) and loose `modelOffset`/`mircoOffset`;
+   the Blaze3D pipeline delivers the same data as six attributes (`vPosition`, `meta`, `vColor`, `irisMaterial`,
+   `irisNormal`, `textureTile`) and the uniform blocks `vertUniqueUniformBlock` (`uModelOffset`) /
+   `vertSharedUniformBlock` (`uCameraPos`, `uWorldYOffset`, `uMircoOffset`, ...), which DH binds per draw by name.
+   Macros map one onto the other (`modelOffset = uModelOffset - uCameraPos + (0, uWorldYOffset, 0)`). Samplers:
+   `dhBlockAtlas` = DH's `uBlockAtlas`, `lightmap` = `uLightMap`. Per draw (like Iris's `IrisLodRenderProgram`):
+   `iris_ModelViewMatrix(Inverse)` = camera model-view, `iris_ProjectionMatrix(Inverse)` = `DHCompat.getProjection()`,
+   `iris_NormalMatrix`, `clipDistance` = DH's near clip distance (DH API).
+3. **DH's copy/apply passes** (DH's colour onto the main target) draw into a scratch texture: the pack composites the
+   LODs in its deferred/composite passes (`dhDepthTex*`, `dh*` uniforms from Iris's own uniform code,
+   `DISTANT_HORIZONS` from Iris's macros).
+
+Verified: Complementary Reimagined r5.9.3 (game test `-PwithIris -PwithDH -Pshaderpack=...`: shaded LODs to the
+horizon). Not done: `dh_shadow` (LOD shadows), `dh_generic` (DH's clouds/beacon beams are not drawn while a pack is on).
