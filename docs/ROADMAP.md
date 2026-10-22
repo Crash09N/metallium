@@ -186,9 +186,9 @@ Not started without the owner's explicit agreement per item:
   (`IrisVoxyRenderPipeline`, pack `voxy.json` + `voxy_*.glsl`) runs on Metal via `VoxyIrisBridge` for packs with a Voxy
   patch (Complementary Reimagined: pipeline created, LOD draws land in the pack's colortex0/6, `vxDepthTexOpaque/Trans`
   bound in the pack's passes, game test PASS incl. resizes); the safety net now only pauses Voxy when the bridge is
-  not active (packs without `voxy.json`, failures). Open: verify the LODs in the final image in a scene where Voxy has
-  LODs beyond the vanilla distance (the game-test world only ingested ~the rd-4 area), Photon/BSL runs, fps cost at
-  2560x1440; Distant Horizons (Blaze3D renderer, no DH-API program overrides) needs `dh_terrain` substitution in DH's
+  not active (packs without `voxy.json`, failures). 2026-10-22: verified in the final image with Complementary
+  Reimagined, Photon and BSL (fix: constant expressions in `layout(binding)`, see STATUS). Open: fps cost at
+  2560x1440 in the owner's modpack; Distant Horizons (Blaze3D renderer, no DH-API program overrides) needs `dh_terrain` substitution in DH's
   Blaze3D terrain pass - not started (`dhDepthTex*` bound white meanwhile).
 - GPU culling (two-phase Hi-Z occlusion)
 - Broad nativium-gl coverage campaign

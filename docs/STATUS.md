@@ -273,12 +273,22 @@ Complementary Unbound r5.6.1 (shaders bench, 854x480, exclusive GPU, AC, screen 
   lost archives. Found on the way: the archive grew several-fold per warm session (append path, above; the owner's
   play instance had 178 MiB) and some pipelines missed every warm session; both gone with segments.
 
-## Voxy under shader packs (2026-10-21, in progress)
+## Voxy under shader packs (2026-10-21/22)
 
 Voxy's own Iris pipeline runs on Metal through `nativium-iris` `VoxyIrisBridge` (docs/design/iris-voxy-dh.md): with
 Complementary Reimagined r5.9.3 Voxy logs "using pipeline 'IrisVoxyRenderPipeline'", a GL trace shows its LOD draw
 writing the pack's colortex6 (115k pixels at rd 16), `vxDepthTexOpaque/Trans` are Voxy's depth buffers in the pack's
 passes; game test `-PwithSodium -PwithIris -PwithGl -PwithVoxy=... -Pshaderpack=Complementary` PASS (no pause, status
 line "Voxy LODs drawn with the pack", window resizes). Translator fixes found on the way: GL's separate UBO/SSBO binding
-namespaces (SPIRV-Cross aliasing), no manual `gl_HelperInvocation` updates (undeclared in helper functions). Not yet
-verified: LODs beyond the vanilla distance in the final image (test world too small), Photon/BSL, fps cost; DH not done.
+namespaces (SPIRV-Cross aliasing), no manual `gl_HelperInvocation` updates (undeclared in helper functions).
+
+2026-10-22: verified in the final image. Bug fixed: nativium-gl read only plain integers in `layout(binding = ...)`, and
+Voxy declares the pack's samplers as `layout(binding=(BASE_SAMPLER_BINDING_INDEX+N))`, so all of them sampled texture
+unit 0 (Voxy's block atlas). A diagnostic pack (Voxy patch writing fixed colours to colortex0/6, final pass showing
+both buffers and `vxDepthTexOpaque/Trans`) showed every step correct on Metal: LOD colour and data writes to both draw
+buffers, both LOD depth buffers in the pack's passes, colour surviving a flipping deferred pass and the pack's sky.
+At a fixed camera above the test world (vanilla rd 4, ground 64-150 blocks away = LODs only), Complementary
+Reimagined r5.9.3, Photon 1.3b and BSL 10.1.8 draw Voxy's LODs lit by the pack. Earlier "invisible / white" reports
+were the test camera: spots without LODs beyond the vanilla area, and the y = 200 shot looked at the packs' cloud
+layer from above. Packs without `voxy.json` (Complementary Unbound) keep the safety net. Not yet measured: fps cost
+at 2560x1440 in the owner's modpack; Distant Horizons not done.
