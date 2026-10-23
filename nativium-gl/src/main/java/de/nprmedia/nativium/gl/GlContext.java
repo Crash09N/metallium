@@ -1352,8 +1352,18 @@ public final class GlContext {
     public void shaderSource(final int name, final String source) {
         Shader shader = shader(name);
         if (shader != null) {
-            shader.source = source;
+            shader.source = DEBUG_SOURCE_PATCH == null || !source.contains(DEBUG_SOURCE_PATCH[0]) ? source
+                    : source.replace(DEBUG_SOURCE_PATCH[0], DEBUG_SOURCE_PATCH[1]);
         }
+    }
+
+    /** Diagnostics: -Dnativium.gl.debugSourcePatch=from=>to rewrites every GL shader source containing "from". */
+    private static final String @Nullable [] DEBUG_SOURCE_PATCH = debugSourcePatch();
+
+    private static String @Nullable [] debugSourcePatch() {
+        String spec = System.getProperty("nativium.gl.debugSourcePatch");
+        int arrow = spec == null ? -1 : spec.indexOf("=>");
+        return arrow <= 0 ? null : new String[] {spec.substring(0, arrow), spec.substring(arrow + 2)};
     }
 
     public void compileShader(final int name) {
@@ -2232,7 +2242,10 @@ public final class GlContext {
         return new GlDevice.RasterState(viewport.clone(), depthNear, depthFar, scissorTest ? scissorBox.clone() : null, blend,
                 blendColor.clone(), depthTest, depthFunc, depthTest && depthMask, cullFace ? cullFaceMode : GL_NONE,
                 frontFace == GL_CCW, polygonOffsetFill, polygonOffsetFactor, polygonOffsetUnits, polygonMode == GL_LINE,
-                stencilTest && targets.depthHasStencil()
+                // GL: without a stencil attachment the stencil test passes and nothing is written - also when the
+                // depth attachment is a depth-stencil texture bound as GL_DEPTH_ATTACHMENT only (Voxy's HiZ mip chain:
+                // its stencil test left on from the LOD pass discarded every HiZ write on Metal).
+                stencilTest && targets.depthHasStencil() && (drawFramebuffer == null || drawFramebuffer.stencil != null)
                         ? new GlDevice.StencilState(true, stencilFunc, stencilRef, stencilValueMask, stencilWriteMask, stencilFail, stencilDepthFail, stencilDepthPass)
                         : GlDevice.StencilState.DISABLED, clipDepthZeroToOne);
     }

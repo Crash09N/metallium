@@ -236,6 +236,46 @@ class MetalGlDeviceTest {
         assertPixel(32, 32, 255, 0, 0, "near quad drawn, far quad depth-rejected");
     }
 
+    /**
+     * A depth-stencil texture attached as GL_DEPTH_ATTACHMENT only: the framebuffer has no stencil buffer, so an
+     * enabled stencil test passes (Voxy's HiZ chain draws with the LOD pass's stencil test still on).
+     */
+    @Test
+    void stencilTestPassesWithoutStencilAttachment() {
+        int colour = MetalGL.glGenTextures();
+        MetalGL.glBindTexture(GL_TEXTURE_2D, colour);
+        MetalGL.glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, 32, 32, 0, GL_RGBA, GL_UNSIGNED_BYTE, (ByteBuffer) null);
+        int depth = MetalGL.glGenTextures();
+        MetalGL.glBindTexture(GL_TEXTURE_2D, depth);
+        MetalGL.glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH32F_STENCIL8, 32, 32, 0, GL_DEPTH_STENCIL, GL_FLOAT_32_UNSIGNED_INT_24_8_REV, (ByteBuffer) null);
+        int fbo = MetalGL.glGenFramebuffers();
+        MetalGL.glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+        MetalGL.glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, colour, 0);
+        MetalGL.glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, depth, 0);
+        assertEquals(GL_FRAMEBUFFER_COMPLETE, MetalGL.glCheckFramebufferStatus(GL_FRAMEBUFFER));
+        MetalGL.glViewport(0, 0, 32, 32);
+        MetalGL.glClearColor(0f, 0f, 1f, 1f);
+        MetalGL.glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        MetalGL.glEnable(GL_STENCIL_TEST);
+        de.nprmedia.nativium.gl.MetalGL4.glStencilFunc(GL_EQUAL, 1, 0xFF);
+        int p = program(VS, FS_COLOR);
+        MetalGL.glUseProgram(p);
+        MetalGL.glUniform4f(MetalGL.glGetUniformLocation(p, "uColor"), 1f, 0f, 0f, 1f);
+        MetalGL.glBindVertexArray(quad(-1, -1, 1, 1));
+        MetalGL.glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_SHORT, 0L);
+        MetalGL.glDisable(GL_STENCIL_TEST);
+        assertEquals(GL_NO_ERROR, MetalGL.glGetError());
+        assertPixel(16, 16, 255, 0, 0, "drawn: no stencil attachment, so the stencil test passes");
+        // With the same texture also attached as the stencil buffer (stencil 0 after the clear), EQUAL 1 rejects.
+        MetalGL.glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_TEXTURE_2D, depth, 0);
+        MetalGL.glClearStencil(0);
+        MetalGL.glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+        MetalGL.glEnable(GL_STENCIL_TEST);
+        MetalGL.glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_SHORT, 0L);
+        MetalGL.glDisable(GL_STENCIL_TEST);
+        assertPixel(16, 16, 0, 0, 255, "stencil attached: EQUAL 1 against 0 rejects");
+    }
+
     @Test
     void framebufferObjectScissoredClearAndBlending() {
         MetalGL.glClearColor(0f, 0f, 0f, 1f);
