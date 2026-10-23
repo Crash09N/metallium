@@ -99,6 +99,12 @@ See "Release jar verification" at the end of this file.
   inline `CardinalLighting.byFace` (log line "C2 workaround ..."; off with `-Dnativium.jitWorkaround=false`). If the
   JVM refuses runtime directives (log warning), add `-XX:CompileCommand=dontinline,net.minecraft.world.level.CardinalLighting::byFace`
   to the JVM arguments instead.
+- Shader cache writer crash (fixed after the 1.0.0 jar): on 2026-10-23 the 1.0.0 jar crashed at start-up with a fresh
+  `.nativium-cache` inside Metal's binary archive serializer (`EXC_BAD_ACCESS` in
+  `-[_MTLBinaryArchive materializeAirNTFromOnlineForSlice:entryList:]`, thread "Nativium shader cache writer").
+  Now only the writer thread adds to and serializes the session archive, only pipelines that were created go in, it
+  waits until pipeline creation settles, and a `pipelines.serializing` marker turns archive writing off for that cache
+  if Metal ever crashes there again. Workaround for 1.0.0: `-Dnativium.shaderCache=false`.
 
 ## Release jar verification
 

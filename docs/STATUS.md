@@ -96,8 +96,12 @@ cache (`$DARWIN_USER_CACHE_DIR/net.java.openjdk.java/com.apple.metal`), shared b
   cap 1 GiB. `-Dnativium.shaderCache=false` disables, `.maxMB=`, `.dir=` override.
 - SPIR-V→MSL (SPIRV-Cross) and GLSL→SPIR-V (shaderc, Iris adapter / nativium-gl) results cached by content hash.
 - Metal binary archive, one segment per session (`pipelines-<time>.mtlarchive`): pipeline states are looked up with
-  `FailOnBinaryArchiveMiss` in all segments; misses are added (exactly once per full-descriptor key) to this session's
-  fresh archive, written every 20 s / on close. Never appended to a loaded archive: Metal then re-serializes it at
+  `FailOnBinaryArchiveMiss` in all segments; misses are compiled normally and, if the state was created, recorded
+  (exactly once per full-descriptor key). Only the writer thread adds them to this session's fresh archive and
+  serializes it (checked every 20 s once no new pipeline appeared for 10 s, at most 120 s later; on close at once).
+  `pipelines.serializing` marker around each write: left over after a crash, it turns archive writing off for that
+  cache environment (owner crash 2026-10-23 inside `serializeToURL`, `materializeAirNTFromOnlineForSlice`, with the
+  old design where compile threads added to the archive being serialized; `-Dnativium.shaderCache.writeArchive=false` forces it off). Never appended to a loaded archive: Metal then re-serializes it at
   several times its size (standalone test 755 KB + 1 pipeline = 2.2 MB; Iris game test 9.9 -> 115 MB per warm
   session) and moves the source file on an unchanged serialize. Reset after 24 segments or half the cache cap. Each
   segment file is also a metallib: opened as an `MTLLibrary`, functions found there skip the MSL compile entirely
