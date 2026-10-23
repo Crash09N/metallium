@@ -4,7 +4,7 @@ The owner's everyday modpack (Fabric, Minecraft 26.3, 145 enabled mods, 16 resou
 Metallium 0.1.0-alpha.1. The test ran on an Apple M3 Max with macOS 27.0.1, in an 854x480 window at render distance 5
 (the instance's own setting).
 This file has no private data: only mod and pack names and versions. Screenshots and logs are kept outside the
-repository in `/Users/noah/Downloads/metallium-research/sweep-results/real-instance-2026-10-18/`, with one folder per
+repository in `/Users/noah/Desktop/Nativium/nativium-research/sweep-results/real-instance-2026-10-18/`, with one folder per
 run: `full2/` (all packs on Metal), `fps-metal/` and `fps-opengl/`, `solas-opengl/`, and `full1/` (before the fixes).
 
 ## How it was run

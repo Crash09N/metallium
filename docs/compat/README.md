@@ -4,9 +4,9 @@
 (`./gradlew :runClientGameTest -PwithSodium -PwithIris -Pshaderpack=<zip>`) once per local pack on Metal, parses the game
 test report and `latest.log`, and writes `docs/compat/shaderpacks-<date>.md`.
 
-Packs are local only (`/Users/noah/Downloads/metallium-research/shaderpacks/`, see its `MANIFEST.md`). Never copy them into
+Packs are local only (`/Users/noah/Desktop/Nativium/nativium-research/shaderpacks/`, see its `MANIFEST.md`). Never copy them into
 the repository; most licences forbid redistribution. Screenshots and logs are written outside the repo to
-`/Users/noah/Downloads/metallium-research/sweep-results/<date>/` and referenced there by absolute path.
+`/Users/noah/Desktop/Nativium/nativium-research/sweep-results/<date>/` and referenced there by absolute path.
 
 ## Run
 

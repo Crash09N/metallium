@@ -72,4 +72,4 @@ All three engines are locked to 60 fps: Metal rendered 60.0 = submitted 60.0 = p
    not a heavier scene than `light` in this harness; the RD numbers above do not show RD scaling. Needs a benchmark fix (wait for the chunks of the new RD to load, or a camera that sees more terrain) before RD scaling can be claimed.
 5. The `flight` scene sees the same 90/2616 sections as the static ones, so chunk loading during flight is not stressing the renderer either.
 
-Raw per-cell reports and logs: `build/shootout-logs/base-*/` in the worktree (not committed); sweep data in `/Users/noah/Downloads/metallium-research/sweep-results/2026-10-19-baseline/`.
+Raw per-cell reports and logs: `build/shootout-logs/base-*/` in the worktree (not committed); sweep data in `/Users/noah/Desktop/Nativium/nativium-research/sweep-results/2026-10-19-baseline/`.

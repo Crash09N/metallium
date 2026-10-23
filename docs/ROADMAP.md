@@ -132,7 +132,7 @@ benchmarks on the G5 are still to be done (CPU-side encoder counters below, `-Pp
 - Unsupported features are detected at pack load and reported; never a crash or black screen
 - **Pack sweep** (regression test after every Iris stage): a local corpus of popular packs (BSL, Complementary
   Reimagined/Unbound, Photon, Bliss, Sildur's Vibrant, MakeUp Ultra Fast, Solas, Rethinking Voxels, Nostalgia, Super
-  Duper Vanilla) in `metallium-research/shaderpacks/` — local only, never committed (most licences forbid
+  Duper Vanilla) in `nativium-research/shaderpacks/` — local only, never committed (most licences forbid
   redistribution). One command loads each pack, takes screenshots and records translated/unsupported programs into a
   compatibility table under `docs/`.
 - Design: `docs/design/iris-adapter-blueprint.md`

@@ -6,7 +6,7 @@ Date 2026-10-18. Labels: [V] Verified, [S] Strongly inferred, [H] Hypothesis.
 
 - [V] CurseForge page only (by Metal_Team). Fabric + NeoForge; MC 26.2 and 1.21.1 (v0.5.0, 2026-10-11); 1.21.11/1.20.1 planned v0.6.0. Licence: All Rights Reserved.
 - [V] No source link (page links only Instagram/YouTube); not on Modrinth (API search "metal upscaler" returned 0 hits); web search found no GitHub repo.
-- [V] Jar download not possible: direct curl to /download/9130962 returns HTTP 403 (needs browser). Nothing cloned, no jar inspected. Empty dir created: /Users/noah/Downloads/metallium-research/metal-upscaler-jar. If the owner wants a javap look, they must download the jar manually (but licence is ARR: ideas only; never copy).
+- [V] Jar download not possible: direct curl to /download/9130962 returns HTTP 403 (needs browser). Nothing cloned, no jar inspected. Empty dir created: /Users/noah/Desktop/Nativium/nativium-research/metal-upscaler-jar. If the owner wants a javap look, they must download the jar manually (but licence is ARR: ideas only; never copy).
 - Everything below on how it works is [V as the author's claim, from the page text], not from code:
   - Stays on the OpenGL backend; renders at reduced resolution; upscaler per platform: DLSS (RTX, via D3D12), MetalFX (Apple Silicon), FSR1 (AMD/Intel), Lanczos fallback.
   - Cross-API sharing via IOSurface on macOS (shared NT handles on Windows) -> GL texture and Metal texture alias the same memory.

@@ -3,7 +3,7 @@
 #
 #   tools/make-run-instance.sh [SOURCE_INSTANCE] [DEST]
 #
-# SOURCE_INSTANCE defaults to $NATIVIUM_INSTANCE (or the old $METALLIUM_INSTANCE) or /Users/noah/Desktop/Metallium/metallium-research/minecraft-instance,
+# SOURCE_INSTANCE defaults to $NATIVIUM_INSTANCE (or the old $METALLIUM_INSTANCE) or /Users/noah/Desktop/Nativium/nativium-research/minecraft-instance,
 # DEST to run-instance/ in the repository (git-ignored). Copies the enabled mods (*.jar; *.disabled stay out),
 # shaderpacks/, resourcepacks/, config/ and options.txt. Never copies saves, server lists, account data (essential/),
 # logs, crash reports or screenshots. Fabric API is left out because the dev game-test classpath already provides it
@@ -11,7 +11,7 @@
 # Essential is skipped (KEEP_ESSENTIAL=1 keeps it), see below. SKIP_MODS="glob1 glob2" leaves out more jars. Nothing from DEST may be committed.
 set -euo pipefail
 repo="$(cd "$(dirname "$0")/.." && pwd)"
-src="${1:-${NATIVIUM_INSTANCE:-${METALLIUM_INSTANCE:-/Users/noah/Desktop/Metallium/metallium-research/minecraft-instance}}}"
+src="${1:-${NATIVIUM_INSTANCE:-${METALLIUM_INSTANCE:-/Users/noah/Desktop/Nativium/nativium-research/minecraft-instance}}}"
 dest="${2:-$repo/run-instance}"
 [ -f "$src/options.txt" ] || { echo "not a Minecraft instance: $src" >&2; exit 1; }
 

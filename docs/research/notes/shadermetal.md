@@ -1,6 +1,6 @@
 # ShaderMetal (LingXiFox) audit
 
-Cloned 2026-10-18 to /Users/noah/Downloads/metallium-research/ShaderMetal (6 commits, all 2026-07-14/15, single author LingXiFox).
+Cloned 2026-10-18 to /Users/noah/Desktop/Nativium/nativium-research/ShaderMetal (6 commits, all 2026-07-14/15, single author LingXiFox).
 Paths below are relative to `shader-metal-template-1.21.4/` unless noted. Labels: V = Verified in code, SI = Strongly inferred, H = Hypothesis.
 
 ## Summary

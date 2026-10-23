@@ -1,6 +1,6 @@
 # Mod compatibility batch 1: ReGlass, Meshelium, Light Overlay, Cull Leaves, More Culling (vs Metallium, MC 26.3)
 
-Research date 2026-10-18. Repos cloned (`git clone --filter=blob:none`) into `/Users/noah/Downloads/metallium-research/<name>/`. Source reading only; nothing was run on Metallium.
+Research date 2026-10-18. Repos cloned (`git clone --filter=blob:none`) into `/Users/noah/Desktop/Nativium/nativium-research/<name>/`. Source reading only; nothing was run on Metallium.
 Labels: **Verified** = read in the cloned source (path:line or file given); **Strongly inferred**; **Hypothesis**.
 Status key: (a) works as-is, (b) small compat mixin, (c) needs Metallium extension API or `metallium-gl`, (d) incompatible.
 Background: `vanilla-renderpearl.md` TL;DR. Premise used here: on Metal, raw `org.lwjgl.opengl.*` / `GlStateManager` / casts to `GlDevice`/`GlTexture` crash; renderpearl-only code works; Sodium 0.9.2 runs unmodified.

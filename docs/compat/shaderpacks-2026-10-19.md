@@ -1,7 +1,7 @@
 # Shader pack compatibility 2026-10-19 (Metal, baseline before the encoder optimisation)
 
 - Commit 8c5c9ea + bench tooling; Apple M3 Max, macOS 27.0.1; `REFERENCE=1 tools/pack-sweep.sh` (each pack on Metal and on OpenGL), all runs under `gpu-lock.sh` (shared, not exclusive).
-- Screenshots/logs (outside the repo): `/Users/noah/Downloads/metallium-research/sweep-results/2026-10-19-baseline/<pack>-{metal,opengl}-{natural,flat}.png`, `-report.txt`, `-latest.log`.
+- Screenshots/logs (outside the repo): `/Users/noah/Desktop/Nativium/nativium-research/sweep-results/2026-10-19-baseline/<pack>-{metal,opengl}-{natural,flat}.png`, `-report.txt`, `-latest.log`.
 - All 11 packs in the local pack directory: no crash, game test PASS for 10, FAIL for BSL (assertion below). Pipeline is `MetalPostPipeline` for all.
 
 ## Classification (I looked at the Metal and OpenGL screenshots)

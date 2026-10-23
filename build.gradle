@@ -276,7 +276,7 @@ if (project.hasProperty('instance')) {
 }
 
 // ./gradlew :runClient -Pplay[=dir]  → play the real instance by hand (tools/make-run-instance.sh <src> play-instance):
-// its mods load from <dir>/mods, plus the dev Nativium, nativium-iris and nativium-gl. Default dir: metallium-research/play-instance (outside the repo; never commit instance data).
+// its mods load from <dir>/mods, plus the dev Nativium, nativium-iris and nativium-gl. Default dir: nativium-research/play-instance (outside the repo; never commit instance data).
 if (project.hasProperty('play')) {
 	dependencies {
 		localRuntime project(':nativium-iris')
@@ -284,7 +284,7 @@ if (project.hasProperty('play')) {
 	}
 	def dir = project.property('play')
 	loom.runs.client {
-		runDir((dir instanceof String && !dir.isEmpty() && dir != 'true') ? dir : '../metallium-research/play-instance')
+		runDir((dir instanceof String && !dir.isEmpty() && dir != 'true') ? dir : '../nativium-research/play-instance')
 	}
 }
 
@@ -445,13 +445,13 @@ if (project.hasProperty('releaseJarTest')) {
 // ./gradlew runClientProd  -> production-style Fabric launch (fabric.development unset) of the play instance, for mods that
 // refuse Loom dev environments (Essential: "Failed to find tiny mappings file"). Nativium is the release jar
 // (build/release/nativium-<v>.jar, added with -Dfabric.addMods, includes nativium-gl + nativium-iris), not dev classes.
-// The instance (../metallium-research/play-instance by default, or -PplayProd=<dir>) supplies the other mods. Offline user, no login.
+// The instance (../nativium-research/play-instance by default, or -PplayProd=<dir>) supplies the other mods. Offline user, no login.
 // Voxy's 26.3 build bundles RocksDB / LWJGL zstd without macOS natives; the release jar's nested nativium-voxy-natives
 // addon supplies them (no extra classpath entries, exactly like a Prism / official-launcher install).
 tasks.register('runClientProd', JavaExec) {
 	dependsOn 'releaseJar'
 	def dirProp = project.findProperty('playProd')
-	def instDir = file((dirProp instanceof String && !dirProp.isEmpty() && dirProp != 'true') ? dirProp : '../metallium-research/play-instance')
+	def instDir = file((dirProp instanceof String && !dirProp.isEmpty() && dirProp != 'true') ? dirProp : '../nativium-research/play-instance')
 	def rel = layout.buildDirectory.file("release/nativium-${project.version}.jar").get().asFile
 	workingDir = instDir
 	classpath = files(configurations.runtimeClasspath.filter { !it.name.startsWith('metal-jvm') })
