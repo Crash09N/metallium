@@ -17,6 +17,7 @@ public final class Nativium implements ClientModInitializer {
         if (!NativiumPlatform.supported()) {
             return; // inert: NativiumPlatform logged its single line, nothing else happens
         }
+        de.nprmedia.nativium.compat.JitWorkarounds.apply(); // C2 crash in Sodium+Iris meshing (see the class)
         BackendSelection.logDecision();
         if (BackendSelection.shouldOfferMetal()) {
             de.nprmedia.nativium.power.PowerManager.start(); // the power mode only caps FPS on Metal

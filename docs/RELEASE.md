@@ -91,6 +91,14 @@ See "Release jar verification" at the end of this file.
 - nativium-gl implements a subset of OpenGL; mods using unimplemented functions get a crash-recovery screen and OpenGL on the next start.
 - Apple-native extras (MetalFX, Game Mode, ...) are not part of the alpha.
 - Closed-source mods are never bundled; Physics Mod and similar work only as separate installs.
+- JVM crash workaround (Sodium + Iris, not caused by Nativium): HotSpot C2 (seen on Temurin 25.0.4.1, macOS arm64)
+  miscompiles Sodium's `FlatLightPipeline.getShade` once Iris's directional-shading hook in `CardinalLighting.byFace` is
+  inlined into it: it reads `.ordinal` of a null `shadeDirectionOverride` before the null check, and the game dies with
+  `SIGSEGV ... Problematic frame: J c2 ...FlatLightPipeline.getShade` (typically right after a world loads with the
+  shader pack switched off). With Sodium and Iris loaded, Nativium adds a compiler directive at startup so C2 does not
+  inline `CardinalLighting.byFace` (log line "C2 workaround ..."; off with `-Dnativium.jitWorkaround=false`). If the
+  JVM refuses runtime directives (log warning), add `-XX:CompileCommand=dontinline,net.minecraft.world.level.CardinalLighting::byFace`
+  to the JVM arguments instead.
 
 ## Release jar verification
 
