@@ -15,11 +15,13 @@ Guiding rules
 
 Status legend: ✅ done · 🔄 in progress · ⏳ planned · 🔬 needs research/audit
 
-## Phase 1 — Metal backend works ✅ / 🔄
+## Phase 1 — Metal backend works ✅
 - ✅ Metal backend under renderpearl (started from Metallum, MIT), Metal first on Apple Silicon, OpenGL/Vulkan fallback
 - ✅ CI on GitHub's Mac runners: smoke test, game tests with screenshots and an automatic terrain check
 - ✅ Sodium terrain renders correctly on Apple Silicon (the garbled output was GitHub's paravirtual GPU only; CI is now disabled)
-- ⏳ Conformance scenes: every vanilla pipeline compared against OpenGL screenshots (orientation, blending, depth, OIT)
+- ✅ Conformance scenes: every vanilla pipeline compared against OpenGL screenshots (orientation, blending, depth, OIT):
+  `-PconformanceTest` (30 shots, fancy + fabulous) vs `-PbackendOff`, `tools/conformance-compare.sh`; all scenes match
+  within run-to-run noise, no Metal bug found (`docs/compat/conformance-2026-10-23.md`)
 
 ## Phase 2 — Backend performance (mcopt's techniques) ⏳
 - Merge consecutive render passes with the same targets; clears as load actions; store actions chosen per pass

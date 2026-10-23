@@ -33,3 +33,9 @@ the repository; most licences forbid redistribution. Screenshots and logs are wr
 `tools/make-run-instance.sh` + `./gradlew runClientGameTest -Pinstance` run a copy of a real instance (all its mods,
 resource and shader packs) on the dev Nativium; see [real-instance-2026-10-18.md](real-instance-2026-10-18.md) for the
 first run with the owner's 145-mod pack and the findings.
+
+## Conformance (Metal vs OpenGL)
+
+`./gradlew :runClientGameTest -PconformanceTest` (and again with `-PbackendOff`), then
+`tools/conformance-compare.sh <metal-shots> <opengl-shots> <out>`: deterministic scenes for every vanilla render
+pipeline, compared shot by shot. Latest: `conformance-2026-10-23.md`.
