@@ -15,6 +15,8 @@
     "GlStateManagerGuardMixin",
     "IrisCreatePipelineMixin",
     "IrisDebugMixin",
+    "IrisFrameCounterMixin",
+    "IrisFrameTimerMixin",
     "IrisMixin",
     "IrisPackInUseMixin",
     "IrisRenderSystemMixin",
