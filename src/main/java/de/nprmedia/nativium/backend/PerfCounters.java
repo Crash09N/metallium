@@ -25,6 +25,9 @@ final class PerfCounters {
     static long clearEncoders;
     /** Render-encoder attachments ended with {@code MTLStoreActionDontCare} (contents dead, see MetalCommandEncoder). */
     static long discardedStores;
+    /** Uploads recorded in the upload command buffer instead of in place, and its blit encoders. */
+    static long hoistedUploads;
+    static long uploadEncoders;
     /** Copies that reused an already open blit encoder. */
     static long coalescedBlits;
     static long draws;
@@ -85,9 +88,9 @@ final class PerfCounters {
         }
         double n = submits;
         Nativium.LOGGER.info(String.format(
-                "Nativium perf (per submit, %d submits): renderEnc=%.1f blitEnc=%.1f (coalesced %.1f) blits[wb,cb,wt,bt,tb,tt]=%s clearEnc=%.1f dontCareStores=%.2f draws=%.0f"
+                "Nativium perf (per submit, %d submits): renderEnc=%.1f blitEnc=%.1f (coalesced %.1f) blits[wb,cb,wt,bt,tb,tt]=%s clearEnc=%.1f dontCareStores=%.2f hoisted=%.1f (uploadEnc %.1f) draws=%.0f"
                         + " stagedWrites=%.1f (%.1f KiB) directWrites=%.1f orphanWrites=%.1f (copy %.1f KiB) submitWait=%.3f ms gpu=%.3f ms",
-                submits, renderEncoders / n, blitEncoders / n, coalescedBlits / n, kinds(n), clearEncoders / n, discardedStores / n, draws / n,
+                submits, renderEncoders / n, blitEncoders / n, coalescedBlits / n, kinds(n), clearEncoders / n, discardedStores / n, hoistedUploads / n, uploadEncoders / n, draws / n,
                 stagedWrites / n, stagedWriteBytes / n / 1024.0, directWrites / n, orphanWrites / n, orphanCopyBytes / n / 1024.0,
                 submitWaitNs / n / 1e6, gpuNs / n / 1e6));
         Nativium.LOGGER.info(String.format(
@@ -95,7 +98,7 @@ final class PerfCounters {
                 multiDraws / n, subDraws / n, multiDrawNs / n / 1e6, frameNs / n / 1e6, de.nprmedia.nativium.backend.terrain.TerrainPerf.formatAndReset(n)));
         multiDraws = subDraws = multiDrawNs = frameNs = 0;
         java.util.Arrays.fill(blitKinds, 0);
-        renderEncoders = blitEncoders = clearEncoders = discardedStores = coalescedBlits = draws = 0;
+        renderEncoders = blitEncoders = clearEncoders = discardedStores = hoistedUploads = uploadEncoders = coalescedBlits = draws = 0;
         stagedWrites = stagedWriteBytes = directWrites = orphanWrites = orphanCopyBytes = submitWaitNs = gpuNs = 0;
         submits = 0;
     }

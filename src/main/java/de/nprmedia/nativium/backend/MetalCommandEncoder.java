@@ -98,6 +98,23 @@ final class MetalCommandEncoder implements CommandEncoderBackend {
     /** Attachments of the open render encoder whose contents are dead (bit i: color i; bit 31: depth). */
     private int deadAttachments;
     private static final int DEAD_DEPTH = 1 << 31;
+    /**
+     * {@code -Dnativium.uploadHoist} (default on): uploads into a buffer that nothing recorded in the current submit
+     * references yet ({@link MetalGpuBuffer#useEpoch}) go into one blit encoder of a separate upload command buffer
+     * that is committed right before the frame's command buffer, instead of ending the open render encoder for a blit
+     * (vanilla's {@code StagedVertexBuffer} between the world, hand and GUI passes; Sodium's geometry uploads). Off:
+     * every copy is recorded in place (the previous behaviour).
+     */
+    static final boolean UPLOAD_HOIST = !"false".equalsIgnoreCase(System.getProperty("nativium.uploadHoist", "true").trim());
+    /** Incremented by every {@link #submit()}; see {@link MetalGpuBuffer#useEpoch}. Render thread writes, plain field. */
+    static int epoch;
+    /** {@link #UPLOAD_HOIST}: the upload command buffer of the current submit and its open blit encoder. */
+    @Nullable
+    private MTLCommandBuffer uploadBuffer;
+    @Nullable
+    private MTLBlitCommandEncoder uploadBlit;
+    /** Native handles the open upload blit encoder writes (copies in one encoder are not ordered). */
+    private final LongArrayList uploadWrites = new LongArrayList();
 
     MetalCommandEncoder(final MetalDevice device) {
         this.device = device;
@@ -150,10 +167,12 @@ final class MetalCommandEncoder implements CommandEncoderBackend {
      * the frame's final submit.
      */
     void commitAndWait() {
-        if (commandBuffer == null) {
+        if (commandBuffer == null && uploadBuffer == null) {
             return;
         }
+        commandBuffer();
         endEncoder();
+        commitUploads();
         commandBuffer.commit();
         commandBuffer.waitUntilCompleted();
         commandBuffer.release();
@@ -200,6 +219,74 @@ final class MetalCommandEncoder implements CommandEncoderBackend {
             blitReads.add(read);
         }
         blitWrites.add(write);
+    }
+
+    /**
+     * {@link #UPLOAD_HOIST}: whether a copy of CPU-written data into {@code target} may run before everything recorded
+     * in the current submit so far. True if nothing recorded so far references the target, nothing outside the backend
+     * holds its handle, and the source (null: Nativium's own staging memory) is CPU-written memory no GPU command of
+     * this submit wrote. Must be asked before the target's handle is fetched.
+     */
+    private static boolean canHoistUpload(@Nullable final MetalGpuBuffer source, final MetalGpuBuffer target) {
+        if (!UPLOAD_HOIST || target.useEpoch == epoch || target.exposedExternally || target.isDynamic()) {
+            return false;
+        }
+        return source == null || (source != target && !source.exposedExternally && source.gpuWriteEpoch != epoch
+                && (source.usage() & GpuBuffer.USAGE_MAP_WRITE) != 0);
+    }
+
+    /** A blit encoder of the upload command buffer for a copy that writes {@code write}. */
+    private MTLBlitCommandEncoder uploadBlitFor(final long write) {
+        if (uploadBlit != null && !uploadWrites.contains(write)) {
+            uploadWrites.add(write);
+            if (PerfCounters.ENABLED) PerfCounters.hoistedUploads++;
+            return uploadBlit;
+        }
+        endUploadEncoder();
+        if (uploadBuffer == null) {
+            try (AutoreleasePool _ = AutoreleasePool.push()) {
+                uploadBuffer = MetalUtilities.nonNil(device.commandQueue.commandBuffer(), "commandBuffer");
+                uploadBuffer.retain();
+            }
+            if (device.useLabels()) {
+                uploadBuffer.setLabel("Nativium uploads " + currentSubmitIndex);
+            }
+        }
+        MTLBlitCommandEncoder blit;
+        try (AutoreleasePool _ = AutoreleasePool.push()) {
+            blit = MetalUtilities.nonNil(uploadBuffer.blitCommandEncoder(), "blitCommandEncoder");
+            blit.retain();
+        }
+        blit.waitForFence(frameFence());
+        uploadBlit = blit;
+        uploadWrites.add(write);
+        if (PerfCounters.ENABLED) {
+            PerfCounters.hoistedUploads++;
+            PerfCounters.uploadEncoders++;
+        }
+        return blit;
+    }
+
+    private void endUploadEncoder() {
+        uploadWrites.clear();
+        if (uploadBlit != null) {
+            // Also in overlap mode: Nativium's encoders wait for frameFence(), so the frame starts after its uploads.
+            uploadBlit.updateFence(frameFence());
+            uploadBlit.endEncoding();
+            uploadBlit.release();
+            uploadBlit = null;
+        }
+    }
+
+    /** Commits the upload command buffer (before the frame's command buffer, so the GPU runs it first). */
+    private void commitUploads() {
+        if (uploadBuffer == null) {
+            return;
+        }
+        endUploadEncoder();
+        uploadBuffer.commit();
+        uploadBuffer.release();
+        uploadBuffer = null;
     }
 
     void endEncoder() {
@@ -280,9 +367,13 @@ final class MetalCommandEncoder implements CommandEncoderBackend {
     @Override
     public void submit() {
         InFlight toClose = null;
+        if (uploadBuffer != null) {
+            commandBuffer(); // the frame's completion tracking covers the uploads (they complete before it)
+        }
         if (commandBuffer != null) {
             submitRenderPass();
             endEncoder();
+            commitUploads();
 
             int slot = (int) (currentSubmitIndex % MAX_SUBMITS_IN_FLIGHT);
             submitSemaphores[slot].drainPermits();
@@ -295,6 +386,7 @@ final class MetalCommandEncoder implements CommandEncoderBackend {
             commandBuffer = null;
         }
         currentSubmitIndex++;
+        epoch++;
 
         long waitStart = PerfCounters.ENABLED ? System.nanoTime() : 0L;
         if (!awaitSubmitCompletion(currentSubmitIndex - MAX_SUBMITS_IN_FLIGHT, 5000L)) {
@@ -694,7 +786,9 @@ final class MetalCommandEncoder implements CommandEncoderBackend {
         GpuBufferSlice staging = transientMemory.uploadStaging(data, 4L, GpuBuffer.USAGE_COPY_SRC);
         MetalGpuBuffer stagingBuffer = (MetalGpuBuffer) staging.buffer();
 
-        MTLBlitCommandEncoder blit = blitFor(0L, buffer.metalBuffer().handle());
+        boolean hoist = canHoistUpload(null, buffer);
+        buffer.gpuWriteEpoch = epoch;
+        MTLBlitCommandEncoder blit = hoist ? uploadBlitFor(buffer.metalBuffer().handle()) : blitFor(0L, buffer.metalBuffer().handle());
         if (PerfCounters.ENABLED) PerfCounters.blitKinds[0]++;
         blit.copyFromBuffer(
                 stagingBuffer.metalBuffer(),
@@ -743,7 +837,10 @@ final class MetalCommandEncoder implements CommandEncoderBackend {
     public void copyToBuffer(final GpuBufferSlice source, final GpuBufferSlice target) {
         MetalGpuBuffer sourceBuffer = (MetalGpuBuffer) source.buffer();
         MetalGpuBuffer targetBuffer = (MetalGpuBuffer) target.buffer();
-        MTLBlitCommandEncoder blit = blitFor(sourceBuffer.metalBuffer().handle(), targetBuffer.metalBuffer().handle());
+        boolean hoist = canHoistUpload(sourceBuffer, targetBuffer);
+        targetBuffer.gpuWriteEpoch = epoch;
+        MTLBlitCommandEncoder blit = hoist ? uploadBlitFor(targetBuffer.metalBuffer().handle())
+                : blitFor(sourceBuffer.metalBuffer().handle(), targetBuffer.metalBuffer().handle());
         if (PerfCounters.ENABLED) PerfCounters.blitKinds[1]++;
         blit.copyFromBuffer(
                 sourceBuffer.metalBuffer(),
@@ -845,6 +942,7 @@ final class MetalCommandEncoder implements CommandEncoderBackend {
         MetalGpuTexture texture = (MetalGpuTexture) source;
         flushPendingClear(texture);
         MetalGpuBuffer buffer = (MetalGpuBuffer) destination;
+        buffer.gpuWriteEpoch = epoch;
         int bytesPerPixel = texture.pixelSize();
         int rowBytes = width * bytesPerPixel;
         int bytesPerImage = rowBytes * height;
@@ -943,6 +1041,15 @@ final class MetalCommandEncoder implements CommandEncoderBackend {
             commandBuffer.release();
             commandBuffer = null;
         }
+        if (uploadBlit != null) {
+            uploadBlit.endEncoding();
+            uploadBlit.release();
+            uploadBlit = null;
+        }
+        if (uploadBuffer != null) {
+            uploadBuffer.release();
+            uploadBuffer = null;
+        }
         if (pendingPresentBuffer != null) {
             pendingPresentBuffer.release();
             pendingPresentBuffer = null;
@@ -974,7 +1081,7 @@ final class MetalCommandEncoder implements CommandEncoderBackend {
     }
 
     void waitForSubmittedGpuWork() {
-        if (commandBuffer != null || currentRenderPass != null || currentEncoder != null) {
+        if (commandBuffer != null || uploadBuffer != null || currentRenderPass != null || currentEncoder != null) {
             submit();
         } else {
             endEncoder();

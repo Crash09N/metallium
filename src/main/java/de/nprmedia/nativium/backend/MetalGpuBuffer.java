@@ -91,10 +91,22 @@ class MetalGpuBuffer extends BaseGpuBuffer {
                 .order(this.storage.order());
     }
 
+    /**
+     * {@link MetalCommandEncoder#epoch} when the native handle was last handed out (every GPU use goes through
+     * {@link #metalBuffer()}): a buffer not handed out since the current submit began is not referenced by anything
+     * recorded in it. See {@link MetalCommandEncoder#UPLOAD_HOIST}.
+     */
+    int useEpoch = -1;
+    /** {@link MetalCommandEncoder#epoch} of the last GPU write recorded into it (blit destinations). */
+    int gpuWriteEpoch = -1;
+    /** Handed to code outside the backend ({@link NativiumInterop#metalBuffer}), which may keep and reuse the handle. */
+    boolean exposedExternally;
+
     MTLBuffer metalBuffer() {
         if (this.nativeBuffer == null) {
             throw new IllegalStateException("Native Metal buffer is closed");
         }
+        this.useEpoch = MetalCommandEncoder.epoch;
         return this.nativeBuffer;
     }
 
