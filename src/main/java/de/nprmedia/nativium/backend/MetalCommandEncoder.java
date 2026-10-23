@@ -86,6 +86,18 @@ final class MetalCommandEncoder implements CommandEncoderBackend {
     private final java.util.concurrent.atomic.AtomicLong presentBuffersCompleted = new java.util.concurrent.atomic.AtomicLong();
     private final long presentCompletedBlock = ObjCBlock.withRunnable(presentBuffersCompleted::incrementAndGet);
     private final Long2ObjectOpenHashMap<ArrayDeque<MTLBuffer>> dynamicBackingPool = new Long2ObjectOpenHashMap<>();
+    /**
+     * {@code -Dnativium.storeActions} (default on): render encoders opened for render passes leave their store actions
+     * open ({@code MTLStoreActionUnknown}) and choose them when they end: an attachment whose whole contents a clear
+     * recorded while the encoder was still open will overwrite is not stored ({@code DontCare}); everything else is
+     * stored. Off: every attachment is stored (the previous behaviour).
+     */
+    static final boolean DEFERRED_STORE_ACTIONS = !"false".equalsIgnoreCase(System.getProperty("nativium.storeActions", "true").trim());
+    /** The open render encoder was created with deferred store actions ({@link #DEFERRED_STORE_ACTIONS}). */
+    private boolean renderStoreDeferred;
+    /** Attachments of the open render encoder whose contents are dead (bit i: color i; bit 31: depth). */
+    private int deadAttachments;
+    private static final int DEAD_DEPTH = 1 << 31;
 
     MetalCommandEncoder(final MetalDevice device) {
         this.device = device;
@@ -196,6 +208,9 @@ final class MetalCommandEncoder implements CommandEncoderBackend {
         NativiumInterop.endExternalEncoding(); // nativium-gl: close its encoder before Nativium encodes again
         if (currentEncoder != null) {
             if (currentEncoder instanceof MTLRenderCommandEncoder renderEncoder) {
+                if (renderStoreDeferred) {
+                    resolveStoreActions(renderEncoder);
+                }
                 if (externalFence == null) {
                     renderEncoder.updateFence(fence, MTLRenderStages.Vertex | MTLRenderStages.Fragment);
                 }
@@ -211,6 +226,50 @@ final class MetalCommandEncoder implements CommandEncoderBackend {
         }
         renderColorAttachments = null;
         renderDepthAttachment = null;
+        renderStoreDeferred = false;
+        deadAttachments = 0;
+    }
+
+    /** Ends a deferred-store render encoder's open store actions: dead attachments DontCare, the rest Store. */
+    private void resolveStoreActions(final MTLRenderCommandEncoder encoder) {
+        MTLTexture[] colors = renderColorAttachments;
+        if (colors != null) {
+            for (int i = 0; i < colors.length; i++) {
+                if (colors[i] != null) {
+                    boolean dead = (deadAttachments & (1 << i)) != 0;
+                    encoder.setColorStoreAction(dead ? MTLStoreAction.DontCare : MTLStoreAction.Store, i);
+                    if (dead && PerfCounters.ENABLED) PerfCounters.discardedStores++;
+                }
+            }
+        }
+        if (renderDepthAttachment != null) {
+            boolean dead = (deadAttachments & DEAD_DEPTH) != 0;
+            encoder.setDepthStoreAction(dead ? MTLStoreAction.DontCare : MTLStoreAction.Store);
+            if (dead && PerfCounters.ENABLED) PerfCounters.discardedStores++;
+        }
+    }
+
+    /**
+     * A clear of the whole of {@code texture} (all mip levels) was recorded: if the open render encoder draws into it,
+     * what it drew is never read (anything that reads the texture first materializes the clear), so it need not be
+     * stored. Drawing into the encoder again ({@link #renderCommandEncoder} reuse) revives it.
+     */
+    private void markContentsDead(final MetalGpuTexture texture) {
+        if (!renderStoreDeferred || !(currentEncoder instanceof MTLRenderCommandEncoder) || texture.isClosed()) {
+            return;
+        }
+        long handle = texture.metalTexture().handle();
+        MTLTexture[] colors = renderColorAttachments;
+        if (colors != null) {
+            for (int i = 0; i < colors.length && i < 31; i++) {
+                if (colors[i] != null && colors[i].handle() == handle) {
+                    deadAttachments |= 1 << i;
+                }
+            }
+        }
+        if (renderDepthAttachment != null && renderDepthAttachment.handle() == handle) {
+            deadAttachments |= DEAD_DEPTH;
+        }
     }
 
     @Override
@@ -278,6 +337,7 @@ final class MetalCommandEncoder implements CommandEncoderBackend {
         if (currentEncoder instanceof MTLRenderCommandEncoder enc
                 && sameAttachments(renderColorAttachments, colorAttachments)
                 && MetalUtilities.sameHandle(renderDepthAttachment, depthAttachment)) {
+            deadAttachments = 0; // drawing into it again: everything is stored
             if (clear) {
                 MetalUtilities.clearDraw(enc, colorFormats, depthFormat, viewportWidth, viewportHeight, clearColors, clearDepth, renderArea);
             }
@@ -322,12 +382,15 @@ final class MetalCommandEncoder implements CommandEncoderBackend {
                 clearDepth,
                 viewportWidth,
                 viewportHeight,
-                level
+                level,
+                DEFERRED_STORE_ACTIONS
         );
         waitFrameFence(encoder);
         currentEncoder = encoder;
         renderColorAttachments = colorAttachments;
         renderDepthAttachment = depthAttachment;
+        renderStoreDeferred = DEFERRED_STORE_ACTIONS;
+        deadAttachments = 0;
         return encoder;
     }
 
@@ -338,8 +401,10 @@ final class MetalCommandEncoder implements CommandEncoderBackend {
             @Nullable final Double clearDepth,
             final double viewportWidth,
             final double viewportHeight,
-            final int level
+            final int level,
+            final boolean deferStore
     ) {
+        MTLStoreAction store = deferStore ? MTLStoreAction.Unknown : MTLStoreAction.Store;
         MTLRenderCommandEncoder encoder;
         try (AutoreleasePool _ = AutoreleasePool.push()) {
             MTLRenderPassDescriptor renderPass = MTLRenderPassDescriptor.alloc().init();
@@ -355,7 +420,7 @@ final class MetalCommandEncoder implements CommandEncoderBackend {
                 attachment.setTexture(colorTexture);
                 attachment.setLevel(level);
                 attachment.setLoadAction(clearColor != null ? MTLLoadAction.Clear : MTLLoadAction.Load);
-                attachment.setStoreAction(MTLStoreAction.Store);
+                attachment.setStoreAction(store);
                 if (clearColor != null) {
                     attachment.setClearColor(new MTLClearColor(clearColor.x(), clearColor.y(), clearColor.z(), clearColor.w()));
                 }
@@ -369,7 +434,7 @@ final class MetalCommandEncoder implements CommandEncoderBackend {
                 attachment.setTexture(depthTexture);
                 attachment.setLevel(level);
                 attachment.setLoadAction(clearDepth != null ? MTLLoadAction.Clear : MTLLoadAction.Load);
-                attachment.setStoreAction(MTLStoreAction.Store);
+                attachment.setStoreAction(store);
                 if (clearDepth != null) {
                     attachment.setClearDepth(clearDepth);
                 }
@@ -556,6 +621,7 @@ final class MetalCommandEncoder implements CommandEncoderBackend {
 
     @Override
     public void clearColorTexture(final @NonNull GpuTexture colorTexture, final @NonNull Vector4fc clearColor) {
+        markContentsDead((MetalGpuTexture) colorTexture);
         pendingColorClears.put((MetalGpuTexture) colorTexture, new Vector4f(clearColor));
     }
 
@@ -563,6 +629,8 @@ final class MetalCommandEncoder implements CommandEncoderBackend {
     public void clearColorAndDepthTextures(final @NonNull GpuTexture colorTexture, final @NonNull Vector4fc clearColor, final @NonNull GpuTexture depthTexture, final double clearDepth) {
         MetalGpuTexture color = (MetalGpuTexture) colorTexture;
         MetalGpuTexture depth = (MetalGpuTexture) depthTexture;
+        markContentsDead(color);
+        markContentsDead(depth);
         pendingColorClears.put(color, new Vector4f(clearColor));
         pendingDepthClears.put(depth, clearDepth);
     }
@@ -582,6 +650,8 @@ final class MetalCommandEncoder implements CommandEncoderBackend {
         MetalGpuTexture color = (MetalGpuTexture) colorTexture;
         MetalGpuTexture depth = (MetalGpuTexture) depthTexture;
         if (color.getMipLevels() == 1 && isFullTextureRegion(color, depth, regionX, regionY, regionWidth, regionHeight)) {
+            markContentsDead(color);
+            markContentsDead(depth);
             pendingColorClears.put(color, new Vector4f(clearColor));
             pendingDepthClears.put(depth, clearDepth);
             return;
@@ -603,6 +673,7 @@ final class MetalCommandEncoder implements CommandEncoderBackend {
 
     @Override
     public void clearDepthTexture(final @NonNull GpuTexture depthTexture, final double clearDepth) {
+        markContentsDead((MetalGpuTexture) depthTexture);
         pendingDepthClears.put((MetalGpuTexture) depthTexture, clearDepth);
     }
 
@@ -966,7 +1037,8 @@ final class MetalCommandEncoder implements CommandEncoderBackend {
                     depthClear != null ? texture.metalTexture() : null,
                     depthClear,
                     1.0, 1.0,
-                    level
+                    level,
+                    false
             );
             waitFrameFence(encoder);
             currentEncoder = encoder;
@@ -1027,7 +1099,7 @@ final class MetalCommandEncoder implements CommandEncoderBackend {
         if (PerfCounters.tracing) PerfCounters.trace("clear flush x" + count + " " + texture.getLabel() + " mips=" + texture.getMipLevels() + " from " + PerfCounters.caller());
         endEncoder();
         if (PerfCounters.ENABLED) PerfCounters.clearEncoders++;
-        MTLRenderCommandEncoder encoder = renderCommandEncoder(attachments, Arrays.copyOf(clears, count), null, null, 1.0, 1.0, 0);
+        MTLRenderCommandEncoder encoder = renderCommandEncoder(attachments, Arrays.copyOf(clears, count), null, null, 1.0, 1.0, 0, false);
         waitFrameFence(encoder);
         currentEncoder = encoder;
         if (mips) {
