@@ -114,7 +114,14 @@ public interface GlDevice {
                 0x2901, 0x2901, 0x2901, -1000f, 1000f, 0f, 0, 0x0203 /* LEQUAL */, 1f);
     }
 
-    record TextureBinding(int textureIndex, int samplerIndex, @Nullable TextureStore texture, SamplerState sampler) {
+    /**
+     * A sampled texture. {@code baseLevel} / {@code maxLevel}: GL_TEXTURE_BASE_LEVEL / GL_TEXTURE_MAX_LEVEL - GL samples
+     * (and texelFetch addresses) the levels from the base level up, so the device binds a view starting there.
+     */
+    record TextureBinding(int textureIndex, int samplerIndex, @Nullable TextureStore texture, SamplerState sampler, int baseLevel, int maxLevel) {
+        TextureBinding(final int textureIndex, final int samplerIndex, final @Nullable TextureStore texture, final SamplerState sampler) {
+            this(textureIndex, samplerIndex, texture, sampler, 0, 1000);
+        }
     }
 
     /** A uniform or storage buffer at Metal buffer index {@code index}; {@code buffer == null}: nothing bound in GL. */

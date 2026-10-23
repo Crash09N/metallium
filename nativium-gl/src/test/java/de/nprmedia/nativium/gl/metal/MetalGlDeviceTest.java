@@ -151,6 +151,42 @@ class MetalGlDeviceTest {
         assertPixel(SIZE - 8, SIZE - 8, 255, 255, 0, "top-right texel");
     }
 
+    /**
+     * GL samples from GL_TEXTURE_BASE_LEVEL up (Voxy's HiZ chain reads level i-1 through BASE_LEVEL = MAX_LEVEL = i-1
+     * while it renders level i); texelFetch's lod is relative to the base level too.
+     */
+    @Test
+    void samplingStartsAtTheBaseLevel() {
+        int texture = MetalGL.glGenTextures();
+        MetalGL.glBindTexture(GL_TEXTURE_2D, texture);
+        MetalGL.glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST_MIPMAP_NEAREST);
+        MetalGL.glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        byte[][] colours = {{(byte) 255, 0, 0, (byte) 255}, {0, (byte) 255, 0, (byte) 255}, {0, 0, (byte) 255, (byte) 255}};
+        for (int level = 0; level < 3; level++) {
+            int size = 4 >> level;
+            ByteBuffer texels = MemoryUtil.memAlloc(size * size * 4);
+            for (int i = 0; i < size * size; i++) texels.put(colours[level]);
+            texels.flip();
+            MetalGL.glTexImage2D(GL_TEXTURE_2D, level, GL_RGBA8, size, size, 0, GL_RGBA, GL_UNSIGNED_BYTE, texels);
+            MemoryUtil.memFree(texels);
+        }
+        int p = program(VS, FS_TEXTURE);
+        MetalGL.glUseProgram(p);
+        MetalGL.glUniform1i(MetalGL.glGetUniformLocation(p, "uTex"), 0);
+        MetalGL.glBindVertexArray(quad(-1, -1, 1, 1));
+        MetalGL.glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_SHORT, 0L);
+        assertPixel(SIZE / 2, SIZE / 2, 255, 0, 0, "base level 0 (magnified)");
+        MetalGL.glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_BASE_LEVEL, 1);
+        MetalGL.glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 1);
+        MetalGL.glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_SHORT, 0L);
+        assertEquals(GL_NO_ERROR, MetalGL.glGetError());
+        assertPixel(SIZE / 2, SIZE / 2, 0, 255, 0, "base level 1");
+        MetalGL.glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_BASE_LEVEL, 2);
+        MetalGL.glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 1000);
+        MetalGL.glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_SHORT, 0L);
+        assertPixel(SIZE / 2, SIZE / 2, 0, 0, 255, "base level 2");
+    }
+
     @Test
     void unboundSamplerReadsOpaqueBlack() {
         MetalGL.glClearColor(1f, 1f, 1f, 1f);
