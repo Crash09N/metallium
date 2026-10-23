@@ -23,6 +23,7 @@ import java.util.List;
  * Set {@code -Dnativium.gametest.expectBackend=Metal} to fail when a different backend was chosen.
  */
 public final class NativiumClientGameTest implements FabricClientGameTest {
+    private static final int FLICKER_SHOTS = Integer.getInteger("nativium.bench.flickerShots", 0);
     private static final String BENCH_SEED = System.getProperty("nativium.bench.seed", "nativium");
     private static final int BENCH_SECONDS = Integer.getInteger("nativium.bench.seconds", 30);
 
@@ -316,9 +317,22 @@ public final class NativiumClientGameTest implements FabricClientGameTest {
                 }
                 int voxyRd = Integer.getInteger("nativium.bench.voxyRd", 4);
                 context.runOnClient(client -> client.options.renderDistance().set(voxyRd));
-                context.waitTicks(400);
+                if (FLICKER_SHOTS > 0) {
+                    // Flicker probe: the hand-over from vanilla rd 32 to Voxy LODs, one screenshot per second.
+                    for (int i = 0; i < 20; i++) {
+                        context.waitTicks(20);
+                        context.takeScreenshot(String.format("nativium-flicker-handover-%02d", i));
+                    }
+                } else {
+                    context.waitTicks(400);
+                }
                 line("bench: voxy (vanilla rd " + voxyRd + ") " + glSummary());
                 line("bench: voxy debug: " + context.computeOnClient(client -> voxyDebug()));
+            }
+            for (int i = 0; i < FLICKER_SHOTS; i++) {
+                // Flicker probe, static camera and frozen time: consecutive frames should be (nearly) identical.
+                context.waitTicks(2);
+                context.takeScreenshot(String.format("nativium-flicker-steady-%02d", i));
             }
             if (!flight) {
                 checkTerrainVisible(context.takeScreenshot("nativium-bench-view-" + BENCH_SCENE), "bench view");

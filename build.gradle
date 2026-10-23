@@ -126,6 +126,7 @@ loom.runs.clientGameTest {
 	if (project.hasProperty('shaderpackOptions')) vmArg "-Dnativium.gametest.shaderpackOptions=${project.property('shaderpackOptions')}"
 	if (project.hasProperty('benchSeconds')) vmArg "-Dnativium.bench.seconds=${project.property('benchSeconds')}"
 	if (project.hasProperty('benchScene')) vmArg "-Dnativium.bench.scene=${project.property('benchScene')}"
+	if (project.hasProperty('benchFlickerShots')) vmArg "-Dnativium.bench.flickerShots=${project.property('benchFlickerShots')}"
 	// -PbenchScene=voxy: vanilla rd during the measurement (-PvoxyRd, default 4) and Voxy's LOD distance (-PvoxyDistance)
 	if (project.hasProperty('voxyRd')) vmArg "-Dnativium.bench.voxyRd=${project.property('voxyRd')}"
 	// -PglIcbTextures=false: textured indirect-count draws use nativium-gl's per-slot fallback instead of ICBs (A/B)
