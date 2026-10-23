@@ -92,33 +92,13 @@ public final class TerrainOcclusion {
         ENABLED = COUNT || CULL;
     }
 
-    /** Diagnostics only: cull even while Voxy renders (reproduces the double render; logs the phase counts). */
-    private static final boolean CULL_WITH_VOXY = Boolean.getBoolean("nativium.terrain.gpuCullWithVoxy");
-    private static long diagPhaseOne, diagDepthNull, diagPhaseTwo, diagDeferred, diagLog = System.nanoTime();
-
-    private static void diag(final boolean depthNull, final int deferred, final boolean phaseTwo) {
-        if (!CULL_WITH_VOXY) {
-            return;
-        }
-        diagPhaseOne++;
-        diagDepthNull += depthNull ? 1 : 0;
-        diagDeferred += deferred;
-        diagPhaseTwo += phaseTwo ? 1 : 0;
-        if (System.nanoTime() - diagLog > 5_000_000_000L) {
-            Nativium.LOGGER.info("[nativium] terrain cull diag: phase1 frames={} depth null={} phase2 runs={} deferred draws={} voxy={}",
-                    diagPhaseOne, diagDepthNull, diagPhaseTwo, diagDeferred, VoxyState.rendering());
-            diagPhaseOne = diagDepthNull = diagPhaseTwo = diagDeferred = 0;
-            diagLog = System.nanoTime();
-        }
-    }
-
     /** Whether this frame culls (auto mode: render distance threshold). */
     private static boolean cullThisFrame() {
         // Voxy renders its LODs from inside Sodium's cutout pass. Phase 2 runs the opaque layer again, so Voxy rendered
         // twice per frame: the vanilla terrain drawn in phase 1 vanished (sky with loose cave sections at rd 32) and
         // Voxy's state stayed broken afterwards (near water missing after the drop to rd 4, even with culling then off).
         // In every mode, "on" included: no phase split while Voxy renders.
-        if (!CULL_WITH_VOXY && VoxyState.rendering()) {
+        if (VoxyState.rendering()) {
             return false;
         }
         if (!AUTO) {
@@ -269,7 +249,6 @@ public final class TerrainOcclusion {
         directDraws += data.directDraws;
         deferredDraws += s.argCount;
         MTLTexture depth = NativiumInterop.currentDepthAttachment();
-        diag(depth == null, s.argCount, s.argCount > 0);
         if (depth == null) {
             // Nothing drawn into a depth buffer we can see: draw the deferred sub-draws unconditionally.
             for (int j = 0; j < s.argCount; j++) {
