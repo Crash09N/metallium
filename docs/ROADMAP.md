@@ -88,9 +88,14 @@ Status legend: ✅ done · 🔄 in progress · ⏳ planned · 🔬 needs researc
   colorimg/shadowcolorimg/custom 2D/3D images with atomics, persistent SSBOs with `.length()`, images/SSBOs/3D custom
   samplers in gbuffers/shadow/fullscreen programs, shadowcomp fragment passes, mipmapped buffers. Verified with a
   synthetic compute pack; custom textures, `size.buffer.*`, >16 textures, `MC_OS_MAC` hidden (Photon, Bliss, Unbound
-  colored lighting render). Open items: Bliss night sky/rain, voxelization
-  in geometry shaders (stage 6), shadowcolor mipmaps
-- ⏳ Stage 6: geometry/tessellation shaders via compute emulation, learning from Mesa's Apple-GPU emulation (MIT)
+  colored lighting render). Open items: Bliss night sky/rain, shadowcolor mipmaps
+- 🔄 Stage 6: geometry shaders emulated in the vertex stage (design: `docs/design/iris-stage6-geometry.md`; idea from
+  Mesa's Apple-GPU GS lowering, no code): VS+GS merged into one vertex shader that pulls its triangle's corners, runs
+  the VS per corner and the GS per output slot, side effects once per primitive; default on
+  (`-Dnativium.iris.geometryShaders=false` turns it off). Verified: Rethinking Voxels' voxelizing `shadow.gsh` (lit
+  terrain near the camera, block lights). Open items: tessellation, non-triangle GS input/output, `invocations`,
+  cost (VS 18x / GS 6x per shadow triangle for Rethinking Voxels, about half the fps of the broken fallback; a compute
+  pre-pass would be cheaper)
 - Unsupported features are detected at pack load and reported; never a crash or black screen
 - **Pack sweep** (regression test after every Iris stage): a local corpus of popular packs (BSL, Complementary
   Reimagined/Unbound, Photon, Bliss, Sildur's Vibrant, MakeUp Ultra Fast, Solas, Rethinking Voxels, Nostalgia, Super
