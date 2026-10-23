@@ -55,7 +55,7 @@ final class GeometryEmulation {
     static final boolean ENABLED = !"false".equalsIgnoreCase(System.getProperty("nativium.iris.geometryShaders", "true"));
 
     /** {@code -Dnativium.iris.dumpGeometry=true}: writes merged VS+GS sources to {@code nativium-iris-debug/}. */
-    static final boolean DUMP = !"false".equalsIgnoreCase(System.getProperty("nativium.iris.dumpGeometry", "true"));
+    static final boolean DUMP = Boolean.getBoolean("nativium.iris.dumpGeometry");
 
     /** Metal buffer indices of the pulled vertices, indices and draw parameters (below StorageBindings' 26-30). */
     static final int VERTEX_INDEX = 22;
@@ -259,7 +259,7 @@ final class GeometryEmulation {
         if (maxVertices < 3) {
             throw new PostProgram.UnsupportedProgramException("geometry shader without a usable max_vertices");
         }
-        int slots = 3 * (maxVertices - 2);
+        int generalSlots = 3 * (maxVertices - 2);
 
         // Renames inside GS code: inputs -> nativium_gs_in_*, outputs -> nativium_gs_cur_*, built-ins.
         List<String> gsTexts = new ArrayList<>();
@@ -286,6 +286,11 @@ final class GeometryEmulation {
         }
         if (gsMain == null) {
             throw new PostProgram.UnsupportedProgramException("geometry shader without main");
+        }
+        boolean emitsInHelpers = gsTexts.stream().anyMatch(t -> t.contains(PREFIX + "emit()"));
+        int slots = !emitsInHelpers && onlySingleTriangleStrips(gsMain) ? 3 * (maxVertices / 3) : generalSlots;
+        if (slots < 3) {
+            throw new PostProgram.UnsupportedProgramException("geometry shader emits no triangle");
         }
 
         out.append("#version ").append(version).append(" core\n");
@@ -413,6 +418,67 @@ final class GeometryEmulation {
         out.append("    if (!").append(PREFIX).append("found) gl_Position = vec4(2.0, 2.0, 2.0, 1.0);\n");
         out.append("}\n");
         return new Merged(out.toString(), slots);
+    }
+
+    private static final Pattern THREE_VERTEX_LOOP = Pattern.compile(
+            "for\\s*\\(\\s*int\\s+(\\w+)\\s*=\\s*0\\s*;\\s*\\1\\s*<\\s*3\\s*;\\s*(?:\\1\\s*\\+\\+|\\+\\+\\s*\\1)\\s*\\)\\s*\\{");
+
+    /**
+     * True if every {@code EmitVertex()} of the GS main sits in a {@code for (int i = 0; i < 3; i++) { ... }} loop
+     * (one emit, no {@code EndPrimitive}, {@code break} or nested loop inside) that is directly followed by
+     * {@code EndPrimitive()}: every strip then has at most 3 vertices, i.e. one triangle, so {@code max_vertices / 3}
+     * triangles suffice instead of {@code max_vertices - 2} (Rethinking Voxels: 6 slots instead of 12).
+     */
+    static boolean onlySingleTriangleStrips(final String main) {
+        String emit = PREFIX + "emit()";
+        String end = PREFIX + "endPrimitive()";
+        int total = count(main, emit);
+        if (total == 0) {
+            return false;
+        }
+        int covered = 0;
+        Matcher loop = THREE_VERTEX_LOOP.matcher(main);
+        while (loop.find()) {
+            int open = loop.end() - 1;
+            int depth = 0;
+            int close = -1;
+            for (int i = open; i < main.length(); i++) {
+                char c = main.charAt(i);
+                if (c == '{') depth++;
+                if (c == '}' && --depth == 0) {
+                    close = i;
+                    break;
+                }
+            }
+            if (close < 0) {
+                return false;
+            }
+            String body = main.substring(open + 1, close);
+            int emits = count(body, emit);
+            if (emits == 0) {
+                continue;
+            }
+            if (emits != 1 || body.contains(end) || Pattern.compile("\\b(break|continue|for|while|do)\\b").matcher(body).find()) {
+                return false;
+            }
+            String after = main.substring(close + 1).stripLeading();
+            if (after.startsWith(";")) {
+                after = after.substring(1).stripLeading();
+            }
+            if (!after.startsWith(end)) {
+                return false;
+            }
+            covered++;
+        }
+        return covered == total;
+    }
+
+    private static int count(final String text, final String needle) {
+        int n = 0;
+        for (int i = text.indexOf(needle); i >= 0; i = text.indexOf(needle, i + needle.length())) {
+            n++;
+        }
+        return n;
     }
 
     private static boolean sameSignature(final String a, final String b) {
