@@ -6,7 +6,7 @@ an NVIDIA path later.*
 A Fabric rendering mod for **Minecraft 26.3** that renders through Apple's **Metal** API on Apple Silicon Macs, staying
 compatible with Sodium, Sodium Extra, Reese's Sodium Options, the Fabric Rendering API and Iris shader packs.
 
-**Status (2026-10-20): alpha 0.1.0-alpha, pre-1.0, owner-tested on an M3 Max.** Details: [`docs/STATUS.md`](docs/STATUS.md).
+**Status (2026-10-23): 1.0.0, owner-tested on an M3 Max.** Details: [`docs/STATUS.md`](docs/STATUS.md).
 
 - **Metal is the default engine on Apple Silicon**, with OpenGL/Vulkan fallback. Sodium runs natively on Metal.
 - **Iris shader packs** run through the `nativium-iris` adapter (stages 1-5): gbuffers, shadows, composite passes,
@@ -35,7 +35,7 @@ compatible with Sodium, Sodium Extra, Reese's Sodium Options, the Fabric Renderi
 
 ### Install
 
-Single jar `nativium-0.1.0-alpha.jar` in `mods/`; requires Fabric API; Sodium recommended; Iris optional. Requirements,
+Single jar `nativium-1.0.0.jar` in `mods/`; requires Fabric API; Sodium recommended; Iris optional. Requirements,
 nested jars, what is inert when: [`docs/RELEASE.md`](docs/RELEASE.md). Build: `./gradlew releaseJar` (JDK 25).
 Metal smoke test (macOS): `./gradlew metalSmokeTest`.
 

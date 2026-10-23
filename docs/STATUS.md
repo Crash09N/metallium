@@ -16,7 +16,7 @@ Phase 2. FPS not measured yet.
 
 Owner decision: the project is **Nativium** (Metal optimisation now, an NVIDIA path later), base package
 `de.nprmedia.nativium`, mod ids `nativium`, `nativium-gl`, `nativium-iris`, `nativium_voxy_natives`, release jar
-`nativium-0.1.0-alpha.jar`. Migration for existing installs: `LegacyMigration` (config copy, `-Dmetallium.*` fallback,
+`nativium-1.0.0.jar`. Migration for existing installs: `LegacyMigration` (config copy, `-Dmetallium.*` fallback,
 old shader cache dropped), deprecated `dev.metallium.api.MetalliumRuntime` shim, `"metallium-gl"` author key fallback,
 `breaks: metallium`. Entries below this one predate the rename and use the old name where they quote logs or files.
 

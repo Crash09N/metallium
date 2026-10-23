@@ -1,6 +1,6 @@
-# Nativium alpha release (0.1.0-alpha)
+# Nativium release (1.0.0)
 
-Nativium ships as **one plain Fabric jar**: `nativium-0.1.0-alpha.jar`. No launcher, no installer.
+Nativium ships as **one plain Fabric jar**: `nativium-1.0.0.jar`. No launcher, no installer.
 
 ## Build
 
@@ -25,7 +25,7 @@ The core (outer jar) is MIT. The LGPL adapter is never merged into the core jar;
 
 Requirements: Apple Silicon Mac with Metal 4 (macOS 26+; the backend compiles MSL 4.0), Minecraft 26.3, Fabric Loader >= 0.19.5, Java 25, Fabric API.
 
-1. Copy `nativium-0.1.0-alpha.jar` into the instance's `mods/` folder (Prism, official launcher, anything that runs Fabric).
+1. Copy `nativium-1.0.0.jar` into the instance's `mods/` folder (Prism, official launcher, anything that runs Fabric).
 2. Optional: Sodium 0.9.x (>= 0.9.2, < 0.10) for Sodium on Metal; Iris >= 1.11.6, < 1.12 (needs Sodium) for shader packs.
 3. Start the game. F3 shows the "Nativium ..." line; the Nativium status screen is reachable from the Sodium "Nativium" tab or Video Settings.
 
@@ -102,13 +102,13 @@ See "Release jar verification" at the end of this file.
 
 ## Release jar verification
 
-Local game tests run against `build/release/nativium-0.1.0-alpha.jar` installed as a mod (no dev classes of the root
+Local game tests run against `build/release/nativium-1.0.0.jar` installed as a mod (no dev classes of the root
 project or subprojects on the classpath), M3 Max, macOS 27.0.1:
 
 - `./gradlew :runClientGameTest -PreleaseJarTest` (jar alone, no Sodium, no Iris): Metal active, flat/natural world render
   (screenshots checked), status screen reports nativium-gl "installed, class loading hooked", the raw-GL test class is routed
   through nativium-gl; the nested adapter logs `[nativium-iris] inactive: Iris is not installed`. Fabric lists
-  `nativium 0.1.0-alpha` with nested `nativium-gl` and `nativium-iris`. Only message: info that Sodium (recommended) is missing.
+  `nativium 1.0.0` with nested `nativium-gl` and `nativium-iris`. Only message: info that Sodium (recommended) is missing.
 - `-PreleaseJarTest -PreleaseJarIris` (jar + Sodium 0.9.2 + Iris 1.11.6): Iris "on Metal via the Nativium Iris adapter",
   post pipeline, gbuffers, shadow and compute test packs pass as in the dev run (compute pack checks all 1.00).
 
