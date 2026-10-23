@@ -24,7 +24,9 @@ import java.util.List;
  */
 public final class NativiumClientGameTest implements FabricClientGameTest {
     private static final int FLICKER_SHOTS = Integer.getInteger("nativium.bench.flickerShots", 0);
-    private static final String BENCH_SEED = System.getProperty("nativium.bench.seed", "nativium");
+    // The seed string is not the mod name: "metallium" (snowy plains at the origin) keeps the benchmarks comparable with
+    // the pre-rename runs; the rename had changed it to "nativium" (mostly ocean).
+    private static final String BENCH_SEED = System.getProperty("nativium.bench.seed", "metallium");
     private static final int BENCH_SECONDS = Integer.getInteger("nativium.bench.seconds", 30);
 
     private static final String BENCH_SCENE = System.getProperty("nativium.bench.scene", "light");
