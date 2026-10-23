@@ -2025,6 +2025,30 @@ public final class NativiumClientGameTest implements FabricClientGameTest {
                 line(tag + ": height " + y + ": voxy render calls in 5 s=" + (de.nprmedia.nativium.compat.voxy.VoxyCompat.renderCalls() - calls)
                         + "; " + context.computeOnClient(client -> voxyDebug()));
             }
+            // With -Pshaderpack: the same streamed LODs under the pack (owner report: Photon 1.4 + Voxy hung the game).
+            String external = net.fabricmc.loader.api.FabricLoader.getInstance().isModLoaded("iris") ? externalPack(context) : null;
+            if (external != null) {
+                line(tag + ": pack: pipeline=" + context.computeOnClient(client -> irisSelectPack(external, true)));
+                String[][] packViews = {
+                        {"edge", "tp @a 200 220 -200 facing 0 80 0"},
+                        {"height-160", "tp @a 0 160 0 facing 150 70 150"},
+                        {"low-north", "tp @a 0 140 300 facing 0 90 0"},
+                };
+                for (String[] view : packViews) {
+                    tryCommand(world, view[1]);
+                    context.waitTicks(100);
+                    long calls = de.nprmedia.nativium.compat.voxy.VoxyCompat.renderCalls();
+                    context.waitTicks(100);
+                    long drawn = de.nprmedia.nativium.compat.voxy.VoxyCompat.renderCalls() - calls;
+                    clearChat(context);
+                    context.takeScreenshot("nativium-" + tag + "-pack-" + view[0]);
+                    line(tag + ": pack " + view[0] + ": voxy render calls in 5 s=" + drawn);
+                    if (drawn == 0) failures.add(tag + ": no Voxy render calls with the pack at " + view[0]);
+                }
+                line(tag + ": pack status: " + context.computeOnClient(client -> voxyDebug()));
+                context.computeOnClient(client -> irisSelectPack(external, false));
+                context.waitTicks(40);
+            }
             // Diagnostics at the 200 view: Voxy's fog off; then Voxy off (what vanilla alone draws).
             tryCommand(world, "tp @a 0 200 0 facing 150 70 150");
             String fog = context.computeOnClient(client -> voxyFogMode("OFF"));
