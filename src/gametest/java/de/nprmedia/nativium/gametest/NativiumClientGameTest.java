@@ -2041,6 +2041,8 @@ public final class NativiumClientGameTest implements FabricClientGameTest {
                     context.waitTicks(100);
                     long drawn = de.nprmedia.nativium.compat.voxy.VoxyCompat.renderCalls() - calls;
                     clearChat(context);
+                    // -PirisDump: the pack's buffers of the height-160 frame (LOD water: colortex13/16 for Photon)
+                    if (view[0].equals("height-160")) System.setProperty("nativium.iris.dumpNow", "true");
                     context.takeScreenshot("nativium-" + tag + "-pack-" + view[0]);
                     line(tag + ": pack " + view[0] + ": voxy render calls in 5 s=" + drawn);
                     if (drawn == 0) failures.add(tag + ": no Voxy render calls with the pack at " + view[0]);
