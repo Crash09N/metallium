@@ -28,7 +28,9 @@ public final class NativiumIris implements ClientModInitializer {
             return "Iris via Nativium adapter: " + (pack == null ? "shader pack" : pack) + " on Metal"
                     + (pipeline.hasFailed() ? " (failed, vanilla fallback; see log)" : " (" + pipeline.statusSummary()
                     + (pipeline.voxyLodsActive() ? "; Voxy LODs drawn with the pack" : "")
-                    + (pipeline.dhLodsActive() ? "; Distant Horizons LODs drawn with the pack" : "") + ")");
+                    + (pipeline.dhLodsActive() ? "; Distant Horizons LODs drawn with the pack" : "")
+                    + (pipeline.dhLodShadowsActive() ? ", LOD shadows" : "")
+                    + (pipeline.dhGenericActive() ? ", DH clouds/beacons" : "") + ")");
         }
         if (pack != null && net.irisshaders.iris.Iris.getIrisConfig().areShadersEnabled()) {
             // Selected and enabled but no Metal pipeline rendered (no world yet, or creation failed: see the log).

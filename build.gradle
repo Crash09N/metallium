@@ -123,6 +123,9 @@ loom.runs.clientGameTest {
 	// -PirisDump=/dir [-PirisDumpFrame=N]: write every colortex buffer (main/alt, all mips) as PNG at frame N of a Metal shader pipeline.
 	if (project.hasProperty('irisDump')) vmArg "-Dnativium.iris.dumpBuffers=${project.property('irisDump')}"
 	if (project.hasProperty('irisDumpFrame')) vmArg "-Dnativium.iris.dumpFrame=${project.property('irisDumpFrame')}"
+	// -PnoDhShadow / -PnoDhGeneric: Distant Horizons under a pack without LOD shadows / without DH clouds+beacons (DhIrisBridge).
+	if (project.hasProperty('noDhShadow')) vmArg "-Dnativium.iris.noDhShadow=true"
+	if (project.hasProperty('noDhGeneric')) vmArg "-Dnativium.iris.noDhGeneric=true"
 	if (project.hasProperty('shaderpackOptions')) vmArg "-Dnativium.gametest.shaderpackOptions=${project.property('shaderpackOptions')}"
 	if (project.hasProperty('benchSeconds')) vmArg "-Dnativium.bench.seconds=${project.property('benchSeconds')}"
 	if (project.hasProperty('benchScene')) vmArg "-Dnativium.bench.scene=${project.property('benchScene')}"

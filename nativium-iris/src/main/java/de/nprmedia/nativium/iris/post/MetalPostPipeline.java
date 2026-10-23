@@ -848,8 +848,8 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
         }
         if (!dhSkipped.isEmpty()) {
             if (dhInstalled && programSet.get(ProgramId.DhTerrain).isPresent() && gbuffersRun) {
-                NativiumIris.LOGGER.info("[nativium-iris] Distant Horizons: dh_terrain/dh_water draw the LODs into the gbuffers; not executed yet: {}",
-                        String.join(", ", dhSkipped.stream().filter(n -> n.equals("dh_shadow") || n.equals("dh_generic")).toList()));
+                NativiumIris.LOGGER.info("[nativium-iris] Distant Horizons: dh_terrain/dh_water/dh_generic draw the LODs and DH's clouds/beacons into the gbuffers; dh_shadow: {}",
+                        DhIrisBridge.shadowStatus(programSet, shadowsRun));
             } else if (dhInstalled) {
                 problems.add(dhSkipped.size() + " DH programs are not executed yet on Metal (Distant Horizons LODs are drawn without the pack)");
                 chatProblems.add(problems.getLast());
@@ -1622,6 +1622,11 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
         return gbuffers != null && !failed;
     }
 
+    /** True when this pack has a shadow pass on Metal ({@link MetalShadowRenderer}). */
+    boolean rendersShadows() {
+        return shadowRenderer != null && rendersGbuffers();
+    }
+
     void bindGbufferResources(final RenderPass pass, final com.mojang.renderpearl.api.pipeline.CompiledRenderPipeline bound) {
         try {
             gbuffers.bind(pass, bound);
@@ -1698,6 +1703,16 @@ public final class MetalPostPipeline extends VanillaRenderingPipeline {
     /** True once Distant Horizons' LODs were drawn with this pack's dh_terrain. */
     public boolean dhLodsActive() {
         return dhBridge.active();
+    }
+
+    /** True once Distant Horizons' LODs were drawn into this pack's shadow map (dh_shadow). */
+    public boolean dhLodShadowsActive() {
+        return dhBridge.shadowActive();
+    }
+
+    /** True once Distant Horizons' generic objects (clouds/beacons) were drawn with this pack's dh_generic. */
+    public boolean dhGenericActive() {
+        return dhBridge.genericActive();
     }
 
     /** True while Voxy draws its LODs with this pack (its shader-pack pipeline exists). */
