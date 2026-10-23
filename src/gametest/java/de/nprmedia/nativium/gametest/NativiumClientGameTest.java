@@ -260,7 +260,11 @@ public final class NativiumClientGameTest implements FabricClientGameTest {
                     cameraSetting = found.getX() + " 66 " + found.getZ() + " 0 10";
                 }
             }
-            int surface = context.computeOnClient(client -> client.level.getHeight(net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING, 0, 0));
+            // On the server, which loads/generates the origin chunk: the client has it only if the world spawn is near the
+            // origin. With seed "nativium" it is not, the client returned the minimum height (-64) and every bench since the
+            // rename put the camera inside the rock (y -39 / -4), looking at caves.
+            int surface = world.getServer().computeOnServer(server -> server.overworld().getChunk(0, 0)
+                    .getHeight(net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING, 0, 0) + 1);
             String camera = !cameraSetting.isEmpty() ? cameraSetting : voxy ? "0 " + (surface + 60) + " 0 110 20"
                     : "0 " + (surface + 25) + " 0 " + (flight ? "-90 10" : "110 15");
             line("bench: surface y at origin=" + surface + ", camera=" + camera);
@@ -316,6 +320,9 @@ public final class NativiumClientGameTest implements FabricClientGameTest {
                             + context.computeOnClient(c -> voxySetDistance(Float.parseFloat(voxyDistance))));
                 }
                 int voxyRd = Integer.getInteger("nativium.bench.voxyRd", 4);
+                if (FLICKER_SHOTS > 0) {
+                    context.takeScreenshot("nativium-flicker-before-handover");
+                }
                 context.runOnClient(client -> client.options.renderDistance().set(voxyRd));
                 if (FLICKER_SHOTS > 0) {
                     // Flicker probe: the hand-over from vanilla rd 32 to Voxy LODs, one screenshot per second.

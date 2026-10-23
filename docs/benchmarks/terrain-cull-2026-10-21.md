@@ -67,5 +67,10 @@ Complementary rd16 116 fps, rd32 94 fps.
   not proven by an exact comparison — next step: a deterministic pack check, e.g. freezing `frameTimeCounter`, then
   enable AUTO for packs at rd ≥ 24). `ON` forces it everywhere, `OFF` disables it; `-Dnativium.terrain.gpuCull=
   off|auto|on|count|verify` overrides (count = measure only, verify = full scheme but draw everything).
+- **Never while Voxy renders (any mode, 2026-10-23):** Voxy draws its LODs from inside Sodium's cutout pass, and phase 2
+  re-runs the opaque layer, so Voxy rendered twice per frame. Result in the Voxy bench scene (rd 32 ingest): the vanilla
+  terrain drawn in phase 1 was gone (sky with loose cave sections), and after the drop to rd 4 the near water stayed
+  missing although culling was then inactive. `verify` (draw everything) broke the same way, `off` was correct, so it
+  was the double render, not a wrong cull decision.
 - Known limits: packs that displace terrain vertices by more than 1.5 blocks (world curvature) or that write images from
   gbuffers_terrain would need `OFF`; results are ~3 frames late (only costs culling efficiency while moving).
