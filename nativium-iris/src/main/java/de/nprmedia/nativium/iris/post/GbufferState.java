@@ -779,11 +779,12 @@ final class GbufferState implements AutoCloseable {
             case "iris_overlay" -> pass.setUniform(name, Minecraft.getInstance().gameRenderer.overlayTexture().getTextureView(), owner.nearestSampler());
             case "lightmap" -> pass.setUniform(name, Minecraft.getInstance().gameRenderer.levelLightmap(), owner.linearSampler());
             default -> {
-                if (!name.startsWith("shadow") && !name.equals("watershadow") && !Set.of("gtexture", "tex", "texture", "lightmap", "iris_overlay", "u_MainSampler").contains(name)) {
+                if (!name.startsWith("shadow") && !name.equals("watershadow") && !Set.of("gtexture", "tex", "texture", "lightmap", "iris_overlay", "u_MainSampler", "glintTexture").contains(name)) {
                     report("sampler " + name, "no source on Metal yet; a white texture is bound");
                 }
                 // Shadow maps: no shadow pass yet, white = depth 1 / fully lit. Vanilla textures the replaced pipeline
-                // does not have: white, like Iris's whitePixel.
+                // does not have: white, like Iris's whitePixel (also glintTexture on a pipeline without GlintSampler,
+                // as Iris's getGlintSamplerFor does for non-glint keys; glint pipelines bind it as GlintSampler).
                 pass.setUniform(name, owner.whiteView(), owner.nearestSampler());
             }
         }
