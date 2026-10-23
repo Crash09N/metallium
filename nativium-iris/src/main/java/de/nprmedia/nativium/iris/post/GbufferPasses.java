@@ -95,9 +95,9 @@ public final class GbufferPasses {
         }
         RenderPassDescriptor dh = pipeline.dhBridge().retarget(descriptor);
         if (dh != null) {
-            // DH's terrain pass is captured like a vanilla one (its pipelines become dh_terrain/dh_water); its
-            // copy/apply passes only move DH's colour into a scratch texture.
-            if (DhIrisBridge.TERRAIN_PASS.equals(descriptor.label().get())) {
+            // DH's terrain and generic-object passes are captured like a vanilla one (their pipelines become
+            // dh_terrain/dh_water/dh_shadow/dh_generic); its copy/apply passes only move DH's colour into a scratch texture.
+            if (pipeline.dhBridge().capturesLast()) {
                 lastRetargeted = dh;
             }
             return dh;

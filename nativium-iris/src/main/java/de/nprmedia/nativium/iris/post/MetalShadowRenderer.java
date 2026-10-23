@@ -231,6 +231,8 @@ final class MetalShadowRenderer {
         }
         terrainFrustumHolder = createShadowFrustum(renderDistanceMultiplier, terrainFrustumHolder);
         ShadowRenderer.FRUSTUM = terrainFrustumHolder.getFrustum();
+        // Distant Horizons (dh_shadow): its LODs are drawn into this shadow map after the opaque terrain.
+        pipeline.dhBridge().beginShadow();
         Vector3d cameraPos = CameraUniforms.getUnshiftedCameraPosition();
         double cameraX = cameraPos.x();
         double cameraY = cameraPos.y();
@@ -265,6 +267,8 @@ final class MetalShadowRenderer {
                 try (RenderPass renderPass = mainTargetPass("shadow terrain")) {
                     sections.renderGroup(ChunkSectionLayerGroup.OPAQUE, renderPass, theSampler, atlas, false);
                 }
+                // Distant Horizons' LODs (dh_shadow): DH's own hook on renderGroup does not run for this pass.
+                pipeline.dhBridge().renderShadowLods();
                 pipeline.setPhase(WorldRenderingPhase.NONE);
             }
 
@@ -354,6 +358,7 @@ final class MetalShadowRenderer {
                 cache.restoreState();
             }
             levelRenderer.setRenderBuffers(playerBuffers);
+            pipeline.dhBridge().endShadow();
             ShadowRenderer.visibleBlockEntities = null;
             ShadowRenderer.ACTIVE = false;
             if (physicsMod != null) {

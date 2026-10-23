@@ -81,8 +81,13 @@ final class GbufferState implements AutoCloseable {
     private static final Object NO_KEY = new Object();
     private static final Object NO_KEY_SHADOW = new Object();
     private static final Object DH_KEY = new Object();
-    /** Programs compiled from dh_terrain/dh_water (their matrices are DH's, set per draw). */
-    private final Set<GbufferProgram> dhPrograms = java.util.Collections.newSetFromMap(new IdentityHashMap<>());
+    private static final Object DH_SHADOW_KEY = new Object();
+
+    /** What a DH program replaces: DH's terrain (gbuffers or shadow pass) or its generic objects. */
+    enum DhKind { TERRAIN, SHADOW, GENERIC }
+
+    /** Programs compiled from dh_terrain/dh_water/dh_shadow/dh_generic (their matrices are set per draw). */
+    private final Map<GbufferProgram, DhKind> dhPrograms = new IdentityHashMap<>();
 
     private final MetalPostPipeline owner;
     private final ProgramSet programSet;
@@ -161,7 +166,7 @@ final class GbufferState implements AutoCloseable {
         TreeSet<Integer> shadowUsed = new TreeSet<>();
         shadowUsed.add(0);
         for (ProgramId id : ProgramId.values()) {
-            if (id.getGroup() == ProgramGroup.Shadow) {
+            if (id.getGroup() == ProgramGroup.Shadow || id == ProgramId.DhShadow && DhIrisBridge.installed()) {
                 programSet.get(id).ifPresent(source -> {
                     for (int buffer : source.getDirectives().getDrawBuffers()) {
                         if (buffer >= 0 && buffer < ShadowTargets.COLOR_COUNT) {
@@ -344,20 +349,36 @@ final class GbufferState implements AutoCloseable {
             report("unknown", "a pipeline that was not compiled through RenderSystem cannot be redirected into the gbuffers");
             return original;
         }
-        if (!shadowPass() && isDhTerrain(source)) {
-            CompiledRenderPipeline cached = byKey.get(DH_KEY);
+        boolean dhTerrain = isDhTerrain(source);
+        boolean dhGeneric = isDhGeneric(source);
+        if (dhTerrain || dhGeneric) {
+            // DhIrisBridge only captures DH's passes it redirects: terrain (gbuffers or, with dh_shadow, the shadow
+            // map) and the generic objects (gbuffers only).
+            boolean shadow = shadowPass();
+            Object dhKey = shadow ? DH_SHADOW_KEY : DH_KEY;
+            CompiledRenderPipeline cached = byKey.get(dhKey);
             if (cached != null && !cached.isClosed()) {
                 return cached;
             }
             boolean water = source.getLocation().getPath().contains("transparent");
-            ProgramSource dhSource = resolver.resolveNullable(water ? ProgramId.DhWater : ProgramId.DhTerrain);
-            GbufferProgram program = dhSource == null ? null : compileDhProgram(dhSource, source, water);
-            CompiledRenderPipeline result = program != null ? program.pipeline : vanillaVariant(source);
+            DhKind kind = shadow ? DhKind.SHADOW : dhGeneric ? DhKind.GENERIC : DhKind.TERRAIN;
+            ProgramId id = switch (kind) {
+                case SHADOW -> ProgramId.DhShadow;
+                case GENERIC -> ProgramId.DhGeneric;
+                case TERRAIN -> water ? ProgramId.DhWater : ProgramId.DhTerrain;
+            };
+            ProgramSource dhSource = resolver.resolveNullable(id);
+            GbufferProgram program = dhSource == null || shadow && dhGeneric ? null : compileDhProgram(dhSource, source, kind);
+            if (program == null && shadow) {
+                // DH's own shader would draw the camera view into the shadow map: no LOD shadows from now on.
+                owner.dhBridge().disableShadow();
+            }
+            CompiledRenderPipeline result = program != null ? program.pipeline : shadow ? shadowVanillaVariant(source) : vanillaVariant(source);
             if (program != null) {
                 programs.put(program.pipeline, program);
-                dhPrograms.add(program);
+                dhPrograms.put(program, kind);
             }
-            byKey.put(DH_KEY, result);
+            byKey.put(dhKey, result);
             return result;
         }
         ShaderKey key = null;
@@ -477,9 +498,16 @@ final class GbufferState implements AutoCloseable {
         return location.getNamespace().equals("distanthorizons") && location.getPath().contains("terrain");
     }
 
+    /** DH's Blaze3D generic-object pipeline (clouds, beacon beams: {@code generic_objects}). */
+    private static boolean isDhGeneric(final RenderPipeline source) {
+        Identifier location = source.getLocation();
+        return location.getNamespace().equals("distanthorizons") && location.getPath().contains("generic");
+    }
+
     /** Like Iris's IrisLodRenderProgram.createProgram, for DH's Blaze3D terrain pipeline (see {@link DhIrisBridge}). */
     @Nullable
-    private GbufferProgram compileDhProgram(final ProgramSource source, final RenderPipeline replaced, final boolean water) {
+    private GbufferProgram compileDhProgram(final ProgramSource source, final RenderPipeline replaced, final DhKind kind) {
+        boolean shadow = kind == DhKind.SHADOW;
         String name = source.getName() + "/dh/" + replaced.getLocation().getPath();
         if (source.getGeometrySource().isPresent() || source.getTessControlSource().isPresent() || source.getTessEvalSource().isPresent()) {
             report(source.getName(), "geometry/tessellation shaders are not supported on Metal (DH's own shader used)");
@@ -488,9 +516,15 @@ final class GbufferState implements AutoCloseable {
         Map<PatchShaderType, String> transformed = null;
         try {
             ProgramDirectives directives = source.getDirectives();
-            transformed = TransformPatcher.patchDHTerrain(source.getName(), source.getVertexSource().orElseThrow(), null, null, null,
+            // Iris: dh_terrain/dh_water/dh_shadow through patchDHTerrain (IrisLodRenderProgram), dh_generic through
+            // patchDHGeneric (IrisGenericRenderProgram).
+            transformed = kind == DhKind.GENERIC
+                    ? TransformPatcher.patchDHGeneric(source.getName(), source.getVertexSource().orElseThrow(), null, null, null,
+                    source.getFragmentSource().orElseThrow(), owner.getTextureMap(), owner.getTextureOverrides(TextureStage.GBUFFERS_AND_SHADOW))
+                    : TransformPatcher.patchDHTerrain(source.getName(), source.getVertexSource().orElseThrow(), null, null, null,
                     source.getFragmentSource().orElseThrow(), owner.getTextureMap(), owner.getTextureOverrides(TextureStage.GBUFFERS_AND_SHADOW));
-            String vertex = DhIrisBridge.adaptVertex(transformed.get(PatchShaderType.VERTEX));
+            String vertex = kind == DhKind.GENERIC ? DhIrisBridge.adaptGeneric(transformed.get(PatchShaderType.VERTEX))
+                    : DhIrisBridge.adaptVertex(transformed.get(PatchShaderType.VERTEX));
             BlendModeOverride override = directives.getBlendModeOverride().orElse(null);
             Optional<BlendFunction> blend = override != null ? toBlend(override)
                     : replaced.getColorTargetStates().isEmpty() || replaced.getColorTargetStates().getFirst() == null ? Optional.empty()
@@ -500,7 +534,8 @@ final class GbufferState implements AutoCloseable {
                 bufferBlends.put(information.index(), toBlend(information.blendMode()));
             }
             GbufferProgram program = GbufferProgram.compile(new GbufferProgram.Spec(name, vertex, transformed.get(PatchShaderType.FRAGMENT), replaced,
-                    replaced.getVertexFormatBinding(0), directives.getDrawBuffers(), attachments, attachmentFormats, blend, bufferBlends, 0.0f, false),
+                    replaced.getVertexFormatBinding(0), directives.getDrawBuffers(), shadow ? shadowAttachments : attachments,
+                    shadow ? shadowAttachmentFormats : attachmentFormats, blend, bufferBlends, 0.0f, shadow),
                     owner.storageValidator());
             var customUniforms = owner.customUniforms();
             CommonUniforms.addDynamicUniforms(program.uniforms, FogMode.PER_VERTEX);
@@ -519,10 +554,17 @@ final class GbufferState implements AutoCloseable {
         }
     }
 
-    /** Iris's per-draw matrices of a DH program (IrisLodRenderProgram.fillUniformData): camera model-view, DH projection. */
-    private void bindDhMatrices(final GbufferProgram program) {
-        Matrix4f modelView = new Matrix4f(CapturedRenderingState.INSTANCE.getGbufferModelView());
-        Matrix4f projection = net.irisshaders.iris.compat.dh.DHCompat.getProjection();
+    /**
+     * Iris's per-draw matrices of a DH program (IrisLodRenderProgram/IrisGenericRenderProgram.fillUniformData): camera
+     * model-view and DH projection, or in the shadow pass the shadow model-view and projection (LodRendererEvents:
+     * on Metal the same {@code undoRevZ(ShadowRenderer.PROJECTION)} the pack's other shadow programs see, so LOD and
+     * terrain depths in shadowtex agree; Iris's GL path uses {@code toMinusOneToOne}).
+     */
+    private void bindDhMatrices(final GbufferProgram program, final DhKind kind) {
+        boolean shadow = kind == DhKind.SHADOW;
+        Matrix4f modelView = new Matrix4f(shadow ? net.irisshaders.iris.shadows.ShadowRenderer.MODELVIEW : CapturedRenderingState.INSTANCE.getGbufferModelView());
+        Matrix4f projection = shadow ? net.irisshaders.iris.helpers.MatrixUtils.undoRevZ(net.irisshaders.iris.shadows.ShadowRenderer.PROJECTION)
+                : net.irisshaders.iris.compat.dh.DHCompat.getProjection();
         setMatrix(program, "iris_ModelViewMatrix", modelView);
         setMatrix(program, "iris_ModelViewMatrixInverse", new Matrix4f(modelView).invert());
         setMatrix(program, "iris_ProjectionMatrix", projection);
@@ -666,8 +708,9 @@ final class GbufferState implements AutoCloseable {
                     : new Matrix4f(CapturedRenderingState.INSTANCE.getGbufferProjection());
             PostUniforms.setMatrix(program.projectionInverse, 4, projection.invert().get(floats16));
         }
-        if (dhPrograms.contains(program)) {
-            bindDhMatrices(program);
+        DhKind dhKind = dhPrograms.get(program);
+        if (dhKind != null) {
+            bindDhMatrices(program, dhKind);
         }
         CommandEncoder encoder = RenderSystem.getDevice().createCommandEncoder();
         int alignment = RenderSystem.getDevice().getDeviceInfo().limits().minUniformOffsetAlignment();

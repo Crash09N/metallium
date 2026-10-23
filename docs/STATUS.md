@@ -298,5 +298,8 @@ at 2560x1440 in the owner's modpack.
 Distant Horizons (2026-10-23, `DhIrisBridge`, design section 4): DH's Blaze3D terrain pass draws into the pack's
 gbuffers with the pack's `dh_terrain`/`dh_water` (Iris's DH patch + a Blaze3D vertex/uniform adapter), DH's depth is
 `dhDepthTex0/1`. Game test `-PwithIris -PwithDH -Pshaderpack=...`: Complementary Reimagined, Photon 1.3b and BSL 10.1.8
-draw shaded LODs to the horizon (far-LOD coverage 0.63 / 0.71 / 0.40, was 0.16 = fogged out). Not yet: `dh_shadow`
-(no LOD shadows), `dh_generic` (DH clouds/beacons while a pack is on), fps cost.
+draw shaded LODs to the horizon (far-LOD coverage 0.63 / 0.71 / 0.40, was 0.16 = fogged out). Later the same day:
+`dh_generic` (DH clouds/beacons drawn into the gbuffers with the pack's dh_generic / dh_terrain; Reimagined, Photon, BSL
+checked against `-PnoDhGeneric`) and `dh_shadow` (LODs in the shadow map for packs that enable it, i.e. Bliss with
+`DISTANT_HORIZONS_SHADOWMAP`; Iris's DH shadow-pass cancel handlers replaced on Metal; checked against `-PnoDhShadow`).
+Not yet: fps cost.

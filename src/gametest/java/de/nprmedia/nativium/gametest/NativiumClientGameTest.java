@@ -1618,6 +1618,15 @@ public final class NativiumClientGameTest implements FabricClientGameTest {
         tryCommand(world, "tp @a 0 200 0 30 20");
         context.waitTicks(60);
         context.takeScreenshot("nativium-dh-far-lods-high");
+        // Above DH's cloud layer, looking down: DH's own clouds (generic objects; with a pack drawn by dh_generic).
+        tryCommand(world, "tp @a 0 320 0 30 75");
+        context.waitTicks(60);
+        context.takeScreenshot("nativium-dh-clouds-above");
+        // Afternoon sun, looking away from it (east) over the LODs: long terrain shadows (with a pack's dh_shadow, LODs cast them).
+        tryCommand(world, "time set 9500");
+        tryCommand(world, "tp @a 0 160 0 -90 20");
+        context.waitTicks(60);
+        context.takeScreenshot("nativium-dh-low-sun");
         line("dh: final state: " + context.computeOnClient(client -> dhState()));
         physicsInWorld(context, world, "dh");
     }
