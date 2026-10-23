@@ -23,13 +23,44 @@ Status legend: ✅ done · 🔄 in progress · ⏳ planned · 🔬 needs researc
   `-PconformanceTest` (30 shots, fancy + fabulous) vs `-PbackendOff`, `tools/conformance-compare.sh`; all scenes match
   within run-to-run noise, no Metal bug found (`docs/compat/conformance-2026-10-23.md`)
 
-## Phase 2 — Backend performance (mcopt's techniques) ⏳
-- Merge consecutive render passes with the same targets; clears as load actions; store actions chosen per pass
-- One blit encoder per frame for all uploads instead of splitting render passes per upload
-- Replace the global fence chain and blocking waits with a frame timeline (2–3 frames in flight)
-- Pipeline compilation off the render thread + disk cache (SPIR-V→MSL cache, `MTLBinaryArchive`)
-- Unified memory: write directly into shared buffers instead of staging copies where safe
-- Render-thread QoS (as mcopt does)
+## Phase 2 — Backend performance (mcopt's techniques) 🔄
+Audit and implementation 2026-10-23 (`MetalCommandEncoder`; every new step has a system property for A/B and is on by
+default (except direct writes) after the regression suite - vanilla, Sodium, Iris + Complementary Reimagined, Voxy + Complementary - passed with
+screenshots pixel-identical to the property off, apart from the run-to-run timing noise of animated scenes). Frame-rate
+benchmarks on the G5 are still to be done (CPU-side encoder counters below, `-PperfCounters`).
+- ✅ Merge consecutive render passes with the same targets (render encoder reused while the attachments match)
+- ✅ Clears as load actions: clears are recorded lazily and become `MTLLoadActionClear` of the next pass, or one grouped
+  load-action-clear encoder (up to 8 same-size targets) when something else needs them first
+- ✅ Store actions chosen per pass (`-Dnativium.storeActions`, default on): pass encoders start with
+  `MTLStoreActionUnknown`; an attachment whose whole contents a clear recorded while the encoder is still open will
+  overwrite ends with `DontCare`, everything else with `Store`. Not done: `DontCare` for depth after its last use in the
+  frame (would need frame-level lookahead; a depth texture may be read next frame by mods/packs) and memoryless/MSAA
+  targets (Minecraft has none). Rarely triggers in the test scenes (0-0.2 per frame)
+- ✅ One upload command buffer per frame (`-Dnativium.uploadHoist`, default on): `copyToBuffer`/`writeToBuffer` into a
+  buffer nothing recorded in the current submit references yet go into a blit encoder of a separate command buffer
+  committed right before the frame's, instead of ending the open render encoder (vanilla `StagedVertexBuffer` uploads
+  between world, hand and GUI; Sodium geometry uploads). "Not referenced": every GPU use fetches the handle through
+  `MetalGpuBuffer.metalBuffer()`, which stamps the submit; buffers handed to external code
+  (`NativiumInterop.metalBuffer`) and GPU-written sources are never hoisted. Sodium test: render encoders per frame
+  2.5 -> 1.5, blit encoders 1.0 -> 0.0; Iris + Complementary: render 9.4 -> 8.5, blit 3.4 -> 2.0 (the rest are
+  GPU-to-GPU texture copies, which stay in place). Texture uploads (`writeToTexture`) are not hoisted yet (no per-texture
+  use tracking; ~0 per frame in steady state)
+- ✅ Frame timeline: 3 submits in flight, per-slot completion semaphores (no `waitUntilCompleted` per frame), VSync-off
+  present in its own command buffer. 🔄 The global fence chain: hazard-tracked resources instead of the chain exist as
+  opt-in `-Dnativium.gpu.overlap=true` (`docs/design/gpu-overlap.md`: Unbound +9.5 %, Reimagined +21.9 %, Rethinking
+  Voxels -10.3 %), so it stays off by default. Remaining blocking waits are explicit only (GL readbacks
+  `NativiumInterop.submitAndWait`, `GpuFence.awaitCompletion`)
+- ✅ Pipeline compilation off the render thread for renderpearl pipelines (`compilePipeline` on the background
+  executor) + disk cache: SPIR-V→MSL and GLSL→SPIR-V results, `MTLBinaryArchive` segments (also opened as a metallib),
+  attachment-variant index prebuilt next session (`MetalPipelineCache`, `shadercache/*`). 🔄 Iris pack programs still
+  compile on the render thread at first use (`finishCompile` right away; cached on disk, so only the first session pays)
+- 🔄 Unified memory (`-Dnativium.directWrites=true`, **default off**): `writeToBuffer` into a shared buffer that no in-flight
+  submit and nothing in the current one references is written directly (no staging + blit); uniform/dynamic buffers
+  were already written directly (transient ring, orphaned backings), buffers created with data too. Private buffers
+  (vertex) stay private and staged. Off by default because no game-test scene reaches the path (0 direct writes
+  counted; staged writes into shared buffers are ~0 per frame), so it is unproven and the gain small
+- ✅ Render-thread QoS (`-Dnativium.qos.render`, default `interactive`): the render thread runs at
+  `QOS_CLASS_USER_INTERACTIVE` (idea from mcopt, own code). Not done: integrated-server thread QoS (mcopt also raises it)
 - Source: mcopt (Apache-2.0, code from `09fea99` on, credited), minecraft-metal-renderer and MetalRender (ideas only)
 
 ## Phase 3 — Terrain performance (inside Sodium, not replacing it) ⏳

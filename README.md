@@ -123,7 +123,7 @@ benchmarked and release-checked against.
 | [LWJGL](https://github.com/LWJGL/lwjgl3) zstd + LMDB bindings 3.4.1 | LWJGL contributors | BSD-3-Clause | **Bundled natives, unmodified:** macOS arm64 `liblwjgl_zstd.dylib` / `liblwjgl_lmdb.dylib` (+ `.sha1`) from Maven Central `org.lwjgl:lwjgl-{zstd,lmdb}:3.4.1:natives-macos-arm64`, in `nativium-voxy-natives`. |
 | [Zstandard](https://github.com/facebook/zstd) | Meta Platforms, Inc. and affiliates | BSD-3-Clause | Statically contained in LWJGL's `liblwjgl_zstd.dylib` (above). |
 | [LMDB](https://www.symas.com/lmdb) | Howard Chu, Symas Corp. | OpenLDAP Public License 2.8 | Statically contained in LWJGL's `liblwjgl_lmdb.dylib` (above). |
-| [mcopt](https://github.com/noahdunnagan/mcopt) | noahdunnagan | Apache-2.0 (+ NOTICE) | Metal command-encoding techniques (pass merging, deferred clears, store-action selection). Only code from commit `09fea99` (0.3.0-alpha.1) onward. Terrain occlusion culling (`HiZCuller`/`TerrainOcclusion`) follows its two-phase Hi-Z idea (mid-pass split, pyramid by compute, re-test) as **idea only, own code**. |
+| [mcopt](https://github.com/noahdunnagan/mcopt) | noahdunnagan | Apache-2.0 (+ NOTICE) | Metal command-encoding techniques (pass merging, deferred clears, store-action selection). Only code from commit `09fea99` (0.3.0-alpha.1) onward. Render-thread QoS and the separate pre-frame upload command buffer follow its ideas (own code). Terrain occlusion culling (`HiZCuller`/`TerrainOcclusion`) follows its two-phase Hi-Z idea (mid-pass split, pyramid by compute, re-test) as **idea only, own code**. |
 
 ### Ideas and research only (no code copied)
 

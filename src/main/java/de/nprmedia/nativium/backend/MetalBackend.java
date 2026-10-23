@@ -56,6 +56,7 @@ public class MetalBackend implements GpuBackend {
             GpuDevice device = new FrontendGpuDevice(new MetalDevice(debugOptions, metalDevice, deviceName));
             de.nprmedia.nativium.api.NativiumRuntime.markMetalActive();
             de.nprmedia.nativium.api.NativiumRuntime.setMetalDescription(describe(metalDevice));
+            de.nprmedia.nativium.power.ThreadQos.applyToRenderThread(); // createDevice runs on the render thread
             return device;
         } catch (Throwable throwable) {
             throw new BackendCreationException("Metal device initialization failed: " + throwable.getMessage(), BackendCreationException.Reason.OTHER);

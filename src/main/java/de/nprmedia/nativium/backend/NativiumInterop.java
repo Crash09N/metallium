@@ -127,7 +127,9 @@ public final class NativiumInterop {
      * each use: CPU writes to a dynamic buffer may swap its backing.
      */
     public static io.github.kokodio.metaljvm.metal.MTLBuffer metalBuffer(final com.mojang.renderpearl.api.buffers.GpuBuffer buffer) {
-        return ((MetalGpuBuffer) buffer).metalBuffer();
+        MetalGpuBuffer metal = (MetalGpuBuffer) buffer;
+        metal.exposedExternally = true; // the caller may write it on the GPU or keep the handle: never hoist uploads to it
+        return metal.metalBuffer();
     }
 
     /**
