@@ -72,6 +72,8 @@ final class MetalRenderPass implements RenderPassBackend {
     /** Nativium extension ({@link NativiumInterop#setDrawBindings}): resources outside the renderpearl binding table. */
     private java.util.function.@Nullable Consumer<MTLRenderCommandEncoder> extraBindings;
     private boolean extraBindingsDirty;
+    /** Replaces the draws of the current pipeline (geometry-shader emulation); cleared by every setPipeline. */
+    private NativiumInterop.@Nullable DrawInterceptor drawInterceptor;
     private boolean vertexBuffersDirty = true;
     private boolean pipelineDirty = true;
     private boolean pushConstantsDirty;
@@ -133,6 +135,7 @@ final class MetalRenderPass implements RenderPassBackend {
     @Override
     public void setPipeline(final @NonNull BackendRenderPipeline pipeline) {
         MetalCompiledRenderPipeline compiled = (MetalCompiledRenderPipeline) pipeline;
+        drawInterceptor = null;
         if (this.compiledPipeline != compiled) {
             this.compiledPipeline = compiled;
             bindings.reset();
@@ -211,6 +214,10 @@ final class MetalRenderPass implements RenderPassBackend {
         MTLRenderCommandEncoder enc = renderEncoder();
 
         bindDrawState(enc);
+        if (drawInterceptor != null) {
+            interceptIndexed(enc, nativeIndexBuffer, firstIndex, indexCount, vertexOffset);
+            return;
+        }
         drawIndexedNative(enc, nativeIndexBuffer, firstIndex, indexCount, vertexOffset, instanceCount, indexType, firstInstance);
     }
 
@@ -225,7 +232,9 @@ final class MetalRenderPass implements RenderPassBackend {
             int firstIndex = drawParameters.get(base + i * 3);
             int indexCount = drawParameters.get(base + i * 3 + 1);
             int baseVertex = drawParameters.get(base + i * 3 + 2);
-            if (indexCount > 0) {
+            if (indexCount > 0 && drawInterceptor != null) {
+                interceptIndexed(enc, nativeIndexBuffer, firstIndex, indexCount, baseVertex);
+            } else if (indexCount > 0) {
                 drawIndexedNative(enc, nativeIndexBuffer, firstIndex, indexCount, baseVertex, instanceCount, indexType, firstInstance);
             }
         }
@@ -234,7 +243,7 @@ final class MetalRenderPass implements RenderPassBackend {
     @Override
     public void multiDrawIndexed(@NonNull PointerBuffer firstIndexOffsets, @NonNull IntBuffer indexCounts, @NonNull IntBuffer vertexOffsets, int drawCount) {
         MTLPrimitiveType primitiveType = primitiveTopology();
-        if (isTriangleFan()) {
+        if (isTriangleFan() && drawInterceptor == null) {
             throw new UnsupportedOperationException("Metal backend does not support triangle fan multiDrawIndexed");
         }
 
@@ -254,6 +263,10 @@ final class MetalRenderPass implements RenderPassBackend {
             }
             long firstIndexOffset = offsets.get(ValueLayout.JAVA_LONG, i * 8L);
             int baseVertex = vertices.get(ValueLayout.JAVA_INT, i * 4L);
+            if (drawInterceptor != null) {
+                interceptIndexed(enc, nativeIndexBuffer, (int) (firstIndexOffset / MetalConversions.bytes(indexType)), indexCount, baseVertex);
+                continue;
+            }
             enc.drawIndexedPrimitives(primitiveType, indexCount, indexType, indexBufferHandle, firstIndexOffset, 1, baseVertex, 0);
         }
         if (PerfCounters.ENABLED) {
@@ -265,6 +278,10 @@ final class MetalRenderPass implements RenderPassBackend {
 
     @Override
     public void drawIndexedIndirect(final @NonNull GpuBufferSlice commands, final int drawCount) {
+        if (drawInterceptor != null) {
+            drawInterceptor.unsupportedDraw("indexed indirect");
+            return;
+        }
         MTLPrimitiveType primitiveType = primitiveTopology();
         if (isTriangleFan()) {
             throw new UnsupportedOperationException("Metal backend does not support triangle fan indirect draws");
@@ -316,6 +333,10 @@ final class MetalRenderPass implements RenderPassBackend {
 
     @Override
     public void drawIndirect(final @NonNull GpuBufferSlice commands, final int drawCount) {
+        if (drawInterceptor != null) {
+            drawInterceptor.unsupportedDraw("indirect");
+            return;
+        }
         MTLPrimitiveType primitiveType = primitiveTopology();
         if (isTriangleFan()) {
             throw new UnsupportedOperationException("Metal backend does not support triangle fan indirect draws");
@@ -334,6 +355,15 @@ final class MetalRenderPass implements RenderPassBackend {
 
     private void drawNative(final MTLRenderCommandEncoder enc, final int firstVertex, final int vertexCount, final int instanceCount, final int firstInstance) {
         if (vertexCount <= 0) {
+            return;
+        }
+        if (drawInterceptor != null) {
+            GpuBufferSlice vertices = vertexBuffers[0];
+            if (isTriangleFan() || vertices == null) {
+                drawInterceptor.unsupportedDraw(isTriangleFan() ? "triangle fan" : "no vertex buffer");
+                return;
+            }
+            drawInterceptor.draw(enc, firstVertex, vertexCount, ((MetalGpuBuffer) vertices.buffer()).metalBuffer(), vertices.offset());
             return;
         }
         if (isTriangleFan()) {
@@ -509,6 +539,20 @@ final class MetalRenderPass implements RenderPassBackend {
             return Short.toUnsignedInt(indices.get(ValueLayout.JAVA_SHORT_UNALIGNED, index * 2L));
         }
         return indices.get(ValueLayout.JAVA_INT_UNALIGNED, index * 4L);
+    }
+
+    private void interceptIndexed(final MTLRenderCommandEncoder enc, final MetalGpuBuffer indices, final int firstIndex, final int indexCount, final int baseVertex) {
+        GpuBufferSlice vertices = vertexBuffers[0];
+        if (isTriangleFan() || vertices == null) {
+            drawInterceptor.unsupportedDraw(isTriangleFan() ? "triangle fan" : "no vertex buffer");
+            return;
+        }
+        drawInterceptor.drawIndexed(enc, indices.metalBuffer(), indexType == MTLIndexType.UInt16, firstIndex, indexCount, baseVertex,
+                ((MetalGpuBuffer) vertices.buffer()).metalBuffer(), vertices.offset());
+    }
+
+    void setDrawInterceptor(final NativiumInterop.@Nullable DrawInterceptor interceptor) {
+        this.drawInterceptor = interceptor;
     }
 
     void setExtraBindings(final java.util.function.@Nullable Consumer<MTLRenderCommandEncoder> binder) {

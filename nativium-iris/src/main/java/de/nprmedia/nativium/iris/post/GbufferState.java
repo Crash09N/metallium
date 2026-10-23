@@ -396,8 +396,18 @@ final class GbufferState implements AutoCloseable {
     @Nullable
     private GbufferProgram compileProgram(final ShaderKey key, final ProgramSource source, final RenderPipeline replaced, final boolean shadow) {
         String name = source.getName() + "/" + key.getName() + "/" + replaced.getLocation().getNamespace() + "/" + replaced.getLocation().getPath();
-        if (source.getGeometrySource().isPresent() || source.getTessControlSource().isPresent() || source.getTessEvalSource().isPresent()) {
-            report(source.getName(), "geometry/tessellation shaders are not supported on Metal (vanilla shader used)");
+        if (source.getTessControlSource().isPresent() || source.getTessEvalSource().isPresent()) {
+            report(source.getName(), "tessellation shaders are not supported on Metal (vanilla shader used)");
+            return null;
+        }
+        String geometrySource = source.getGeometrySource().orElse(null);
+        if (geometrySource != null && !GeometryEmulation.ENABLED) {
+            report(source.getName(), "geometry shaders are not supported on Metal (vanilla shader used; emulation off)");
+            return null;
+        }
+        if (geometrySource != null && replaced.getPrimitiveTopology() != com.mojang.renderpearl.api.pipeline.PrimitiveTopology.TRIANGLES
+                && replaced.getPrimitiveTopology() != com.mojang.renderpearl.api.pipeline.PrimitiveTopology.QUADS) {
+            report(source.getName(), "geometry shader for " + replaced.getPrimitiveTopology() + " draws is not emulated (vanilla shader used)");
             return null;
         }
         Map<PatchShaderType, String> transformed = null;
@@ -410,11 +420,11 @@ final class GbufferState implements AutoCloseable {
             String vertexSource = source.getVertexSource().orElseThrow();
             String fragmentSource = source.getFragmentSource().orElseThrow();
             if (sodium) {
-                transformed = TransformPatcher.patchSodium(key.getName(), vertexSource, null, null, null, fragmentSource, alpha, textureMap, overrides, shadow);
+                transformed = TransformPatcher.patchSodium(key.getName(), vertexSource, geometrySource, null, null, fragmentSource, alpha, textureMap, overrides, shadow);
             } else {
                 boolean isLines = key.getProgram() == ProgramId.Line && resolver.has(ProgramId.Line);
                 ShaderAttributeInputs inputs = new ShaderAttributeInputs(key.getVertexFormat(), key.shouldIgnoreLightmap(), isLines, key.isGlint(), key.isText(), false);
-                transformed = TransformPatcher.patchVanilla(key.getName(), vertexSource, null, null, null, fragmentSource, alpha, isLines,
+                transformed = TransformPatcher.patchVanilla(key.getName(), vertexSource, geometrySource, null, null, fragmentSource, alpha, isLines,
                         key == ShaderKey.CLOUDS, true, inputs, textureMap, overrides);
             }
             VertexFormat vertexFormat = sodium ? WorldRenderingSettings.INSTANCE.getVertexFormat().getVertexFormat() : replaced.getVertexFormatBinding(0);
@@ -428,10 +438,20 @@ final class GbufferState implements AutoCloseable {
                 bufferBlends.put(information.index(), toBlend(information.blendMode()));
             }
 
-            GbufferProgram program = GbufferProgram.compile(new GbufferProgram.Spec(name, transformed.get(PatchShaderType.VERTEX),
+            String vertexStage = transformed.get(PatchShaderType.VERTEX);
+            int geometrySlots = 0;
+            if (geometrySource != null) {
+                GeometryEmulation.Merged merged = GeometryEmulation.merge(vertexStage, transformed.get(PatchShaderType.GEOMETRY), vertexFormat);
+                vertexStage = merged.vertex();
+                geometrySlots = merged.slots();
+                if (GeometryEmulation.DUMP) {
+                    dumpSources(name + ".gs-merged", Map.of(PatchShaderType.VERTEX, vertexStage, PatchShaderType.GEOMETRY, transformed.get(PatchShaderType.GEOMETRY)));
+                }
+            }
+            GbufferProgram program = GbufferProgram.compile(new GbufferProgram.Spec(name, vertexStage,
                     transformed.get(PatchShaderType.FRAGMENT), replaced, vertexFormat, directives.getDrawBuffers(),
                     shadow ? shadowAttachments : attachments, shadow ? shadowAttachmentFormats : attachmentFormats, blend, bufferBlends,
-                    alpha.reference(), shadow), owner.storageValidator());
+                    alpha.reference(), shadow, geometrySlots), owner.storageValidator());
             var customUniforms = owner.customUniforms();
             CommonUniforms.addDynamicUniforms(program.uniforms, FogMode.PER_VERTEX);
             customUniforms.assignTo(program.uniforms);
@@ -439,7 +459,8 @@ final class GbufferState implements AutoCloseable {
             VanillaUniforms.addVanillaUniforms(program.uniforms);
             customUniforms.mapholderToPass(program.uniforms, program);
             compiledNames.add(source.getName());
-            NativiumIris.LOGGER.info("[nativium-iris] gbuffers program {} replaces {} ({})", source.getName(), replaced.getLocation(), key);
+            NativiumIris.LOGGER.info("[nativium-iris] gbuffers program {} replaces {} ({}){}", source.getName(), replaced.getLocation(), key,
+                    geometrySlots > 0 ? " with its geometry shader emulated (" + geometrySlots + " vertices per triangle)" : "");
             return program;
         } catch (Exception | LinkageError e) {
             String message = e.getMessage() == null ? e.toString() : e.getMessage().lines().findFirst().orElse(e.toString());
@@ -668,6 +689,10 @@ final class GbufferState implements AutoCloseable {
             bindSampler(pass, sampler, program);
         }
         owner.bindStorage(pass, program.storage, writesAlt);
+        if (program.geometry != null) {
+            de.nprmedia.nativium.backend.NativiumInterop.setDrawInterceptor(
+                    ((de.nprmedia.nativium.iris.mixin.FrontendRenderPassAccessor) pass).nativium$backend(), program.geometry);
+        }
     }
 
     private void bindSampler(final RenderPass pass, final String name, final GbufferProgram program) {

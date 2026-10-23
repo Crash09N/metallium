@@ -102,6 +102,8 @@ final class GbufferProgram implements AutoCloseable {
     final boolean readsAlbedo;
     /** Stage 5: storage images/SSBOs outside the renderpearl binding table (bound per draw). */
     StorageBindings storage = new StorageBindings();
+    /** Stage 6: replaces the draws of a program with an emulated geometry shader; null otherwise. */
+    GeometryEmulation.@Nullable Interceptor geometry;
 
     private GbufferProgram(final String name, final FrontendRenderPipeline pipeline, final Set<String> ownSamplers, final Set<String> extraBlocks,
                            final Map<String, PostUniforms.Block> blocks, final float alphaReference, final Set<String> compareSamplers) {
@@ -130,10 +132,18 @@ final class GbufferProgram implements AutoCloseable {
      * @param blend         blend for written float attachments (pack override or the replaced pipeline's blend)
      * @param bufferBlends  per-colortex blend overrides ({@code blend.<program>.<buffer>})
      * @param shadow        shadow pass: no culling and the depth test flipped to forward Z (Iris's MixinGlRenderPipeline)
+     * @param geometrySlots stage 6: {@code vertex} is a {@link GeometryEmulation} merge that pulls its vertices itself
+     *                      ({@code slots} output vertices per triangle); 0 for a plain vertex shader
      */
     record Spec(String name, String vertex, String fragment, RenderPipeline source, VertexFormat vertexFormat,
                 int[] drawBuffers, int[] attachments, List<GpuFormat> attachmentFormats,
-                Optional<BlendFunction> blend, Map<Integer, Optional<BlendFunction>> bufferBlends, float alphaReference, boolean shadow) {
+                Optional<BlendFunction> blend, Map<Integer, Optional<BlendFunction>> bufferBlends, float alphaReference, boolean shadow,
+                int geometrySlots) {
+        Spec(String name, String vertex, String fragment, RenderPipeline source, VertexFormat vertexFormat,
+             int[] drawBuffers, int[] attachments, List<GpuFormat> attachmentFormats,
+             Optional<BlendFunction> blend, Map<Integer, Optional<BlendFunction>> bufferBlends, float alphaReference, boolean shadow) {
+            this(name, vertex, fragment, source, vertexFormat, drawBuffers, attachments, attachmentFormats, blend, bufferBlends, alphaReference, shadow, 0);
+        }
     }
 
     /**
@@ -217,7 +227,7 @@ final class GbufferProgram implements AutoCloseable {
                     patched.equals(vertex) ? "NOT patched (no iris_UV0 input): " + vertex.lines().filter(l -> l.contains("UV0") || l.contains("MultiTexCoord0")).toList() : "patched");
             vertex = patched;
         }
-        sources.put(Stage.VERTEX, defaultMissingInputs(vertex, available));
+        sources.put(Stage.VERTEX, spec.geometrySlots > 0 ? vertex : defaultMissingInputs(vertex, available));
         sources.put(Stage.FRAGMENT, withoutUnmappedOutputs(spec.fragment, spec.drawBuffers, spec.attachments));
         Set<Integer> unwritten = unwrittenOutputs(spec.fragment);
         Map<Stage, SpirvStage> stages = GlslProgramTranslator.compileToSpirv(spec.name, sources);
@@ -332,6 +342,10 @@ final class GbufferProgram implements AutoCloseable {
                             continue;
                         }
                         case Spvc.SPVC_RESOURCE_TYPE_STORAGE_BUFFER -> {
+                            if (spec.geometrySlots > 0 && descriptor.name().startsWith(GeometryEmulation.PREFIX)) {
+                                descriptor.descriptorSetIndex(0); // fixed Metal index (layout binding), bound by the draw interceptor
+                                continue;
+                            }
                             storage.assign(descriptor, StorageBindings.Kind.BUFFER, validator);
                             continue;
                         }
@@ -381,7 +395,7 @@ final class GbufferProgram implements AutoCloseable {
             BackendRenderPipeline.CreateInfo info = new BackendRenderPipeline.CreateInfo(
                     "iris/" + spec.name,
                     List.copyOf(shaders),
-                    spec.vertexFormat == null ? List.of()
+                    spec.vertexFormat == null || spec.geometrySlots > 0 ? List.of()
                             : List.of(new BackendRenderPipeline.CreateInfo.VertexBuffer(0, spec.vertexFormat.getVertexSize(), spec.vertexFormat.getStepRate())),
                     List.copyOf(attribs),
                     List.copyOf(uniforms),
@@ -401,6 +415,9 @@ final class GbufferProgram implements AutoCloseable {
                     Object2IntMaps.unmodifiable(bindings), List.copyOf(uniforms), List.copyOf(colorTargets), spec.source.wantsDepthTexture(), spec.source.pushConstantSize());
             GbufferProgram program = new GbufferProgram(spec.name, pipeline, ownSamplers, extraBlocks, blocks, spec.alphaReference, Set.copyOf(compareSamplers));
             program.storage = storage;
+            if (spec.geometrySlots > 0) {
+                program.geometry = new GeometryEmulation.Interceptor(spec.name, spec.geometrySlots);
+            }
             blocks = null; // owned by the program now
             return program;
         } finally {
@@ -484,7 +501,7 @@ final class GbufferProgram implements AutoCloseable {
         return out.toString();
     }
 
-    private static String defaultValue(final String type, final String name) {
+    static String defaultValue(final String type, final String name) {
         boolean unsigned = type.startsWith("u");
         return switch (name) {
             case "mc_Entity", "iris_Entity" -> unsigned ? type + "(0)" : type + "(-1)";

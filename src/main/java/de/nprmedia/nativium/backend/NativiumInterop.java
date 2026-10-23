@@ -171,6 +171,29 @@ public final class NativiumInterop {
     }
 
     /**
+     * Replaces the draws of a pass's current pipeline (Iris geometry-shader emulation: the pipeline pulls its vertices
+     * itself and is drawn non-indexed). Cleared by the next {@code setPipeline}; set it after binding the pipeline.
+     * The pass's draw state (pipeline, uniforms, extra bindings) is bound before the interceptor runs.
+     */
+    public interface DrawInterceptor {
+        /** An indexed triangle-list draw: {@code firstIndex}/{@code indexCount} in indices, vertex buffer slot 0 slice. */
+        void drawIndexed(io.github.kokodio.metaljvm.metal.MTLRenderCommandEncoder encoder, io.github.kokodio.metaljvm.metal.MTLBuffer indexBuffer,
+                         boolean index16, int firstIndex, int indexCount, int baseVertex,
+                         io.github.kokodio.metaljvm.metal.MTLBuffer vertexBuffer, long vertexOffset);
+
+        void draw(io.github.kokodio.metaljvm.metal.MTLRenderCommandEncoder encoder, int firstVertex, int vertexCount,
+                  io.github.kokodio.metaljvm.metal.MTLBuffer vertexBuffer, long vertexOffset);
+
+        /** A draw the interceptor cannot replace (indirect, triangle fan); it is skipped. */
+        void unsupportedDraw(String kind);
+    }
+
+    /** See {@link DrawInterceptor}; {@code null} removes it. */
+    public static void setDrawInterceptor(final com.mojang.renderpearl.backend.api.RenderPassBackend pass, final @Nullable DrawInterceptor interceptor) {
+        ((MetalRenderPass) pass).setDrawInterceptor(interceptor);
+    }
+
+    /**
      * For pipelines with more than 16 textures in a stage (Metal's sampler-state limit): the sampler each texture
      * uniform of pipeline {@code pipelineName} is always bound with. Those textures use it as an MSL
      * {@code constexpr sampler} (identical ones count once towards Metal's 16); the sampler passed at bind time is
