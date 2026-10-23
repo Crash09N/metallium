@@ -207,6 +207,8 @@ loom.runs.clientGameTest {
 	}
 	// -PterrainCullTest: terrain occlusion culling must not change the image (wall / behind-camera / open views, on vs off).
 	if (project.hasProperty('terrainCullTest')) vmArg '-Dnativium.gametest.mode=terrainCull'
+	// -PglintTest (with -PwithIris -Pshaderpack=...): enchanted armor/items/hand must not render white or black (glintTexture).
+	if (project.hasProperty('glintTest')) vmArg '-Dnativium.gametest.mode=glint'
 	// -PconformanceTest [-PconformanceScenes=terrain,water] [-PconformanceFabulous=false]: deterministic scenes covering
 	// vanilla's pipelines for a Metal vs OpenGL (-PbackendOff) screenshot comparison (tools/conformance-compare.sh).
 	if (project.hasProperty('conformanceTest')) vmArg '-Dnativium.gametest.mode=conformance'

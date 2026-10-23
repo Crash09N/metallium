@@ -71,7 +71,12 @@ final class GbufferProgram implements AutoCloseable {
             "lightmap", List.of("Sampler2", "u_LightTex", "uLightMap"),
             // Distant Horizons' Blaze3D terrain pipeline (DhIrisBridge): DH's own sampler names.
             "dhBlockAtlas", List.of("uBlockAtlas"),
-            "iris_overlay", List.of("Sampler1"));
+            "iris_overlay", List.of("Sampler1"),
+            // Glint drawn in the entity/item pass (MC 26.3 *_GLINT pipelines, Iris ShaderKey *_GLINT*): Iris's
+            // ExtendedShader binds enchanted_glint_armor.png (armor keys) or enchanted_glint_item.png; the replaced
+            // vanilla pipeline binds exactly that texture as GlintSampler (with its repeat sampler). The glint
+            // matrix is DynamicTransforms.TextureMat, already passed through as iris_transforms.
+            "glintTexture", List.of("GlintSampler"));
     /** Iris prefixes vanilla's uniform blocks with {@code iris_} in gbuffers programs. */
     private static final Set<String> VANILLA_BLOCKS = Set.of("DynamicTransforms", "Projection", "Globals", "Fog", "Lighting", "CloudInfo");
     private static final int UNUSED_BINDING = 1000;
