@@ -348,7 +348,7 @@ final class GlProgramLinker {
         if (bindings.isEmpty()) {
             return source;
         }
-        Matcher m = VERTEX_INPUT.matcher(source);
+        Matcher m = de.nprmedia.nativium.shaders.RegexBudget.matcher(VERTEX_INPUT, source);
         StringBuilder sb = new StringBuilder();
         while (m.find()) {
             Integer location = bindings.get(m.group(5));
