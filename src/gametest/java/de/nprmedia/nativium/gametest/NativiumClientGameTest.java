@@ -1465,6 +1465,10 @@ public final class NativiumClientGameTest implements FabricClientGameTest {
             bobbyTest(context);
             return;
         }
+        if (net.fabricmc.loader.api.FabricLoader.getInstance().isModLoaded("lss") && net.fabricmc.loader.api.FabricLoader.getInstance().isModLoaded("voxy")) {
+            voxyServerSideTest(context);
+            return;
+        }
         if (Boolean.getBoolean("nativium.gametest.voxyScenario") || net.fabricmc.loader.api.FabricLoader.getInstance().isModLoaded("voxy")
                 && System.getProperty("nativium.gl.routedMods", "").contains("voxy")) {
             voxyTest(context);
@@ -1925,6 +1929,153 @@ public final class NativiumClientGameTest implements FabricClientGameTest {
             context.takeScreenshot("nativium-voxy-horizon-rd10-back-voxyoff");
             context.runOnClient(client -> voxyRendering(true));
             context.waitTicks(40);
+        }
+    }
+
+    /**
+     * Voxy Server Side (mod id lss; -PextraMods=voxy-server-side-fabric.jar): Voxy's LODs from the server's saved
+     * chunks instead of Voxy's own client-side ingest (owner report 2026-10-23: "floating islands" on a server). A
+     * fixed-seed area of about 1150 x 1150 blocks is generated and saved first with Voxy's ingest off; then the world is
+     * opened to LAN (lss serves only published integrated servers) and lss streams the saved columns into Voxy.
+     * -Dnativium.gametest.lssOff=true: the comparison run - same area, Voxy's own ingest, no LAN, lss idle.
+     */
+    private void voxyServerSideTest(ClientGameTestContext context) {
+        boolean viaLss = !Boolean.getBoolean("nativium.gametest.lssOff");
+        String tag = viaLss ? "lss" : "voxyingest";
+        // -Dnativium.gametest.lssNoLan=true: lss's own test switch serves the private integrated server from the start
+        // (no LAN socket; publishing can fail or prompt the macOS firewall).
+        boolean noLan = viaLss && Boolean.getBoolean("nativium.gametest.lssNoLan");
+        if (noLan) System.setProperty("lss.test.integratedServer", "true");
+        try {
+            TestSingleplayerContext world = context.worldBuilder().setUseConsistentSettings(false)
+                    .adjustSettings(state -> state.setSeed(System.getProperty("nativium.gametest.seed", "nativium-forest"))).create();
+            world.getConnection().waitForChunksRender();
+            tryCommand(world, "gamemode spectator @a");
+            tryCommand(world, "time set 6000");
+            tryCommand(world, "gamerule advance_time false");
+            tryCommand(world, "weather clear");
+            line(tag + ": voxy distance " + context.computeOnClient(client -> voxySetDistance(16f)));
+            // Generate and save the area on the server only (forceload; the client stays at rd 4 near spawn, so Voxy's
+            // own ingest never sees it). Voxy's raw ingest (what lss feeds) is gated on Voxy's ingest setting, so that
+            // stays on.
+            context.runOnClient(client -> client.options.renderDistance().set(4));
+            int extent = Integer.getInteger("nativium.gametest.lssExtent", 384);
+            for (int x = -extent; x < extent; x += 256) {
+                for (int z = -extent; z < extent; z += 256) {
+                    tryCommand(world, "forceload add " + x + " " + z + " " + (x + 255) + " " + (z + 255));
+                }
+            }
+            context.waitTicks(Integer.getInteger("nativium.gametest.lssGenTicks", 900));
+            tryCommand(world, "save-all flush");
+            tryCommand(world, "forceload remove all");
+            if (!viaLss) {
+                // Comparison: Voxy ingests the same area itself (the client loads it at rd 12).
+                context.runOnClient(client -> client.options.renderDistance().set(12));
+                for (int x = -extent; x <= extent; x += 192) {
+                    for (int z = -extent; z <= extent; z += 192) {
+                        tryCommand(world, "tp @a " + x + " 200 " + z);
+                        context.waitTicks(80);
+                    }
+                }
+            }
+            tryCommand(world, "tp @a 0 200 0");
+            context.runOnClient(client -> client.options.renderDistance().set(4));
+            context.waitTicks(100);
+            line(tag + ": after generation: " + context.computeOnClient(client -> voxyDebug()));
+            if (viaLss && !noLan) {
+                boolean published = context.computeOnClient(client -> client.getSingleplayerServer().publishServer(
+                        net.minecraft.server.MinecraftServer.MultiplayerScope.LAN, net.minecraft.util.HttpUtil.getAvailablePort()));
+                line("lss: published to LAN: " + published);
+                if (!published) failures.add("lss: publishServer failed");
+            }
+            for (int i = 1; i <= 6; i++) {
+                context.waitTicks(200);
+                line(tag + ": " + (i * 10) + " s: " + context.computeOnClient(client -> voxyDebug()));
+                if (viaLss) line("lss: status: " + context.computeOnClient(client -> lssStatus()));
+            }
+            String[][] views = {
+                    {"overview", "tp @a 0 260 0 facing 140 80 240"},
+                    {"top", "tp @a 0 420 0 facing 0 0 1"},
+                    {"low-north", "tp @a 0 140 300 facing 0 90 0"},
+                    {"low-east", "tp @a -300 140 0 facing 0 90 0"},
+                    {"edge", "tp @a 200 220 -200 facing 0 80 0"},
+            };
+            for (String[] view : views) {
+                tryCommand(world, view[1]);
+                context.waitTicks(160);
+                clearChat(context);
+                context.takeScreenshot("nativium-" + tag + "-" + view[0]);
+                line(tag + ": view " + view[0] + ": camera " + context.computeOnClient(client -> client.gameRenderer.mainCamera().position()
+                        + " yaw " + client.player.getYRot() + " pitch " + client.player.getXRot()));
+            }
+            // The edge view again after 30 s more: LOD streaming done, no coarse-level walls left.
+            tryCommand(world, "tp @a 200 220 -200 facing 0 80 0");
+            context.waitTicks(600);
+            clearChat(context);
+            context.takeScreenshot("nativium-" + tag + "-edge-late");
+            line(tag + ": edge late: " + context.computeOnClient(client -> voxyDebug()));
+            // The same ground from rising camera heights (the owner saw the holes from high up).
+            for (int y : new int[] {120, 160, 200, 260}) {
+                tryCommand(world, "tp @a 0 " + y + " 0 facing 150 70 150");
+                context.waitTicks(100);
+                long calls = de.nprmedia.nativium.compat.voxy.VoxyCompat.renderCalls();
+                context.waitTicks(100);
+                clearChat(context);
+                context.takeScreenshot("nativium-" + tag + "-height-" + y);
+                line(tag + ": height " + y + ": voxy render calls in 5 s=" + (de.nprmedia.nativium.compat.voxy.VoxyCompat.renderCalls() - calls)
+                        + "; " + context.computeOnClient(client -> voxyDebug()));
+            }
+            // Diagnostics at the 200 view: Voxy's fog off; then Voxy off (what vanilla alone draws).
+            tryCommand(world, "tp @a 0 200 0 facing 150 70 150");
+            String fog = context.computeOnClient(client -> voxyFogMode("OFF"));
+            line(tag + ": fog mode was " + fog + "; vanilla fog " + context.computeOnClient(client -> voxyFog()));
+            context.waitTicks(100);
+            clearChat(context);
+            context.takeScreenshot("nativium-" + tag + "-height-200-fogoff");
+            context.runOnClient(client -> voxyFogMode(fog));
+            context.runOnClient(client -> client.options.cloudStatus().set(net.minecraft.client.CloudStatus.OFF));
+            context.waitTicks(60);
+            clearChat(context);
+            context.takeScreenshot("nativium-" + tag + "-height-200-cloudsoff");
+            context.runOnClient(client -> client.options.renderDistance().set(12));
+            context.waitTicks(300);
+            clearChat(context);
+            context.takeScreenshot("nativium-" + tag + "-height-200-rd12");
+            context.runOnClient(client -> client.options.renderDistance().set(4));
+            context.runOnClient(client -> client.options.cloudStatus().set(net.minecraft.client.CloudStatus.FANCY));
+            context.runOnClient(client -> voxyRendering(false));
+            tryCommand(world, "tp @a 0 260 0 facing 140 80 240");
+            context.waitTicks(60);
+            clearChat(context);
+            context.takeScreenshot("nativium-" + tag + "-overview-voxyoff");
+            context.runOnClient(client -> voxyRendering(true));
+            line(tag + ": final: " + context.computeOnClient(client -> voxyDebug()));
+            line(tag + ": " + glSummary());
+            line(failures.isEmpty() ? "result: PASS" : "result: FAIL " + failures);
+        } catch (Throwable t) {
+            line("result: FAIL " + t);
+            writeReport();
+            Runtime.getRuntime().halt(1);
+        }
+        writeReport();
+        Runtime.getRuntime().halt(failures.isEmpty() ? 0 : 1);
+    }
+
+    private static String lssStatus() {
+        try {
+            String text = String.valueOf(Class.forName("dev.vox.lss.networking.client.ClientStatus").getMethod("latest").invoke(null));
+            return text.length() > 3000 ? text.substring(0, 3000) + "..." : text;
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            return "unavailable: " + e;
+        }
+    }
+
+    private static void voxyIngest(boolean enabled) {
+        try {
+            Object config = Class.forName("me.cortex.voxy.client.config.VoxyConfig").getField("CONFIG").get(null);
+            config.getClass().getField("ingestEnabled").setBoolean(config, enabled);
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            throw new IllegalStateException("cannot toggle Voxy ingest", e);
         }
     }
 

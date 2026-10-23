@@ -291,7 +291,7 @@ final class GlBindings {
             Texture texture = gl.bound2D[unit];
             GlDevice.TextureStore store = texture == null ? null : texture.store;
             out.add(new GlDevice.TextureBinding(textureIndex, vertexStage ? sampler.vertexSampler() : sampler.fragmentSampler(), store,
-                    samplerState(unit, texture)));
+                    samplerState(unit, texture), texture == null ? 0 : texture.baseLevel, texture == null ? 1000 : texture.maxLevel));
         }
         return out.toArray(GlDevice.TextureBinding[]::new);
     }

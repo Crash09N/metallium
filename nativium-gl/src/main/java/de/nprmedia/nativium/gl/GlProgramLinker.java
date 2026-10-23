@@ -39,7 +39,7 @@ final class GlProgramLinker {
 
     private static final Pattern ATTRIBUTE = Pattern.compile("(\\w+)\\s+(\\w+)\\s*\\[\\[attribute\\((\\d+)\\)\\]\\]");
     private static final Pattern SAMPLER = Pattern.compile("sampler\\s+(\\w+?)Smplr\\s*\\[\\[sampler\\((\\d+)\\)\\]\\]");
-    private static final Pattern VERTEX_INPUT = Pattern.compile("(?m)^(\\s*)((?:(?:highp|mediump|lowp|flat|smooth)\\s+)*)(in|attribute)\\s+(\\w+)\\s+(\\w+)\\s*;");
+    private static final Pattern VERTEX_INPUT = Pattern.compile("(?m)^([ \\t]*)((?:(?:highp|mediump|lowp|flat|smooth)\\s+)*)(in|attribute)\\s+(\\w+)\\s+(\\w+)\\s*;");
     /** GL extensions whose features nativium-gl does not implement; shaders requiring them fail to compile, as in GL. */
     private static final Pattern UNSUPPORTED_EXTENSION = Pattern.compile(
             "(?m)^[ \\t]*#[ \\t]*extension[ \\t]+(GL_ARB_gpu_shader_int64|GL_NV_\\w+|GL_NVX_\\w+|GL_AMD_\\w+|GL_ARB_bindless_texture|GL_ARB_sparse_\\w+)[ \\t]*:[ \\t]*(require|enable|warn)[ \\t\\r]*$");
@@ -348,7 +348,7 @@ final class GlProgramLinker {
         if (bindings.isEmpty()) {
             return source;
         }
-        Matcher m = VERTEX_INPUT.matcher(source);
+        Matcher m = de.nprmedia.nativium.shaders.RegexBudget.matcher(VERTEX_INPUT, source);
         StringBuilder sb = new StringBuilder();
         while (m.find()) {
             Integer location = bindings.get(m.group(5));

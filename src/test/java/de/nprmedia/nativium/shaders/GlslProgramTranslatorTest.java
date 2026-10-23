@@ -103,6 +103,20 @@ class GlslProgramTranslatorTest {
      * Vulkan GLSL dialect used for SPIR-V reserves it as a type ("unexpected SAMPLER, expecting RIGHT_PAREN"). BSL names a
      * variable {@code new}, which SPIRV-Cross copies into MSL (C++): "expected unqualified-id".
      */
+    /**
+     * Long runs of blank lines (what the preprocessor leaves of Photon 1.4's settings in Voxy's patched LOD shaders) made
+     * the global in/out pattern backtrack cubically: the render thread hung in glCompileShader (owner report 2026-10-23).
+     */
+    @Test
+    void longBlankLineRunsDoNotBacktrack() {
+        String fs = "#version 460 core\nlayout(location = 0) out vec4 explicitOut;\n" + "\n".repeat(20_000) + "  \t\n".repeat(5_000)
+                + "uniform float unrelated;\nflat out vec4 freeOut;\nin vec2 uv;\nvoid main() { explicitOut = vec4(uv, 0.0, 1.0); freeOut = vec4(1.0); }\n";
+        String out = assertTimeoutPreemptively(java.time.Duration.ofSeconds(5), () -> GlslProgramTranslator.assignFragmentOutputLocations(fs));
+        assertTrue(out.contains("layout(location = 1) flat out vec4 freeOut;"), "free output gets the next location");
+        assertTrue(out.contains("\nin vec2 uv;"), "inputs untouched");
+        assertEquals(fs.length() + "layout(location = 1) ".length(), out.length(), "whitespace preserved");
+    }
+
     @Test
     void vulkanReservedWordsAsIdentifiers() throws Exception {
         String fs = """

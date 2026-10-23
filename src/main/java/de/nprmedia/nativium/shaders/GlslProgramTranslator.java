@@ -49,9 +49,15 @@ public final class GlslProgramTranslator {
      */
     public static final int MSL_VERSION_3_2 = 30200;
 
-    private static final Pattern VERSION = Pattern.compile("^\\s*#version\\s+\\d+.*$", Pattern.MULTILINE);
+    private static final Pattern VERSION = Pattern.compile("^[ \\t]*#version\\s+\\d+.*$", Pattern.MULTILINE);
+    /**
+     * A global {@code in}/{@code out}/{@code varying} declaration at the start of a line. The leading indent is only
+     * horizontal whitespace and each qualifier owns the whitespace after it: an earlier {@code ^(\s*)((?:...|\s)*)} split
+     * every blank-line run two ways at every line start and backtracked cubically (Voxy's patched Photon 1.4 LOD shaders,
+     * thousands of blank lines left by the preprocessor, hung the render thread in glCompileShader).
+     */
     private static final Pattern GLOBAL_IO = Pattern.compile(
-            "^(\\s*)((?:flat|smooth|noperspective|centroid|invariant|\\s)*)\\b(in|out|varying)\\s+([A-Za-z_][A-Za-z0-9_]*)\\s+([A-Za-z_][A-Za-z0-9_]*)\\s*(\\[[^\\]]*\\])?\\s*;",
+            "^([ \\t]*)((?:(?:flat|smooth|noperspective|centroid|invariant)\\s+)*)\\b(in|out|varying)\\s+([A-Za-z_][A-Za-z0-9_]*)\\s+([A-Za-z_][A-Za-z0-9_]*)\\s*(\\[[^\\]]*\\])?\\s*;",
             Pattern.MULTILINE);
 
     private GlslProgramTranslator() {
@@ -526,7 +532,7 @@ public final class GlslProgramTranslator {
     }
 
     private static void collectIo(final String source, final String direction, final TreeSet<String> out) {
-        Matcher m = GLOBAL_IO.matcher(source);
+        Matcher m = RegexBudget.matcher(GLOBAL_IO, source);
         while (m.find()) {
             if (isDirection(m.group(3), direction) && !hasLayoutBefore(source, m.start())) {
                 out.add(m.group(5));
@@ -535,7 +541,7 @@ public final class GlslProgramTranslator {
     }
 
     private static String applyLocations(final String source, final String direction, final Map<String, Integer> locations) {
-        Matcher m = GLOBAL_IO.matcher(source);
+        Matcher m = RegexBudget.matcher(GLOBAL_IO, source);
         StringBuilder sb = new StringBuilder();
         while (m.find()) {
             Integer location = locations.get(m.group(5));
@@ -577,7 +583,7 @@ public final class GlslProgramTranslator {
      */
     public static Map<String, ExplicitLayout> explicitLayouts(final String preprocessed) {
         Map<String, ExplicitLayout> result = new LinkedHashMap<>();
-        Matcher m = LAYOUT_DECLARATION.matcher(preprocessed);
+        Matcher m = RegexBudget.matcher(LAYOUT_DECLARATION, preprocessed);
         while (m.find()) {
             int binding = -1;
             int location = -1;
@@ -706,7 +712,7 @@ public final class GlslProgramTranslator {
      */
     static String assignFragmentOutputLocations(final String source) {
         java.util.BitSet used = new java.util.BitSet();
-        Matcher explicit = EXPLICIT_OUT.matcher(source);
+        Matcher explicit = RegexBudget.matcher(EXPLICIT_OUT, source);
         while (explicit.find()) {
             int location = Integer.parseInt(explicit.group(1));
             used.set(location, location + (explicit.group(3) != null ? Math.max(1, Integer.parseInt(explicit.group(3))) : 1));
@@ -714,7 +720,7 @@ public final class GlslProgramTranslator {
         if (used.isEmpty()) {
             return source;
         }
-        Matcher m = GLOBAL_IO.matcher(source);
+        Matcher m = RegexBudget.matcher(GLOBAL_IO, source);
         StringBuilder sb = new StringBuilder();
         boolean changed = false;
         while (m.find()) {
@@ -761,7 +767,7 @@ public final class GlslProgramTranslator {
     static String renameBuiltinRedefinitions(final String source) {
         Map<String, java.util.Set<String>> defined = new LinkedHashMap<>();
         Map<String, Integer> firstDefinition = new LinkedHashMap<>();
-        Matcher m = BUILTIN_REDEFINITION.matcher(source);
+        Matcher m = RegexBudget.matcher(BUILTIN_REDEFINITION, source);
         while (m.find()) {
             String type = m.group(1);
             String name = m.group(2);
@@ -831,7 +837,7 @@ public final class GlslProgramTranslator {
         return result.toString();
     }
 
-    private static final Pattern VERSION_NUMBER = Pattern.compile("^\\s*#version\\s+(\\d+).*$", Pattern.MULTILINE);
+    private static final Pattern VERSION_NUMBER = Pattern.compile("^[ \\t]*#version\\s+(\\d+).*$", Pattern.MULTILINE);
     private static final Pattern SSBO_EXTENSION = Pattern.compile("#extension\\s+GL_ARB_shader_storage_buffer_object\\b");
     private static final Pattern BINDING_QUALIFIER = Pattern.compile("layout\\s*\\([^)]*\\bbinding\\s*=");
 
@@ -857,7 +863,7 @@ public final class GlslProgramTranslator {
 
     static ByteBuffer compileToSpirv(final String programName, final Stage stage, final String glslSource) throws TranslationException {
         String outputsPlaced = stage == Stage.FRAGMENT ? assignFragmentOutputLocations(glslSource) : glslSource;
-        String source = enableBindingQualifiers(renameBuiltinRedefinitions(VULKAN_ONLY_KEYWORDS.matcher(outputsPlaced).replaceAll("nativium_$1")));
+        String source = enableBindingQualifiers(renameBuiltinRedefinitions(RegexBudget.matcher(VULKAN_ONLY_KEYWORDS, outputsPlaced).replaceAll("nativium_$1")));
         if (!VERSION.matcher(source).find()) {
             throw new TranslationException(programName + "/" + stage + ": missing #version directive");
         }

@@ -143,6 +143,8 @@ public final class MetalGlDevice implements GlDevice {
         @Nullable Object engine;
         /** Single-level views for storage-image bindings of mip level i (index = level). */
         @Nullable MTLTexture @Nullable [] levelViews;
+        /** Views from a GL_TEXTURE_BASE_LEVEL up (key: base << 16 | last level), see {@link #sampledView}. */
+        java.util.@Nullable Map<Integer, MTLTexture> baseViews;
 
         /** Metal texture type: 2D for GL-created textures; engine textures may also be 3D or 2D arrays. */
         MTLTextureType type = MTLTextureType.Type2D;
@@ -1154,7 +1156,7 @@ public final class MetalGlDevice implements GlDevice {
                 long usage = MTLResourceUsage.Read;
                 for (TextureBinding binding : stage.textures()) {
                     if (binding.textureIndex() == member.index()) {
-                        texture = (binding.texture() == null ? blackTexture() : (MetalTexture) binding.texture()).texture;
+                        texture = sampledView(binding);
                         break;
                     }
                 }
@@ -1201,10 +1203,10 @@ public final class MetalGlDevice implements GlDevice {
             MetalTexture texture = binding.texture() == null ? blackTexture() : (MetalTexture) binding.texture();
             MTLSamplerState sampler = sampler(binding.sampler(), texture);
             if (vertex) {
-                encoder.setVertexTexture(texture.texture, binding.textureIndex());
+                encoder.setVertexTexture(sampledView(binding), binding.textureIndex());
                 encoder.setVertexSamplerState(sampler, binding.samplerIndex());
             } else {
-                encoder.setFragmentTexture(texture.texture, binding.textureIndex());
+                encoder.setFragmentTexture(sampledView(binding), binding.textureIndex());
                 encoder.setFragmentSamplerState(sampler, binding.samplerIndex());
             }
         }
@@ -1230,6 +1232,40 @@ public final class MetalGlDevice implements GlDevice {
         }
         return emptyBuffer;
     }
+
+    /**
+     * The texture as GL samples it: with GL_TEXTURE_BASE_LEVEL > 0 a view of the levels base..min(max, last) - GL's
+     * sampling, textureGather, textureQueryLevels and texelFetch's lod are all relative to the base level. Voxy's HiZ
+     * mip chain renders level i while sampling level i-1 through BASE_LEVEL = MAX_LEVEL = i-1; binding the whole texture
+     * made every level a reduction of level 0, the occlusion test culled visible LOD nodes and far terrain showed as
+     * holes / "floating islands" (owner report 2026-10-23).
+     */
+    MTLTexture sampledView(final TextureBinding binding) {
+        MetalTexture texture = binding.texture() == null ? blackTexture() : (MetalTexture) binding.texture();
+        int base = Math.min(binding.baseLevel(), texture.levels - 1);
+        if (base <= 0 || !BASE_LEVEL_VIEWS) {
+            return texture.texture;
+        }
+        int last = Math.clamp(binding.maxLevel(), base, texture.levels - 1);
+        int key = base << 16 | last;
+        if (texture.baseViews == null) {
+            texture.baseViews = new java.util.HashMap<>();
+        }
+        MTLTexture view = texture.baseViews.get(key);
+        if (view == null) {
+            boolean volume = texture.type == MTLTextureType.Type3D;
+            try (AutoreleasePool _ = AutoreleasePool.push()) {
+                view = texture.texture.newTextureViewWithPixelFormat(texture.pixelFormat, texture.type,
+                        new io.github.kokodio.metaljvm.foundation.NSRange(base, last - base + 1),
+                        new io.github.kokodio.metaljvm.foundation.NSRange(0, volume ? 1 : texture.slices));
+            }
+            texture.baseViews.put(key, view);
+        }
+        return view;
+    }
+
+    /** -Dnativium.gl.baseLevelViews=false: sample from level 0 regardless of GL_TEXTURE_BASE_LEVEL (A/B diagnostics). */
+    private static final boolean BASE_LEVEL_VIEWS = !"false".equals(System.getProperty("nativium.gl.baseLevelViews"));
 
     /** A view of exactly one mip level (storage images bind one level). */
     static MTLTexture levelView(final MetalTexture texture, final int level) {
@@ -1291,7 +1327,7 @@ public final class MetalGlDevice implements GlDevice {
         }
         for (TextureBinding binding : bindings.textures()) {
             MetalTexture texture = binding.texture() == null ? blackTexture() : (MetalTexture) binding.texture();
-            encoder.setTexture(texture.texture, binding.textureIndex());
+            encoder.setTexture(sampledView(binding), binding.textureIndex());
             encoder.setSamplerState(sampler(binding.sampler(), texture), binding.samplerIndex());
         }
         for (BufferBinding binding : bindings.buffers()) {
