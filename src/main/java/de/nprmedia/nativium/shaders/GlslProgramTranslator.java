@@ -50,8 +50,14 @@ public final class GlslProgramTranslator {
     public static final int MSL_VERSION_3_2 = 30200;
 
     private static final Pattern VERSION = Pattern.compile("^\\s*#version\\s+\\d+.*$", Pattern.MULTILINE);
+    /**
+     * A global {@code in}/{@code out}/{@code varying} declaration at the start of a line. The leading indent is only
+     * horizontal whitespace and each qualifier owns the whitespace after it: an earlier {@code ^(\s*)((?:...|\s)*)} split
+     * every blank-line run two ways at every line start and backtracked cubically (Voxy's patched Photon 1.4 LOD shaders,
+     * thousands of blank lines left by the preprocessor, hung the render thread in glCompileShader).
+     */
     private static final Pattern GLOBAL_IO = Pattern.compile(
-            "^(\\s*)((?:flat|smooth|noperspective|centroid|invariant|\\s)*)\\b(in|out|varying)\\s+([A-Za-z_][A-Za-z0-9_]*)\\s+([A-Za-z_][A-Za-z0-9_]*)\\s*(\\[[^\\]]*\\])?\\s*;",
+            "^([ \\t]*)((?:(?:flat|smooth|noperspective|centroid|invariant)\\s+)*)\\b(in|out|varying)\\s+([A-Za-z_][A-Za-z0-9_]*)\\s+([A-Za-z_][A-Za-z0-9_]*)\\s*(\\[[^\\]]*\\])?\\s*;",
             Pattern.MULTILINE);
 
     private GlslProgramTranslator() {
