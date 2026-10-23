@@ -107,11 +107,12 @@ final class MetalCommandEncoder implements CommandEncoderBackend {
      */
     static final boolean UPLOAD_HOIST = !"false".equalsIgnoreCase(System.getProperty("nativium.uploadHoist", "true").trim());
     /**
-     * {@code -Dnativium.directWrites} (default on): {@code writeToBuffer} into a CPU-visible (shared, unified memory)
-     * buffer that no submit still in flight and nothing recorded in the current one references writes the data straight
-     * into the buffer instead of staging it and recording a blit. Off: always staged (the previous behaviour).
+     * {@code -Dnativium.directWrites=true} (default off): {@code writeToBuffer} into a CPU-visible (shared, unified
+     * memory) buffer that no submit still in flight and nothing recorded in the current one references writes the data
+     * straight into the buffer instead of staging it and recording a blit. Off by default: no game-test scene hits this
+     * path (staged writes into shared buffers are ~0 per frame), so it is unproven.
      */
-    static final boolean DIRECT_WRITES = !"false".equalsIgnoreCase(System.getProperty("nativium.directWrites", "true").trim());
+    static final boolean DIRECT_WRITES = Boolean.getBoolean("nativium.directWrites");
     /** Incremented by every {@link #submit()}; see {@link MetalGpuBuffer#useEpoch}. Render thread writes, plain field. */
     static int epoch;
     /** {@link #UPLOAD_HOIST}: the upload command buffer of the current submit and its open blit encoder. */

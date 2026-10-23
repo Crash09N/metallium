@@ -23,7 +23,7 @@ Status legend: ✅ done · 🔄 in progress · ⏳ planned · 🔬 needs researc
 
 ## Phase 2 — Backend performance (mcopt's techniques) 🔄
 Audit and implementation 2026-10-23 (`MetalCommandEncoder`; every new step has a system property for A/B and is on by
-default after the regression suite - vanilla, Sodium, Iris + Complementary Reimagined, Voxy + Complementary - passed with
+default (except direct writes) after the regression suite - vanilla, Sodium, Iris + Complementary Reimagined, Voxy + Complementary - passed with
 screenshots pixel-identical to the property off, apart from the run-to-run timing noise of animated scenes). Frame-rate
 benchmarks on the G5 are still to be done (CPU-side encoder counters below, `-PperfCounters`).
 - ✅ Merge consecutive render passes with the same targets (render encoder reused while the attachments match)
@@ -52,10 +52,11 @@ benchmarks on the G5 are still to be done (CPU-side encoder counters below, `-Pp
   executor) + disk cache: SPIR-V→MSL and GLSL→SPIR-V results, `MTLBinaryArchive` segments (also opened as a metallib),
   attachment-variant index prebuilt next session (`MetalPipelineCache`, `shadercache/*`). 🔄 Iris pack programs still
   compile on the render thread at first use (`finishCompile` right away; cached on disk, so only the first session pays)
-- ✅ Unified memory (`-Dnativium.directWrites`, default on): `writeToBuffer` into a shared buffer that no in-flight
+- 🔄 Unified memory (`-Dnativium.directWrites=true`, **default off**): `writeToBuffer` into a shared buffer that no in-flight
   submit and nothing in the current one references is written directly (no staging + blit); uniform/dynamic buffers
   were already written directly (transient ring, orphaned backings), buffers created with data too. Private buffers
-  (vertex) stay private and staged. Steady-state staged writes are ~0 per frame in the test scenes, so the gain is small
+  (vertex) stay private and staged. Off by default because no game-test scene reaches the path (0 direct writes
+  counted; staged writes into shared buffers are ~0 per frame), so it is unproven and the gain small
 - ✅ Render-thread QoS (`-Dnativium.qos.render`, default `interactive`): the render thread runs at
   `QOS_CLASS_USER_INTERACTIVE` (idea from mcopt, own code). Not done: integrated-server thread QoS (mcopt also raises it)
 - Source: mcopt (Apache-2.0, code from `09fea99` on, credited), minecraft-metal-renderer and MetalRender (ideas only)
