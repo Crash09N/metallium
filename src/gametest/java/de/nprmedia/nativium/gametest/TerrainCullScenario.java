@@ -40,6 +40,10 @@ final class TerrainCullScenario {
     private final Consumer<String> line;
     private final List<String> failures;
     private final java.util.function.Function<ClientGameTestContext, String> packInstaller;
+    /** The current view is the negative control (phase 2 drops batches on purpose). */
+    private boolean control;
+    /** Largest allowed mean difference of an 8x8 tile (a missing block covers whole tiles; noise is scattered). */
+    private static final double TILE_LIMIT = Double.parseDouble(System.getProperty("nativium.gametest.cullTileLimit", "32"));
 
     TerrainCullScenario(final Consumer<String> line, final List<String> failures,
                         final java.util.function.Function<ClientGameTestContext, String> packInstaller) {
@@ -122,6 +126,24 @@ final class TerrainCullScenario {
             // Stress: phase 1 draws nothing; everything visible must come from the GPU-decided phase-2 draws.
             compare(context, world, "deferall-wall", ground, 0, Float.NaN, true, shaders);
             compare(context, world, "deferall-open", high, 90, Float.NaN, true, shaders);
+            // Negative control: defer everything and drop every 4th phase-2 batch; the comparison must catch it.
+            control = true;
+            compare(context, world, "control-drop", ground, 0, Float.NaN, true, shaders);
+            control = false;
+            // AUTO: culls at rd >= 24, with or without a pack (unless the pack's options displace terrain).
+            context.runOnClient(client -> TerrainOcclusion.setMode("auto"));
+            context.waitTicks(20);
+            context.computeOnClient(client -> TerrainOcclusion.snapshot());
+            context.waitTicks(20);
+            String auto = context.computeOnClient(client -> TerrainOcclusion.snapshot());
+            line.accept("terrain-cull: auto at rd " + RENDER_DISTANCE + ": " + auto);
+            boolean autoCulls = !auto.contains("no frames tested");
+            if (autoCulls != (RENDER_DISTANCE >= TerrainOcclusion.AUTO_MIN_RENDER_DISTANCE)) {
+                failures.add("terrain-cull: auto mode " + (autoCulls ? "culls" : "does not cull") + " at rd " + RENDER_DISTANCE + " (" + auto + ")");
+            }
+            // A frozen server did not shut down with Distant Horizons loaded (client waited for the halt forever).
+            world.getServer().runCommand("tick unfreeze");
+            context.waitTicks(5);
         } finally {
             ShaderClock.frozen = false;
             ShaderClock.frameTime = 0;
@@ -159,14 +181,28 @@ final class TerrainCullScenario {
         Path off = capture(context, world, name + "-off", "off", pos, yaw, fromYaw, false, null);
 
         double[] diff = difference(on, off, name);
-        line.accept(String.format(java.util.Locale.ROOT, "terrain-cull: %s %s vs off: differing pixels %.4f%% (any), %.4f%% (tol 24), %.4f%% (tol 64), max channel diff %d",
-                name, modeA, diff[2] * 100, diff[0] * 100, diff[1] * 100, (int) diff[3]));
+        line.accept(String.format(java.util.Locale.ROOT, "terrain-cull: %s %s vs off: differing pixels %.4f%% (any), %.4f%% (tol 24), %.4f%% (tol 64), max channel diff %d, max 8x8 tile mean %.1f",
+                name, modeA, diff[2] * 100, diff[0] * 100, diff[1] * 100, (int) diff[3], diff[4]));
         // Missing sections show as large differences. Without a shader pack, and with a pack whose clock is frozen, the
-        // renderings are deterministic; small differences (in-block overlay fade) are reported only. A running pack
-        // clock (waving leaves, TAA) differs between any two frames: judge the large differences only.
+        // renderings are (nearly) deterministic; small differences (in-block overlay fade, TAA after a turn) are
+        // reported only. A running pack clock (waving leaves, TAA) differs between any two frames: judge the large
+        // differences only.
         double limit = shaders && !ShaderClock.frozen ? 0.02 : 0.0005;
+        if (control) {
+            // Negative control: the comparison must notice the terrain that phase 2 left out.
+            boolean detected = diff[1] > limit || diff[4] > TILE_LIMIT;
+            line.accept("terrain-cull: " + name + " negative control " + (detected ? "detected" : "NOT detected"));
+            if (!detected) {
+                failures.add("terrain-cull " + name + ": the comparison did not notice deliberately missing terrain");
+            }
+            return;
+        }
         if (diff[1] > limit) {
             failures.add(String.format(java.util.Locale.ROOT, "terrain-cull %s: culling changed %.3f%% of the pixels", name, diff[1] * 100));
+        }
+        // Coherent differences (a missing section or block covers whole 8x8 tiles); scattered temporal noise does not.
+        if (diff[4] > TILE_LIMIT) {
+            failures.add(String.format(java.util.Locale.ROOT, "terrain-cull %s: coherent difference, 8x8 tile mean %.1f", name, diff[4]));
         }
         if (!"on".equals(modeA)) {
             return;
@@ -187,6 +223,7 @@ final class TerrainCullScenario {
         context.runOnClient(client -> {
             TerrainOcclusion.setMode(mode);
             TerrainOcclusion.deferAll = deferAll;
+            TerrainOcclusion.testDropPhaseTwo = control && !"off".equals(mode);
             // Keep results across the slow game-test frames, so a turn defers sections with old results (worst case).
             TerrainOcclusion.maxResultAge = turn ? 1_000_000 : 30;
         });
@@ -204,6 +241,7 @@ final class TerrainCullScenario {
         context.runOnClient(client -> {
             TerrainOcclusion.setMode("off");
             TerrainOcclusion.deferAll = false;
+            TerrainOcclusion.testDropPhaseTwo = false;
             TerrainOcclusion.maxResultAge = 30;
         });
         return path;
@@ -225,6 +263,8 @@ final class TerrainCullScenario {
             long small = 0;
             long large = 0;
             int max = 0;
+            int tilesX = (w + TILE - 1) / TILE;
+            long[] tiles = new long[tilesX * ((h + TILE - 1) / TILE)];
             for (int y = 0; y < h; y++) {
                 for (int x = 0; x < w; x++) {
                     int pa = imageA.getRGB(x, y);
@@ -235,6 +275,7 @@ final class TerrainCullScenario {
                     }
                     total++;
                     max = Math.max(max, d);
+                    tiles[(y / TILE) * tilesX + x / TILE] += d;
                     if (d > 0) any++;
                     if (d > 24) small++;
                     if (d > 64) large++;
@@ -244,11 +285,21 @@ final class TerrainCullScenario {
             if (any > 0) {
                 javax.imageio.ImageIO.write(mask, "png", a.resolveSibling("terrain-cull-" + name + "-diff.png").toFile());
             }
+            long maxTile = 0;
+            for (long t : tiles) {
+                maxTile = Math.max(maxTile, t);
+            }
             double n = Math.max(1, total);
-            return new double[] {small / n, large / n, any / n, max};
+            return new double[] {small / n, large / n, any / n, max, maxTile / (double) (TILE * TILE)};
         } catch (IOException e) {
             failures.add("terrain-cull: could not compare screenshots: " + e);
-            return new double[] {1, 1, 1, 255};
+            return new double[] {1, 1, 1, 255, 255};
         }
     }
+
+    /**
+     * Tile size for the coherent-difference measure: a missing section or block covers whole tiles (high mean
+     * difference), a pack's temporal noise is scattered single pixels (low mean per tile).
+     */
+    private static final int TILE = 8;
 }
