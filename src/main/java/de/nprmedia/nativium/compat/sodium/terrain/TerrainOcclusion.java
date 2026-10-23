@@ -94,13 +94,6 @@ public final class TerrainOcclusion {
 
     /** Whether this frame culls (auto mode: render distance threshold). */
     private static boolean cullThisFrame() {
-        // Voxy renders its LODs from inside Sodium's cutout pass. Phase 2 runs the opaque layer again, so Voxy rendered
-        // twice per frame: the vanilla terrain drawn in phase 1 vanished (sky with loose cave sections at rd 32) and
-        // Voxy's state stayed broken afterwards (near water missing after the drop to rd 4, even with culling then off).
-        // In every mode, "on" included: no phase split while Voxy renders.
-        if (VoxyState.rendering()) {
-            return false;
-        }
         if (!AUTO) {
             return true;
         }
