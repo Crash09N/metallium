@@ -49,6 +49,8 @@ Metal smoke test (macOS): `./gradlew metalSmokeTest`.
 - Geometry/tessellation shader packs, mipmapped shadow maps and some pack-specific effects are open (see STATUS).
 - nativium-gl implements a subset of OpenGL; unimplemented functions lead to the crash-recovery screen.
 - Apple-native extras (MetalFX, Game Mode, ray tracing) are not part of 1.0.
+- With Sodium + Iris, Nativium works around a HotSpot C2 crash (`SIGSEGV` in `FlatLightPipeline.getShade`) by keeping
+  `CardinalLighting.byFace` out of C2 inlining; details and the manual JVM flag in [`docs/RELEASE.md`](docs/RELEASE.md).
 - Renamed from Metallium in 0.1.0-alpha: mod id `nativium`, package `de.nprmedia.nativium`. On the first start an old
   `config/metallium.json` (+ `config/metallium/`, `metallium-gl.properties`) is copied to the Nativium names; old
   `-Dmetallium.*` properties, the `"metallium-gl"` opt-in key and the `dev.metallium.api.MetalliumRuntime` API still work

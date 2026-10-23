@@ -168,6 +168,10 @@ loom.runs.clientGameTest {
 	if (project.hasProperty('benchPower')) vmArg '-Dnativium.bench.power=true'
 	// A crashed earlier test run must not put the next one into crash-recovery mode (OpenGL + dialog).
 	vmArg "-Dnativium.crashRecovery=${project.hasProperty('crashRecovery') ? 'on' : 'off'}"
+	// JVM crash reports go outside the run directory (which is recreated per test) so they survive the next run.
+	vmArg "-XX:ErrorFile=${layout.buildDirectory.get().asFile}/hs_err_pid%p.log"
+	// -PextraJvmArgs='-XX:+Foo|-XX:CompileCommand=...': extra JVM flags for diagnostics ('|'-separated).
+	if (project.hasProperty('extraJvmArgs')) project.property('extraJvmArgs').toString().split('\\|').each { if (!it.isEmpty()) vmArg it }
 	if (project.hasProperty('playSeconds')) vmArg "-Dnativium.gametest.playSeconds=${project.property('playSeconds')}"
 	// The run directory is recreated for every game test, so keep the shader cache next to it: the second run is warm.
 	// -PshaderCache=false disables it; delete that directory for a cold run.
