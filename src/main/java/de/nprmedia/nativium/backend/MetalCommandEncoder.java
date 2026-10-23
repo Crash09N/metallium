@@ -106,6 +106,12 @@ final class MetalCommandEncoder implements CommandEncoderBackend {
      * every copy is recorded in place (the previous behaviour).
      */
     static final boolean UPLOAD_HOIST = !"false".equalsIgnoreCase(System.getProperty("nativium.uploadHoist", "true").trim());
+    /**
+     * {@code -Dnativium.directWrites} (default on): {@code writeToBuffer} into a CPU-visible (shared, unified memory)
+     * buffer that no submit still in flight and nothing recorded in the current one references writes the data straight
+     * into the buffer instead of staging it and recording a blit. Off: always staged (the previous behaviour).
+     */
+    static final boolean DIRECT_WRITES = !"false".equalsIgnoreCase(System.getProperty("nativium.directWrites", "true").trim());
     /** Incremented by every {@link #submit()}; see {@link MetalGpuBuffer#useEpoch}. Render thread writes, plain field. */
     static int epoch;
     /** {@link #UPLOAD_HOIST}: the upload command buffer of the current submit and its open blit encoder. */
@@ -776,6 +782,15 @@ final class MetalCommandEncoder implements CommandEncoderBackend {
 
         if (buffer.isDynamic()) {
             orphanWrite(buffer, destination.offset(), data);
+            return;
+        }
+
+        // Submit k is recorded under epoch k - MAX_SUBMITS_IN_FLIGHT and submit() returns only once submit
+        // currentSubmitIndex - MAX_SUBMITS_IN_FLIGHT (= epoch) completed: every use with useEpoch <= epoch - MAX is done.
+        if (DIRECT_WRITES && buffer.isCpuAccessible() && !buffer.exposedExternally
+                && buffer.useEpoch <= epoch - MAX_SUBMITS_IN_FLIGHT) {
+            if (PerfCounters.ENABLED) PerfCounters.directWrites++;
+            buffer.writeDirect(destination.offset(), data);
             return;
         }
 
