@@ -105,9 +105,10 @@ public final class TerrainOcclusion {
         if (!AUTO) {
             return true;
         }
-        // Shader packs: measured faster at rd32 too, but the on/off screenshot comparison is not exact there (waving
-        // leaves, temporal effects), so auto leaves packs alone until a deterministic check exists; "on" forces it.
-        if (IrisPackState.packInUse()) {
+        // Shader packs (measured +2..+16% at rd32 with Complementary): pixel-identical on vs off with a frozen pack clock
+        // (Reimagined, Photon, BSL; docs/benchmarks/terrain-cull-2026-10-21.md). Packs whose options bend the world or
+        // wave terrain by more than the box margin keep auto off; "on" forces it.
+        if (IrisPackState.packInUse() && IrisPackState.displacesTerrain()) {
             return false;
         }
         net.minecraft.client.Minecraft mc = net.minecraft.client.Minecraft.getInstance();
@@ -123,6 +124,8 @@ public final class TerrainOcclusion {
     public static int maxResultAge = Integer.getInteger("nativium.terrain.gpuCullMaxAge", 30);
     /** Test only: phase 1 draws nothing, every section goes through the GPU test and phase 2. */
     public static boolean deferAll;
+    /** Test only (negative control): phase 2 draws nothing, so visible deferred terrain goes missing. */
+    public static boolean testDropPhaseTwo;
     private static final long LOG_INTERVAL_NS = Long.getLong("nativium.terrain.gpuCullLogSeconds", 5L) * 1_000_000_000L;
 
     /** Per-frame CPU data that goes with a slot: what each box stands for. */
@@ -158,6 +161,12 @@ public final class TerrainOcclusion {
     private static long frameId;
     /** 0 = not culling, 1 = phase 1 (direct draws), 2 = phase 2 (indirect draws). */
     private static int phase;
+    /**
+     * Phase 1 drew at least one batch, so the open render encoder at the split is Sodium's terrain pass. If it drew
+     * nothing, the open encoder may belong to an earlier pass with another depth buffer (Distant Horizons under a
+     * shader pack draws its LODs into {@code dhDepthTex}): testing against that depth culled visible terrain.
+     */
+    private static boolean phaseOneDrew;
     private static HiZCuller.@Nullable Slot slot;
     private static @Nullable FrameData frame;
     private static long scratch;
@@ -222,6 +231,7 @@ public final class TerrainOcclusion {
         slot = s;
         frame = data;
         phase = 1;
+        phaseOneDrew = false;
         gatherNs += System.nanoTime() - start;
     }
 
@@ -249,9 +259,10 @@ public final class TerrainOcclusion {
         }
         directDraws += data.directDraws;
         deferredDraws += s.argCount;
-        MTLTexture depth = NativiumInterop.currentDepthAttachment();
+        MTLTexture depth = phaseOneDrew ? NativiumInterop.currentDepthAttachment() : null;
         if (depth == null) {
-            // Nothing drawn into a depth buffer we can see: draw the deferred sub-draws unconditionally.
+            // Nothing drawn into a depth buffer we can see (or phase 1 drew nothing, so the open encoder may be another
+            // pass's): draw the deferred sub-draws unconditionally.
             for (int j = 0; j < s.argCount; j++) {
                 s.args.set(ValueLayout.JAVA_INT, j * 20L + 4, 1);
             }
@@ -288,8 +299,10 @@ public final class TerrainOcclusion {
         CullData.Batch data = ((CullData.BatchHolder) batchObject).nativium$cullBatch();
         if (phase == 2) {
             if (s != null && data.phaseTwoFrame == frameId && data.phaseTwoCount > 0) {
-                GpuBuffer args = s.argsBuffer();
-                pass.drawIndexedIndirect(args.slice(data.phaseTwoStart * 20L, data.phaseTwoCount * 20L), data.phaseTwoCount);
+                if (!testDropPhaseTwo) {
+                    GpuBuffer args = s.argsBuffer();
+                    pass.drawIndexedIndirect(args.slice(data.phaseTwoStart * 20L, data.phaseTwoCount * 20L), data.phaseTwoCount);
+                }
                 phaseTwoBatches++;
             }
             return true;
@@ -299,10 +312,13 @@ public final class TerrainOcclusion {
         data.phaseTwoFrame = -1;
         int n = batch.size;
         if (s == null || f == null || data.recorded != n || data.region == null) {
+            phaseOneDrew = true; // Sodium's own submission
             return false;
         }
         CullData.Region region = data.region.nativium$cullRegion();
-        if (region.entryFrame != frameId) {
+        if (region.entryFrame != frameId || deferAll && !phaseOneDrew) {
+            // deferAll (test): the first batch is still drawn directly, so the split sees Sodium's depth buffer.
+            phaseOneDrew = true;
             return false;
         }
         if (n > scratchCapacity) {
@@ -331,7 +347,11 @@ public final class TerrainOcclusion {
         }
         f.directDraws += direct;
         if (j == start) {
+            phaseOneDrew = true;
             return false; // nothing deferred: Sodium's own submission
+        }
+        if (direct > 0) {
+            phaseOneDrew = true;
         }
         s.argCount = j;
         data.phaseTwoFrame = frameId;

@@ -51,9 +51,10 @@ public final class NativiumConfig {
     public boolean voxySuppressWithShaders = true;
     /**
      * GPU occlusion culling of Sodium's main-view terrain on Metal ({@code docs/benchmarks/terrain-cull-2026-10-21.md}).
-     * AUTO: on at render distance 24 and above without a shader pack (measured +4..+77% at rd32), off below (neutral or
-     * up to 8% slower) and with shader packs (+2..+16% at rd32, but exactness there is not verified by an exact
-     * screenshot comparison yet). ON: always (also with packs). The system property {@code -Dnativium.terrain.gpuCull=off|on|count|verify|auto} overrides this.
+     * AUTO: on at render distance 24 and above (measured +4..+77% at rd32 without a shader pack, +2..+16% with
+     * Complementary), also with shader packs (on vs off checked pixel by pixel with a frozen pack clock: Reimagined,
+     * Photon, BSL) unless the pack's options bend the world or wave terrain far (world curvature, waving intensity
+     * of 10 or more); off below rd 24 (neutral or up to 8% slower). ON: always. Never while Voxy is loaded. The system property {@code -Dnativium.terrain.gpuCull=off|on|count|verify|auto} overrides this.
      */
     public TerrainCulling terrainOcclusionCulling = TerrainCulling.AUTO;
 
