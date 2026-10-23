@@ -87,4 +87,48 @@ redirected instead, with the same machinery as the vanilla/Sodium passes (`Gbuff
    `DISTANT_HORIZONS` from Iris's macros).
 
 Verified: Complementary Reimagined r5.9.3 (game test `-PwithIris -PwithDH -Pshaderpack=...`: shaded LODs to the
-horizon). Not done: `dh_shadow` (LOD shadows), `dh_generic` (DH's clouds/beacon beams are not drawn while a pack is on).
+horizon).
+
+4. **Generic objects (`dh_generic`, 2026-10-23)**: DH's clouds and beacon beams (pass
+   `distantHorizons:GenericObjectRenderer`, pipeline `distanthorizons:generic_objects`) used to land in DH's colour
+   texture, which nothing shows while a pack is on. The pass is now captured like the terrain pass (gbuffer
+   attachments, DH's depth, so they are part of `dhDepthTex`) and its pipeline becomes the pack's `dh_generic` (Iris's
+   fallback: `dh_terrain`, which is what Complementary/Photon/BSL get), patched by Iris's
+   `TransformPatcher.patchDHGeneric` and adapted (`DhIrisBridge.adaptGeneric`): Iris expects DH's OpenGL instanced
+   boxes (per-instance `aScale`/`aTranslateChunk`/`aTranslateSubChunk`, `iris_color`, `int aMaterial`, loose box-group
+   uniforms); the Blaze3D pipeline draws plain 24-vertex boxes (`vPosition`, `aColor`, `uint aMaterial`) with the group
+   data in `vertUniformBlock`, so the instance attributes become constants, `gl_VertexID` is taken modulo 24 (face
+   normal by vertex index, like DH's own shader) and the uniforms come from the block. Matrices like Iris's
+   `IrisGenericRenderProgram` (camera model-view, DH projection). Off switch: `-Dnativium.iris.noDhGeneric=true`
+   (game test `-PnoDhGeneric`).
+5. **LOD shadows (`dh_shadow`, 2026-10-23)**: only packs that ship `dh_shadow` and do not set `dhShadow.enabled=false`
+   (like Iris: of the test packs only Bliss with its `DISTANT_HORIZONS_SHADOWMAP` option; Complementary, Photon, BSL
+   disable it). DH can render a second view cheaply: its core already supports an Iris shadow pass (`ClientApi`
+   skips camera updates, `RenderBufferHandler` culls with an `IDhApiShadowCullingFrustum` override). Three things were
+   in the way on Metal:
+   - DH's render hook (`SodiumChunkSection.renderGroup` HEAD) does not fire for `MetalShadowRenderer`'s own
+     `renderGroup` call, so `DhIrisBridge.renderShadowLods` calls `ClientApi.renderLods()` after the shadow pass's opaque
+     terrain (skipped while `DhRenderState.unableToRenderBecause()` is non-empty, like DH's `canRenderOrThrow`);
+   - Iris's DH events (`LodRendererEvents.setupTransparentRendererEventCancling`) cancel DH's render during any Iris
+     shadow pass unless Iris's OpenGL DH pipeline has a shadow program; on Metal that pipeline never exists. The two
+     anonymous handlers are found by their enclosing method and replaced by equivalents that also let DH through when
+     `dh_shadow` runs on Metal (`DhShadowHooks`, hooked lazily, Metal only, kept out of `DhIrisBridge` so that loads
+     without DH; if the handlers are not found, dh_shadow stays off);
+   - culling: a `DhApiBeforeRenderSetupEvent` handler bound after Iris's binds Iris's shadow frustum
+     (`ShadowRenderer.FRUSTUM`, which Iris's DH mixins make an `IDhApiShadowCullingFrustum`) for the shadow pass, as
+     Iris does for its own pipeline; otherwise DH would draw every LOD into the shadow map.
+   DH's terrain pass is then retargeted to the shadow attachments (`GbufferState.descriptor` in the shadow pass) and its
+   pipelines become `dh_shadow` (patchDHTerrain + `adaptVertex`, shadow attachment layout; `dh_shadow`'s draw buffers
+   count for the shadowcolor attachments). Matrices: `ShadowRenderer.MODELVIEW` and `undoRevZ(ShadowRenderer.PROJECTION)`
+   — the projection the pack's other shadow programs see on Metal (Iris's GL path uses `toMinusOneToOne`, which here
+   puts the LODs at the wrong shadow depth: they lit instead of shadowed). DH's other passes of that frame (generic
+   objects, SSAO/fog on DH's own textures, copy/apply) go to the scratch texture or DH's own textures. If `dh_shadow`
+   does not compile, LOD shadows switch off (DH's own shader would draw the camera view into the shadow map). Off
+   switch: `-Dnativium.iris.noDhShadow=true` (game test `-PnoDhShadow`). Cost: DH renders its terrain a second time
+   (only LODs inside the shadow frustum).
+
+Verified 2026-10-23: `dh_generic` with Complementary Reimagined, Photon and BSL (DH's cloud boxes appear in the sky,
+lit/fogged by the pack; with `-PnoDhGeneric` they are missing, nothing else changes). `dh_shadow` with Bliss 2.1.2 +
+`DISTANT_HORIZONS_SHADOWMAP` (game test `-PshaderpackOptions=DISTANT_HORIZONS_SHADOWMAP=true`, afternoon-sun screenshot
+`nativium-dh-low-sun` against `-PnoDhShadow`): far LOD hills now shadow Bliss's volumetric light and LOD terrain, no
+artifacts; a pixel-exact check of the shadow map was not done.

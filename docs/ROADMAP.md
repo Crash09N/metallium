@@ -189,7 +189,7 @@ Not started without the owner's explicit agreement per item:
   not active (packs without `voxy.json`, failures). 2026-10-22: verified in the final image with Complementary
   Reimagined, Photon and BSL (fix: constant expressions in `layout(binding)`, see STATUS). Open: fps cost at
   2560x1440 in the owner's modpack. Distant Horizons: done 2026-10-23 (`DhIrisBridge`: DH's Blaze3D terrain pass
-  runs the pack's `dh_terrain`/`dh_water` into the gbuffers; Reimagined, Photon, BSL verified). Open: `dh_shadow`,
-  `dh_generic`, fps cost.
+  runs the pack's `dh_terrain`/`dh_water` into the gbuffers; Reimagined, Photon, BSL verified; `dh_generic` and
+  `dh_shadow` added the same day). Open: fps cost.
 - GPU culling (two-phase Hi-Z occlusion)
 - Broad nativium-gl coverage campaign
