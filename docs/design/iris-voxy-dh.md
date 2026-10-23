@@ -59,6 +59,15 @@ nativium-gl) and over translating `dh_*` programs for Voxy geometry (packs write
    white as well.
 4. Ordering: Voxy draws inside Sodium's opaque pass via nativium-gl (Nativium's encoder is ended and resumed, as
    without shaders); the deferred passes run at `beginTranslucents`, after that, and read the LOD gbuffers + depth.
+5. Depth conventions (2026-10-23): on 26.3 the level depth (vanilla and Voxy's LODs) is reversed Z; Iris's
+   `DepthTransformer` makes every pack program read `depthtex*` / `vxDepthTex*` / `dhDepthTex*` as `1.0 - value` and
+   flips `gl_FragCoord.z`. Voxy compiles the pack's `voxy_*.glsl` itself and (0.2.19) only flips `gl_FragCoord.z`, so the
+   patches saw raw reversed sampler values (sky = 0.0). Photon 1.4's `voxy_translucent` discards wherever
+   `depthtex1 < 1.0` ("vanilla geometry in front"): every LOD water fragment was dropped (no `colortex16` water data,
+   bare seafloor). `VoxyIrisBridge.conventionalDepth` now runs both patches through Iris's public
+   `TransformPatcher.patchDepth` (after undoing Voxy's own `gl_FragCoord.z` flip) before Voxy compiles them, so they see
+   depth exactly like the pack's other programs. Debug: `-Dnativium.iris.voxyDumpPatches=true` logs both patches
+   before/after.
 
 ## 4. Distant Horizons (implemented 2026-10-22: `DhIrisBridge`)
 

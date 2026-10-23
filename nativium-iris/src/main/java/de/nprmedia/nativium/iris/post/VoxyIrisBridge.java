@@ -109,6 +109,7 @@ public final class VoxyIrisBridge {
             UNSAFE.putObject(facade, UNSAFE.objectFieldOffset(IrisRenderingPipeline.class.getDeclaredField("renderTargets")),
                     renderTargets((int[]) r.getOpaqueTargets.invoke(patch), (int[]) r.getTranslucentTargets.invoke(patch)));
             Object built = r.buildPipeline.invoke(null, facade, patch, owner.customUniforms(), null);
+            conventionalDepth(built);
             Object pipeline = r.pipelineConstructor.newInstance(properties, built, nodeManager, nodeCleaner, traversal, frexStillHasWork);
             this.data = built;
             lastError = null;
@@ -131,6 +132,69 @@ public final class VoxyIrisBridge {
         lastError = e.toString();
         NativiumIris.LOGGER.error("[nativium-iris] Voxy: could not create its shader-pack pipeline on Metal; Voxy's LODs stay paused", e);
         return null;
+    }
+
+    /** What Voxy 0.2.19 (26.3) makes of {@code gl_FragCoord.z} in the pack's patches (its {@code voxy$conventionalDepth}). */
+    private static final String VOXY_FRAG_DEPTH = "(1.0-gl_FragCoord.z)";
+    private static final java.util.regex.Pattern BLOCK_COMMENT = java.util.regex.Pattern.compile("/\\*.*?\\*/", java.util.regex.Pattern.DOTALL);
+    private static final java.util.regex.Pattern LINE_COMMENT = java.util.regex.Pattern.compile("//[^\n]*");
+
+    /**
+     * The pack's Voxy patches see depth the way Iris shows it to every other pack program. On 26.3 the level depth is
+     * reversed Z (vanilla and Voxy's LOD depth); Iris's {@code DepthTransformer} turns every read of {@code depthtex*}
+     * / {@code vxDepthTex*} / {@code dhDepthTex*} in a pack program into {@code 1.0 - value} and flips
+     * {@code gl_FragCoord.z}, so packs keep their forward-Z conventions (sky = 1.0). Voxy compiles its patches itself:
+     * Voxy 0.2.19 only flips {@code gl_FragCoord.z}, so the depth samplers were raw reversed values - sky = 0.0. Photon 1.4's
+     * {@code voxy_translucent} discards wherever {@code depthtex1 < 1.0} ("vanilla geometry in front"), i.e. everywhere:
+     * no LOD water. The patches go through Iris's own {@code TransformPatcher.patchDepth} (its public entry for exactly
+     * this; the fragment-stage part of what Iris does to pack programs) before Voxy compiles them.
+     */
+    private void conventionalDepth(final Object data) {
+        for (String name : new String[]{"opaquePatch", "translucentPatch"}) {
+            try {
+                long offset = UNSAFE.objectFieldOffset(data.getClass().getDeclaredField(name));
+                if (!(UNSAFE.getObject(data, offset) instanceof String source)) {
+                    continue;
+                }
+                String patched = conventionalDepth(source);
+                UNSAFE.putObject(data, offset, patched);
+                if (warned.add("depth patched " + name)) {
+                    NativiumIris.LOGGER.info("[nativium-iris] Voxy: depth reads of the pack's {} use Iris's conventions ({} -> {} chars)", name, source.length(), patched.length());
+                    if (Boolean.getBoolean("nativium.iris.voxyDumpPatches")) {
+                        NativiumIris.LOGGER.info("[nativium-iris] Voxy {} before:\n{}\nafter:\n{}", name, source, patched);
+                    }
+                }
+            } catch (RuntimeException | NoSuchFieldException | LinkageError e) {
+                if (warned.add("depth patch " + name)) {
+                    NativiumIris.LOGGER.warn("[nativium-iris] Voxy: could not adapt the depth reads of the pack's {} (LOD depth tests may be off): {}", name, e.toString());
+                }
+            }
+        }
+    }
+
+    /** {@code source} (a Voxy patch, no {@code #version}) with Iris's fragment depth conventions; package-private for tests. */
+    static String conventionalDepth(final String source) {
+        // Undo Voxy's own gl_FragCoord.z flip: patchDepth flips gl_FragCoord itself.
+        String body = source.replace(VOXY_FRAG_DEPTH, "gl_FragCoord.z");
+        // Comments go (the AST printer drops them anyway; packs keep commented-out directives, e.g. Photon's extensions).
+        body = BLOCK_COMMENT.matcher(body).replaceAll(" ");
+        body = LINE_COMMENT.matcher(body).replaceAll("");
+        // Preprocessor lines (left after Iris's preprocessor, e.g. #extension) are not part of the AST: keep them in front.
+        StringBuilder directives = new StringBuilder();
+        StringBuilder code = new StringBuilder("#version 460 core\n");
+        for (String line : body.split("\n", -1)) {
+            if (line.stripLeading().startsWith("#")) {
+                if (!line.stripLeading().startsWith("#version")) {
+                    directives.append(line).append('\n');
+                }
+                code.append('\n');
+            } else {
+                code.append(line).append('\n');
+            }
+        }
+        String patched = net.irisshaders.iris.pipeline.transform.TransformPatcher.patchDepth(code.toString(), net.irisshaders.iris.gl.shader.ShaderType.FRAGMENT);
+        String withoutVersion = patched.replaceFirst("^\\s*#version[^\n]*\n", "");
+        return directives + withoutVersion;
     }
 
     /** Iris's {@code RenderTargets} stand-in for Voxy's {@code getDrawBuffers}: the pack's draw buffers as stable GL names. */
