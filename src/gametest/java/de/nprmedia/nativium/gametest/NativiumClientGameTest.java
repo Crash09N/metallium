@@ -2017,10 +2017,13 @@ public final class NativiumClientGameTest implements FabricClientGameTest {
             // The same ground from rising camera heights (the owner saw the holes from high up).
             for (int y : new int[] {120, 160, 200, 260}) {
                 tryCommand(world, "tp @a 0 " + y + " 0 facing 150 70 150");
-                context.waitTicks(200);
+                context.waitTicks(100);
+                long calls = de.nprmedia.nativium.compat.voxy.VoxyCompat.renderCalls();
+                context.waitTicks(100);
                 clearChat(context);
                 context.takeScreenshot("nativium-" + tag + "-height-" + y);
-                line(tag + ": height " + y + ": " + context.computeOnClient(client -> voxyDebug()));
+                line(tag + ": height " + y + ": voxy render calls in 5 s=" + (de.nprmedia.nativium.compat.voxy.VoxyCompat.renderCalls() - calls)
+                        + "; " + context.computeOnClient(client -> voxyDebug()));
             }
             // Diagnostics at the 200 view: Voxy's fog off; then Voxy off (what vanilla alone draws).
             tryCommand(world, "tp @a 0 200 0 facing 150 70 150");
@@ -2030,6 +2033,16 @@ public final class NativiumClientGameTest implements FabricClientGameTest {
             clearChat(context);
             context.takeScreenshot("nativium-" + tag + "-height-200-fogoff");
             context.runOnClient(client -> voxyFogMode(fog));
+            context.runOnClient(client -> client.options.cloudStatus().set(net.minecraft.client.CloudStatus.OFF));
+            context.waitTicks(60);
+            clearChat(context);
+            context.takeScreenshot("nativium-" + tag + "-height-200-cloudsoff");
+            context.runOnClient(client -> client.options.renderDistance().set(12));
+            context.waitTicks(300);
+            clearChat(context);
+            context.takeScreenshot("nativium-" + tag + "-height-200-rd12");
+            context.runOnClient(client -> client.options.renderDistance().set(4));
+            context.runOnClient(client -> client.options.cloudStatus().set(net.minecraft.client.CloudStatus.FANCY));
             context.runOnClient(client -> voxyRendering(false));
             tryCommand(world, "tp @a 0 260 0 facing 140 80 240");
             context.waitTicks(60);
