@@ -68,6 +68,8 @@ final class GeometryEmulation {
     private static final Pattern OUTPUT_LAYOUT = Pattern.compile("^layout\\s*\\(([^)]*)\\)\\s*out\\s*;$");
     private static final Pattern IO_DECLARATION = Pattern.compile(
             "^(?:layout\\s*\\([^)]*\\)\\s*)?((?:(?:flat|smooth|noperspective|centroid|invariant|highp|mediump|lowp)\\s+)*)(in|out|attribute|varying)\\s+([A-Za-z_][A-Za-z0-9_]*)\\s*(\\[[^\\]]*\\])?\\s+([^;{]+);$");
+    /** {@code [qualifiers] type name = expression;} (one declarator, no array). */
+    private static final Pattern GLOBAL_INITIALIZER = Pattern.compile("(?s)^((?:[A-Za-z_][A-Za-z0-9_]*\\s+)*[A-Za-z_][A-Za-z0-9_]*)\\s+([A-Za-z_][A-Za-z0-9_]*)\\s*=\\s*([^;]+);$");
     private static final Pattern IDENTIFIER = Pattern.compile("[A-Za-z_][A-Za-z0-9_]*");
     private static final Pattern GL_IN_POSITION = Pattern.compile("\\bgl_in\\s*\\[([^\\]]*)\\]\\s*\\.\\s*gl_Position\\b");
     private static final Pattern MAX_VERTICES = Pattern.compile("max_vertices\\s*=\\s*(\\d+)");
@@ -114,6 +116,7 @@ final class GeometryEmulation {
         Map<String, String> vsInputs = new LinkedHashMap<>();
         Map<String, Varying> vsOutputs = new LinkedHashMap<>();
         List<String[]> vsOutputDeclarations = new ArrayList<>();
+        StringBuilder vsInitializers = new StringBuilder();
         StringBuilder vsBody = new StringBuilder();
         Map<String, String> vsDeclarations = new LinkedHashMap<>();
         Set<String> vsFunctions = new HashSet<>();
@@ -146,11 +149,21 @@ final class GeometryEmulation {
                     continue;
                 }
                 vsDeclarations.put(item.name, item.normalized());
+                Matcher initialized = GLOBAL_INITIALIZER.matcher(text.trim());
+                if (initialized.matches() && !initialized.group(3).contains("=") && !initialized.group(1).matches("(?s).*\\b(const|uniform|buffer|shared|in|out)\\b.*")) {
+                    // GL runs global initializers at the start of main; here the inputs are only loaded per corner,
+                    // so the initializer moves into the VS function (Iris: iris_Entity = f(mc_Entity)).
+                    vsBody.append(initialized.group(1)).append(' ').append(initialized.group(2)).append(";\n");
+                    vsInitializers.append("    ").append(initialized.group(2)).append(" = ").append(initialized.group(3)).append(";\n");
+                    continue;
+                }
             } else {
                 vsFunctions.add(item.normalized());
                 vsDeclarations.putIfAbsent("function " + item.name, item.normalized());
                 if (item.name.equals("main")) {
                     text = text.replaceFirst("\\bmain\\s*\\(", PREFIX + "vs(");
+                    int open = text.indexOf('{');
+                    text = text.substring(0, open + 1) + "\n@@VSINIT@@" + text.substring(open + 1);
                 }
             }
             text = text.replaceAll("\\bgl_VertexID\\b|\\bgl_VertexIndex\\b", PREFIX + "vertexId");
@@ -284,7 +297,7 @@ final class GeometryEmulation {
         out.append("layout(std430, binding = ").append(PARAMS_INDEX).append(") readonly buffer ").append(PREFIX).append("Params { int ")
                 .append(PREFIX).append("param[]; };\n");
         out.append("int ").append(PREFIX).append("vertexId;\nint ").append(PREFIX).append("primitiveId;\nint ").append(PREFIX).append("unusedPrimitiveId;\n");
-        String vsText = vsBody.toString();
+        String vsText = vsBody.toString().replace("@@VSINIT@@", vsInitializers.toString());
         for (int i = 0; i < vsOutputDeclarations.size(); i++) {
             String[] declaration = vsOutputDeclarations.get(i);
             boolean consumed = true;
