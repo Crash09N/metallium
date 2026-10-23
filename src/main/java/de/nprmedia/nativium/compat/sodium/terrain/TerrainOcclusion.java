@@ -124,7 +124,7 @@ public final class TerrainOcclusion {
     public static int maxResultAge = Integer.getInteger("nativium.terrain.gpuCullMaxAge", 30);
     /** Test only: phase 1 draws nothing, every section goes through the GPU test and phase 2. */
     public static boolean deferAll;
-    /** Test only (negative control): every 4th phase-2 batch is not drawn, so visible terrain goes missing. */
+    /** Test only (negative control): phase 2 draws nothing, so visible deferred terrain goes missing. */
     public static boolean testDropPhaseTwo;
     private static final long LOG_INTERVAL_NS = Long.getLong("nativium.terrain.gpuCullLogSeconds", 5L) * 1_000_000_000L;
 
@@ -299,7 +299,7 @@ public final class TerrainOcclusion {
         CullData.Batch data = ((CullData.BatchHolder) batchObject).nativium$cullBatch();
         if (phase == 2) {
             if (s != null && data.phaseTwoFrame == frameId && data.phaseTwoCount > 0) {
-                if (!testDropPhaseTwo || (phaseTwoBatches & 3) != 0) {
+                if (!testDropPhaseTwo) {
                     GpuBuffer args = s.argsBuffer();
                     pass.drawIndexedIndirect(args.slice(data.phaseTwoStart * 20L, data.phaseTwoCount * 20L), data.phaseTwoCount);
                 }

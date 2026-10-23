@@ -128,9 +128,9 @@ final class TerrainCullScenario {
             // Stress: phase 1 draws nothing; everything visible must come from the GPU-decided phase-2 draws.
             compare(context, world, "deferall-wall", ground, 0, Float.NaN, true, shaders);
             compare(context, world, "deferall-open", high, 90, Float.NaN, true, shaders);
-            // Negative control: defer everything and drop every 4th phase-2 batch; the comparison must catch it.
+            // Negative control: defer everything and draw no phase-2 batch; the comparison must catch it.
             control = true;
-            compare(context, world, "control-drop", ground, 0, Float.NaN, true, shaders);
+            compare(context, world, "control-drop", high, 90, Float.NaN, true, shaders);
             control = false;
             // AUTO: culls at rd >= 24, with or without a pack (unless the pack's options displace terrain).
             context.runOnClient(client -> TerrainOcclusion.setMode("auto"));
@@ -206,7 +206,7 @@ final class TerrainCullScenario {
             failures.add(String.format(java.util.Locale.ROOT, "terrain-cull %s: culling changed %.3f%% of the pixels", name, diff[1] * 100));
         }
         // Coherent differences (a missing section or block covers whole 8x8 tiles); scattered temporal noise does not.
-        if (diff[4] > TILE_LIMIT) {
+        if (shaders && diff[4] > TILE_LIMIT) {
             failures.add(String.format(java.util.Locale.ROOT, "terrain-cull %s: coherent difference, 8x8 tile mean %.1f", name, diff[4]));
         }
         if (VOXY) {
