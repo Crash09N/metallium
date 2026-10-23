@@ -92,8 +92,16 @@ public final class TerrainOcclusion {
         ENABLED = COUNT || CULL;
     }
 
+    private static final boolean VOXY_LOADED = de.nprmedia.nativium.compat.voxy.VoxyCompat.isVoxyLoaded();
+
     /** Whether this frame culls (auto mode: render distance threshold). */
     private static boolean cullThisFrame() {
+        // Voxy draws its LODs from inside Sodium's opaque layer (DefaultChunkRenderer, cutout pass): the split then sees
+        // Voxy's encoder, and phase 2 (the layer run again) drew Voxy a second time, which wiped Sodium's terrain from
+        // the image (terrain-cull test with Voxy, with and without a pack). Never cull with Voxy loaded, also not "on".
+        if (VOXY_LOADED) {
+            return false;
+        }
         if (!AUTO) {
             return true;
         }

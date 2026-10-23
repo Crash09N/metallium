@@ -40,6 +40,8 @@ final class TerrainCullScenario {
     private final Consumer<String> line;
     private final List<String> failures;
     private final java.util.function.Function<ClientGameTestContext, String> packInstaller;
+    /** Voxy loaded: culling must stay off (it draws its LODs inside Sodium's opaque layer). */
+    private static final boolean VOXY = net.fabricmc.loader.api.FabricLoader.getInstance().isModLoaded("voxy");
     /** The current view is the negative control (phase 2 drops batches on purpose). */
     private boolean control;
     /** Largest allowed mean difference of an 8x8 tile (a missing block covers whole tiles; noise is scattered). */
@@ -138,7 +140,7 @@ final class TerrainCullScenario {
             String auto = context.computeOnClient(client -> TerrainOcclusion.snapshot());
             line.accept("terrain-cull: auto at rd " + RENDER_DISTANCE + ": " + auto);
             boolean autoCulls = !auto.contains("no frames tested");
-            if (autoCulls != (RENDER_DISTANCE >= TerrainOcclusion.AUTO_MIN_RENDER_DISTANCE)) {
+            if (autoCulls != (RENDER_DISTANCE >= TerrainOcclusion.AUTO_MIN_RENDER_DISTANCE && !VOXY)) {
                 failures.add("terrain-cull: auto mode " + (autoCulls ? "culls" : "does not cull") + " at rd " + RENDER_DISTANCE + " (" + auto + ")");
             }
             // A frozen server did not shut down with Distant Horizons loaded (client waited for the halt forever).
@@ -181,13 +183,16 @@ final class TerrainCullScenario {
         Path off = capture(context, world, name + "-off", "off", pos, yaw, fromYaw, false, null);
 
         double[] diff = difference(on, off, name);
-        line.accept(String.format(java.util.Locale.ROOT, "terrain-cull: %s %s vs off: differing pixels %.4f%% (any), %.4f%% (tol 24), %.4f%% (tol 64), max channel diff %d, max 8x8 tile mean %.1f",
+        line.accept(String.format(java.util.Locale.ROOT, "terrain-cull: %s %s vs off: differing pixels %.4f%% (any), %.4f%% (tol 24), %.4f%% (tol 64), max channel diff %d, max 8x8 tile mean above image mean %.1f",
                 name, modeA, diff[2] * 100, diff[0] * 100, diff[1] * 100, (int) diff[3], diff[4]));
         // Missing sections show as large differences. Without a shader pack, and with a pack whose clock is frozen, the
         // renderings are (nearly) deterministic; small differences (in-block overlay fade, TAA after a turn) are
         // reported only. A running pack clock (waving leaves, TAA) differs between any two frames: judge the large
         // differences only.
         double limit = shaders && !ShaderClock.frozen ? 0.02 : 0.0005;
+        if (control && VOXY) {
+            return; // nothing is culled with Voxy: no control possible
+        }
         if (control) {
             // Negative control: the comparison must notice the terrain that phase 2 left out.
             boolean detected = diff[1] > limit || diff[4] > TILE_LIMIT;
@@ -203,6 +208,13 @@ final class TerrainCullScenario {
         // Coherent differences (a missing section or block covers whole 8x8 tiles); scattered temporal noise does not.
         if (diff[4] > TILE_LIMIT) {
             failures.add(String.format(java.util.Locale.ROOT, "terrain-cull %s: coherent difference, 8x8 tile mean %.1f", name, diff[4]));
+        }
+        if (VOXY) {
+            // Culling is off with Voxy (TerrainOcclusion.cullThisFrame): "on" must not have run.
+            if (!counters[0].contains("no frames tested")) {
+                failures.add("terrain-cull " + name + ": culled although Voxy is loaded (" + counters[0] + ")");
+            }
+            return;
         }
         if (!"on".equals(modeA)) {
             return;
@@ -286,11 +298,15 @@ final class TerrainCullScenario {
                 javax.imageio.ImageIO.write(mask, "png", a.resolveSibling("terrain-cull-" + name + "-diff.png").toFile());
             }
             long maxTile = 0;
+            long sum = 0;
             for (long t : tiles) {
                 maxTile = Math.max(maxTile, t);
+                sum += t;
             }
             double n = Math.max(1, total);
-            return new double[] {small / n, large / n, any / n, max, maxTile / (double) (TILE * TILE)};
+            // Above the image-wide mean: a uniform shift (in-block overlay fade underground) is not a missing block.
+            double tile = Math.max(0, maxTile / (double) (TILE * TILE) - sum / n);
+            return new double[] {small / n, large / n, any / n, max, tile};
         } catch (IOException e) {
             failures.add("terrain-cull: could not compare screenshots: " + e);
             return new double[] {1, 1, 1, 255, 255};
