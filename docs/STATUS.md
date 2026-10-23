@@ -1,5 +1,16 @@
 # Nativium status
 
+## 2026-10-23: backend performance (ROADMAP Phase 2)
+
+New, each on by default with a system property to turn it off for A/B: `nativium.storeActions` (DontCare store for
+attachments a pending full clear overwrites), `nativium.uploadHoist` (buffer uploads in a pre-frame upload command
+buffer instead of splitting render encoders), `nativium.directWrites` (writeToBuffer straight into idle shared
+buffers), `nativium.qos.render` (render thread at user-interactive QoS). Game tests vanilla / Sodium / Iris +
+Complementary Reimagined / Voxy + Complementary PASS, screenshots identical to all four off except timing noise
+(spinning items, particles, waving plants, natural-world spawn; Voxy + pack: on-vs-off differs in 0.3-0.9 % of the
+pixels, the same as on-vs-on and off-vs-off, from animated foliage and clouds). Per-frame counters and the audit of the other Phase 2
+items: `docs/ROADMAP.md` Phase 2. FPS not measured yet.
+
 ## 2026-10-21: renamed from Metallium to Nativium
 
 Owner decision: the project is **Nativium** (Metal optimisation now, an NVIDIA path later), base package
