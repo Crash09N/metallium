@@ -1410,6 +1410,19 @@ public final class NativiumClientGameTest implements FabricClientGameTest {
             if (!failures.isEmpty()) throw new AssertionError(String.join("; ", failures));
             return;
         }
+        if ("conformance".equals(System.getProperty("nativium.gametest.mode"))) {
+            try {
+                new ConformanceScenario(this::line, failures).run(context, backend);
+                line(failures.isEmpty() ? "result: PASS" : "result: FAIL " + failures);
+            } catch (Throwable t) {
+                line("result: FAIL " + t);
+                throw t;
+            } finally {
+                writeReport();
+            }
+            if (!failures.isEmpty()) throw new AssertionError(String.join("; ", failures));
+            return;
+        }
         if ("betterf3".equals(System.getProperty("nativium.gametest.mode"))) {
             try {
                 new BetterF3Scenario(this::line, failures).run(context, backend);
