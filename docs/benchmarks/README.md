@@ -1,6 +1,13 @@
-# Engine shootout benchmarks
+# Benchmarks
 
-Compares the Metallium graphics engines (Metal, OpenGL, Vulkan/MoltenVK) on identical scenes. Re-run after every larger
+**Current baseline:** [`release-2026-10-24.md`](release-2026-10-24.md) (1.0, Metal vs OpenGL incl. Voxy/DH/pack rows,
+G5 2560x1440 fullscreen). Compare new runs against it, same flags and display, and repeat a row before calling a
+difference below ~15 % real (run-to-run spread in that matrix). Older files: `shootout-2026-10-20-final.md` (last run
+with Vulkan; different camera/world), `terrain-2026-10-19.md`, `terrain-cull-2026-10-21.md`, `shootout-2026-10-19-baseline.md`.
+
+## Engine shootout
+
+Compares the Nativium graphics engines (Metal, OpenGL, Vulkan/MoltenVK) on identical scenes. Re-run after every larger
 optimisation as a performance regression test.
 
 ## Real run

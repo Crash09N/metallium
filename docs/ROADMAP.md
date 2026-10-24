@@ -13,7 +13,11 @@ Guiding rules
 - **Measure everything:** no optimisation stays without a benchmark showing it helps (`docs/research/…` §L).
 - Evidence and reasoning: `docs/research/METALLIUM-RESEARCH-REPORT.md`. Current state: `docs/STATUS.md`.
 
-Status legend: ✅ done · 🔄 in progress · ⏳ planned · 🔬 needs research/audit
+Status legend: ✅ done · 🔄 in progress · 📝 in planning (next) · ⏳ planned · 🔬 needs research/audit
+
+**Where we are (2026-10-24):** 1.0.0 is released (Phases 1, 6c, 7 done; 2-5 done for 1.0 with open items listed below).
+Next, in planning: Phase 6b (Apple-native features) and the NVIDIA path - plan, open questions and order in
+`docs/design/next-phase-planning.md`. Nothing is implemented for them yet; each item starts with the owner's go.
 
 ## Phase 1 — Metal backend works ✅
 - ✅ Metal backend under renderpearl (started from Metallum, MIT), Metal first on Apple Silicon, OpenGL/Vulkan fallback
@@ -64,7 +68,7 @@ noise for the frame rate (CPU-side encoder counters below, `-PperfCounters`).
   `QOS_CLASS_USER_INTERACTIVE` (idea from mcopt, own code). Not done: integrated-server thread QoS (mcopt also raises it)
 - Source: mcopt (Apache-2.0, code from `09fea99` on, credited), minecraft-metal-renderer and MetalRender (ideas only)
 
-## Phase 3 — Terrain performance (inside Sodium, not replacing it) ⏳
+## Phase 3 — Terrain performance (inside Sodium, not replacing it) 🔄
 - ✅ Measured (`docs/benchmarks/terrain-2026-10-19.md`): Sodium terrain costs 0.07–0.29 ms CPU per frame on Metal
   (~60 ns per draw); with Complementary rd32 ~1 ms GPU, almost all in the main view. ICB/indirect for CPU savings and
   draw merging are not worth it (measured); main-view GPU occlusion culling is the remaining lever
@@ -138,23 +142,21 @@ noise for the frame rate (CPU-side encoder counters below, `-PperfCounters`).
   compatibility table under `docs/`.
 - Design: `docs/design/iris-adapter-blueprint.md`
 
-## Phase 6 — Mod ecosystem ⏳ / 🔬
-- 🔄 **Distant Horizons** (audit: `docs/research/notes/voxy-distant-horizons.md`): on 26.3 its default renderer uses
-  Minecraft's graphics layer, no raw OpenGL → runs natively on Metal. Backend-detection mixin fixed for newer DH builds.
-  Target: "DH supported without shader packs" (needs a runtime test). DH + Iris shader packs is blocked by DH itself
-  (it forces its OpenGL renderer when Iris is present) → later, together with the Iris adapter (DH ships LGPL/GPL: no code copying).
-- ⏳ **Voxy**: raw OpenGL 4.6, compute-heavy (compute shaders, SSBOs, atomics, indirect-count draws); refuses non-OpenGL
-  backends. macOS's OpenGL 4.1 cannot run it either. Licence "all rights reserved" → no porting/copying. Only realistic
-  route: run Voxy **unmodified** through `nativium-gl` once that layer supports compute/SSBO/indirect (long-term,
-  months). Short-term: make the game start cleanly with Voxy installed (disable it with a message instead of crashing).
-- ⏳ HUD/minimap/overlay mods: most work as-is (vanilla API); CI test that loads popular mods and takes screenshots
-- 🔬 Owner's must-work list (audit running → `docs/research/notes/mod-compat-batch1.md`): **ReGlass** (liquid-glass UI),
-  **Meshelium** (mesh-shader terrain; must be installable alongside Nativium; evaluate its ideas for Metal mesh shaders),
-  **Light Overlay**, **Cull Leaves**, **More Culling**. Each gets a game-test scenario once supported.
-- ⏳ Rule of thumb verified in CI: mods that work on vanilla's Vulkan backend should work on Nativium
+## Phase 6 — Mod ecosystem 🔄
+- ✅ **Distant Horizons** runs natively on Metal (its 26.3 renderer uses Minecraft's graphics layer); under Iris shader
+  packs via `DhIrisBridge` (`dh_terrain`/`dh_water`/`dh_shadow`/`dh_generic`, 2026-10-23; design `docs/design/iris-voxy-dh.md`)
+- ✅ **Voxy** runs unmodified through `nativium-gl` (Phase 4), with its macOS natives in `nativium-voxy-natives`; under
+  shader packs with a `voxy.json` via `VoxyIrisBridge`; Voxy Server Side LODs tested (2026-10-23/24). Open: LOD water
+  seam (upstream Voxy, `docs/RELEASE.md`)
+- ✅ Owner's modpack (~146 mods) release-checked (`docs/compat/release-check-2026-10-20.md`); Physics Mod, Xaero,
+  Axiom, Skin Layers 3D, ReGlass, Cull Leaves, More Culling, BetterF3, Bobby run (see README "Compatibility only")
+- ⏳ HUD/minimap/overlay mods beyond that list: most work as-is (vanilla API); broad scan is the parked nativium-gl
+  coverage campaign (Phase 4)
+- 🔬 Meshelium (mesh-shader terrain): must be installable alongside Nativium; evaluate its ideas for Metal mesh shaders
 - ✅ Automatic fallback: detect a mod Nativium cannot handle → OpenGL at next start, with message (Phase 6c)
 
-## Phase 6b — Apple-native features ⏳ / 🔬
+## Phase 6b — Apple-native features 📝 in planning (owner, 2026-10-24)
+Plan, open questions and proposed order: `docs/design/next-phase-planning.md` (Track A).
 - 🔬 **MetalFX upscaling** (research: `docs/research/notes/metalfx-upscaling.md`): spatial upscaler first (render scale
   option, UI at native resolution), then temporal upscaler (needs camera jitter + motion vectors + depth)
 - ⏳ **MetalFX frame interpolation** (frame generation) after temporal upscaling works; depends on macOS version
@@ -197,14 +199,15 @@ noise for the frame rate (CPU-side encoder counters below, `-PperfCounters`).
 - Baselines: vanilla OpenGL, vanilla Vulkan via MoltenVK (and Mesa KosmicKrisp), Sodium on OpenGL, mcopt (pacing off)
 - Metal Performance HUD (`MTL_HUD_ENABLED=1`) as extra GPU-side view for Nativium
 
-## Phase 8 — Release 🔄
+## Phase 8 — Release ✅ (1.0.0, 2026-10-24)
 - ✅ VSync-off present pacing (one present per refresh, up to 3 in flight; Complementary fullscreen 54.7 -> 131.5 shown/s)
 - ✅ 1.0 release benchmarks (`docs/benchmarks/release-2026-10-24.md`) and fixes of 2026-10-24 (STATUS)
 - ✅ Final pre-1.0 engine shootout (`docs/benchmarks/shootout-2026-10-20-final.md`) and release-jar production-style
   check (`docs/compat/release-check-2026-10-20.md`); install notes in `docs/RELEASE.md`
-- ⏳ **Code cleanup (before release):** remove dead options and diagnostics no longer needed, unify duplicated helpers,
+- 🔄 **Code cleanup:** done 2026-10-22 (`f40450a`): licence headers on all source files, less log noise. Still open: remove dead options and diagnostics no longer needed, unify duplicated helpers,
   consolidate the game-test flags, tidy `docs/STATUS.md`, reduce log noise, check licence headers
-- Owner-tested on M3 Max; CI green; known limitations documented; credits complete (`README.md`, `NOTICE`)
+- ✅ Owner-tested on M3 Max; local regression suite + release-jar tests pass (CI is disabled by the owner); known
+  limitations documented (`docs/RELEASE.md`); credits complete (`README.md`, `NOTICE`)
 - Releases per Minecraft version; port the backend when renderpearl changes
 
 ## Long-term vision (owner, 2026-10-18)
@@ -219,11 +222,11 @@ Open items before the NVIDIA work:
 - DLSS / frame generation: NVIDIA Streamline/DLSS SDK licence terms; runs via Vulkan (vanilla 26.3 has a Vulkan
   backend) or DirectX, not Metal → a separate backend path with its own module.
 
-## After 1.0 — only with owner consent
+## After 1.0
 
-Not started without the owner's explicit agreement per item:
-- Apple features: MetalFX upscaling/frame interpolation, Game Mode, hardware ray tracing
-- NVIDIA / Nvidium-style GPU-driven path (the broadening; the rename to Nativium itself is ✅ done 2026-10-21)
+In planning since 2026-10-24 (owner); each item starts only with the owner's go (`docs/design/next-phase-planning.md`):
+- 📝 Apple features: MetalFX upscaling/frame interpolation, Game Mode, hardware ray tracing (Phase 6b, Track A)
+- 📝 NVIDIA / Nvidium-style GPU-driven path and DLSS (Track B; the rename to Nativium itself is ✅ done 2026-10-21)
 - **Voxy / Distant Horizons far terrain under shader packs (first big job after 1.0, owner decision 2026-10-20).**
   ✅ Done (design: docs/design/iris-voxy-dh.md). 2026-10-21: Voxy's own shader-pack pipeline
   (`IrisVoxyRenderPipeline`, pack `voxy.json` + `voxy_*.glsl`) runs on Metal via `VoxyIrisBridge` for packs with a Voxy
@@ -234,5 +237,5 @@ Not started without the owner's explicit agreement per item:
   Voxy + Reimagined 73 fps, Voxy + Photon 1.4 63 fps (2026-10-24 benchmarks). Distant Horizons: done 2026-10-23 (`DhIrisBridge`: DH's Blaze3D terrain pass
   runs the pack's `dh_terrain`/`dh_water` into the gbuffers; Reimagined, Photon, BSL verified; `dh_generic` and
   `dh_shadow` added the same day). DH + Reimagined 44 fps (2026-10-24 benchmarks).
-- GPU culling (two-phase Hi-Z occlusion)
-- Broad nativium-gl coverage campaign
+- ✅ GPU culling (two-phase Hi-Z occlusion): done in Phase 3 (terrain occlusion culling, 2026-10-21/23)
+- ⏳ Broad nativium-gl coverage campaign (scanner WIP on branch `parked/gl-coverage`)

@@ -82,7 +82,7 @@ Nativium mixins and nativium-gl routing, and the run fails on any mixin outside 
 
 See "Release jar verification" at the end of this file.
 
-## Known limits (alpha, from `docs/STATUS.md`)
+## Known limits (1.0.0, from `docs/STATUS.md`)
 
 - Iris adapter: mipmapped shadow maps and tessellation shaders are missing; geometry shaders are emulated in the vertex
   stage (triangle input only). Custom textures, `size.buffer.*`, >16 textures and compute work (see STATUS.md). Not every
@@ -98,7 +98,8 @@ See "Release jar verification" at the end of this file.
   half with Reimagined, the same on Iris/OpenGL); diamond-armor glint is faint even in vanilla. The earlier white
   enchanted gear is fixed.
 - nativium-gl implements a subset of OpenGL; mods using unimplemented functions get a crash-recovery screen and OpenGL on the next start.
-- Apple-native extras (MetalFX, Game Mode, ...) are not part of the alpha.
+- Apple-native extras (MetalFX, Game Mode, ray tracing) and the NVIDIA path are not part of 1.0; they are in planning
+  (`docs/design/next-phase-planning.md`).
 - Closed-source mods are never bundled; Physics Mod and similar work only as separate installs.
 - JVM crash workaround (Sodium + Iris, not caused by Nativium): HotSpot C2 (seen on Temurin 25.0.4.1, macOS arm64)
   miscompiles Sodium's `FlatLightPipeline.getShade` once Iris's directional-shading hook in `CardinalLighting.byFace` is

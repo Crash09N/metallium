@@ -6,55 +6,75 @@ an NVIDIA path later.*
 A Fabric rendering mod for **Minecraft 26.3** that renders through Apple's **Metal** API on Apple Silicon Macs, staying
 compatible with Sodium, Sodium Extra, Reese's Sodium Options, the Fabric Rendering API and Iris shader packs.
 
-**Status (2026-10-23): 1.0.0, owner-tested on an M3 Max.** Details: [`docs/STATUS.md`](docs/STATUS.md).
+**Status (2026-10-24): 1.0.0 released, owner-tested on an M3 Max.** Next: Apple-native features and the NVIDIA path are
+in planning (see "What's next" below). Details: [`docs/STATUS.md`](docs/STATUS.md).
 
 - **Metal is the default engine on Apple Silicon**, with OpenGL/Vulkan fallback. Sodium runs natively on Metal.
-- **Iris shader packs** run through the `nativium-iris` adapter (stages 1-5): gbuffers, shadows, composite passes,
-  compute shaders, image load/store and SSBOs (which macOS OpenGL 4.1 cannot run), custom/3D textures, history buffers,
-  blend overrides, horizon. Geometry/tessellation shaders are not supported yet.
+- **Iris shader packs** run through the `nativium-iris` adapter: gbuffers, shadows, composite passes, compute shaders,
+  image load/store and SSBOs (which macOS OpenGL 4.1 cannot run), custom/3D textures, history buffers, blend overrides,
+  horizon, and geometry shaders (emulated in the vertex stage). Tested: Complementary Reimagined/Unbound, Photon
+  1.3b/1.4, BSL, Bliss, Rethinking Voxels.
+- **Far terrain under shader packs:** Voxy (packs with a `voxy.json`: Complementary Reimagined, Photon, BSL; also with
+  Voxy Server Side) and Distant Horizons (`dh_terrain`/`dh_water`/`dh_shadow`/`dh_generic`).
 - **`nativium-gl`** translates OpenGL calls of mods to Metal (Voxy incl. indirect command buffers and argument buffers,
   Physics Mod GPU compute, Xaero, Axiom and others), routed automatically; Voxy's macOS storage natives ship in the
-  nested `nativium-voxy-natives` addon.
+  nested `nativium-voxy-natives` addon. Voxy cannot run on macOS OpenGL at all (it needs GL 4.6).
 - **Compatibility center**: start-up scan, per-mod status screen, a "needs OpenGL?" question for mods that cannot run,
   crash recovery (next start on OpenGL, no crash loops); Cmd+Q and normal quits are clean exits.
-- BetterF3 support and GPU utilization in F3, a shader/pipeline cache, and VSync-off present pacing (one present per
-  refresh) are in.
+- BetterF3 support and GPU utilization in F3, a crash-safe shader/pipeline cache, terrain occlusion culling (render
+  distance 24+), a Low Power mode, and VSync-off present pacing (one present per refresh) are in.
 
-### Performance (final shootout, 2026-10-20)
+### Performance (1.0 release benchmarks, 2026-10-24)
 
-2560x1440 fullscreen on a 144 Hz display, M3 Max, VSync off, rendered fps. Full tables, VSync-on results and method:
-[`docs/benchmarks/shootout-2026-10-20-final.md`](docs/benchmarks/shootout-2026-10-20-final.md).
+2560x1440 fullscreen on a 144 Hz display, M3 Max, VSync off, Sodium in every row, rendered fps (1% low in brackets).
+Method, frame times, repeat runs: [`docs/benchmarks/release-2026-10-24.md`](docs/benchmarks/release-2026-10-24.md).
 
-| Scene | Metal | OpenGL | Vulkan (MoltenVK) |
-|---|---|---|---|
-| Vanilla light | 2690 | 683 | 428 |
-| Sodium RD 32 | 717 | 383 | 460 |
-| Complementary Reimagined | 164.5 | 33.1 | n/a (Iris refuses Vulkan) |
-| Complementary Unbound | 151.3 | 107.4 | n/a |
-| Voxy | 661.5 | cannot run (GL 4.1) | n/a |
+| Scene | Metal | OpenGL |
+|---|---|---|
+| Light (render distance 12) | 1541 (578) | 602 (84) |
+| Render distance 32 | 500 (238) | 308 (55) |
+| Complementary Reimagined | 98 (70) | 80 (51) |
+| Complementary Reimagined, render distance 32 | 72 (53) | 61 (36) |
+| Voxy, no pack | 348 (232) | cannot run (GL 4.1) |
+| Voxy + Complementary Reimagined | 73 (55) | cannot run |
+| Voxy + Photon 1.4 | 63 (45) | cannot run |
+| Distant Horizons + Complementary Reimagined | 44 (20) | cannot run |
+| Rethinking Voxels (geometry shaders) | 30 (12) | cannot run |
+
+Vulkan (MoltenVK) was measured in the earlier shootout ([`docs/benchmarks/shootout-2026-10-20-final.md`](docs/benchmarks/shootout-2026-10-20-final.md),
+different camera and world, so not comparable with the table above): slower than Metal in every scene, and Iris refuses Vulkan.
 
 ### Install
 
-Single jar `nativium-1.0.0.jar` in `mods/`; requires Fabric API; Sodium recommended; Iris optional. Requirements,
-nested jars, what is inert when: [`docs/RELEASE.md`](docs/RELEASE.md). Build: `./gradlew releaseJar` (JDK 25).
-Metal smoke test (macOS): `./gradlew metalSmokeTest`.
+Single jar `nativium-1.0.0.jar` in `mods/`; requires Fabric API; Sodium recommended; Iris optional. Requirements
+(Apple Silicon, macOS 26+), nested jars, what is inert when: [`docs/RELEASE.md`](docs/RELEASE.md). Build:
+`./gradlew releaseJar` (JDK 25). Metal smoke test (macOS): `./gradlew metalSmokeTest`.
 
 ### Known limitations
 
-- Voxy's far terrain under shader packs works for packs with Voxy support (`voxy.json`: Complementary Reimagined, Photon,
-  BSL); with other packs Voxy pauses while the pack is on.
-- Distant Horizons' far terrain under shader packs works for packs with DH support (`dh_terrain`); LOD shadows
-  (`dh_shadow`) and DH's own clouds/beacons (`dh_generic`) are not drawn with a pack yet.
-- The Voxy natives addon covers macOS arm64 only (no Intel Macs).
-- Geometry/tessellation shader packs, mipmapped shadow maps and some pack-specific effects are open (see STATUS).
+Full list: [`docs/RELEASE.md`](docs/RELEASE.md) "Known limits".
+- Voxy under shader packs needs a pack with Voxy support (`voxy.json`); with other packs Voxy pauses while the pack is on.
+- Voxy LOD water shows a zigzag seam where two LOD levels meet (about 370 blocks out). This is Voxy's own LOD water
+  height, also without a shader pack.
+- Enchantment glint under shader packs is weaker than in vanilla; it is the same on Iris/OpenGL (pack behaviour).
+- Tessellation shaders, mipmapped shadow maps and some pack-specific effects are open (see STATUS).
 - nativium-gl implements a subset of OpenGL; unimplemented functions lead to the crash-recovery screen.
-- Apple-native extras (MetalFX, Game Mode, ray tracing) are not part of 1.0.
+- The Voxy natives addon covers macOS arm64 only (no Intel Macs).
 - With Sodium + Iris, Nativium works around a HotSpot C2 crash (`SIGSEGV` in `FlatLightPipeline.getShade`) by keeping
   `CardinalLighting.byFace` out of C2 inlining; details and the manual JVM flag in [`docs/RELEASE.md`](docs/RELEASE.md).
 - Renamed from Metallium in 0.1.0-alpha: mod id `nativium`, package `de.nprmedia.nativium`. On the first start an old
   `config/metallium.json` (+ `config/metallium/`, `metallium-gl.properties`) is copied to the Nativium names; old
   `-Dmetallium.*` properties, the `"metallium-gl"` opt-in key and the `dev.metallium.api.MetalliumRuntime` API still work
   for this release (deprecated). Remove the old Metallium jar: the two cannot be installed together.
+
+### What's next (in planning)
+
+1.0 is done; the next two tracks are being planned (owner, 2026-10-24). Nothing of them is in the 1.0 jar. Plan and open
+questions: [`docs/design/next-phase-planning.md`](docs/design/next-phase-planning.md).
+- **Apple-native features:** MetalFX upscaling (spatial first, then temporal), MetalFX frame interpolation, Game Mode,
+  later hardware ray-traced effects on M3 and newer.
+- **NVIDIA path:** Nvidium-style GPU-driven terrain and DLSS upscaling/frame generation on NVIDIA GPUs, as a separate
+  backend path (not Metal).
 
 - Roadmap: [`docs/ROADMAP.md`](docs/ROADMAP.md) · Status: [`docs/STATUS.md`](docs/STATUS.md)
 - Research report: [`docs/research/METALLIUM-RESEARCH-REPORT.md`](docs/research/METALLIUM-RESEARCH-REPORT.md)
@@ -66,10 +86,10 @@ Nativium plugs a Metal backend into Minecraft 26.3's own GPU abstraction (`com.m
 Sodium, Sodium Extra, Reese's Sodium Options and Fabric rendering mods run on Metal **unmodified**. Iris shader packs
 are supported through a separate adapter that reuses Iris's pack loading and shader transformation and executes the
 passes natively on Metal. Mods that call OpenGL directly are detected by a start-up scan and run through
-`nativium-gl`, a GL → Metal translation layer, automatically when it is installed (foundation stage,
+`nativium-gl`, a GL → Metal translation layer, automatically (it ships inside the release jar;
 [`docs/design/nativium-gl.md`](docs/design/nativium-gl.md)); if that crashes, the next start runs on OpenGL and asks
 what to do. A status screen (Video Settings → Nativium) lists which mods run natively and which are translated.
-See the report for evidence, trade-offs and limits (e.g. geometry-shader packs).
+See the report for evidence, trade-offs and limits.
 
 - Mod authors: [`docs/MOD-AUTHORS.md`](docs/MOD-AUTHORS.md) — make a mod Metal-ready without writing Metal code.
 

@@ -1,5 +1,9 @@
 # Nativium status
 
+**Current state (2026-10-24):** 1.0.0 released (jar: `./gradlew releaseJar`; install and known limits: `docs/RELEASE.md`).
+Next, in planning: Apple-native features and the NVIDIA path (`docs/design/next-phase-planning.md`). Entries below
+are newest first; agents start with `.agents.md` "Start here".
+
 ## 2026-10-24: 1.0 release fixes and benchmarks
 
 Fixed on release-1.0 (each with a game test; screenshots checked):
