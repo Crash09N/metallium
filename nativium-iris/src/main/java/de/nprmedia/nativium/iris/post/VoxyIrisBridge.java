@@ -136,8 +136,6 @@ public final class VoxyIrisBridge {
 
     /** What Voxy 0.2.19 (26.3) makes of {@code gl_FragCoord.z} in the pack's patches (its {@code voxy$conventionalDepth}). */
     private static final String VOXY_FRAG_DEPTH = "(1.0-gl_FragCoord.z)";
-    private static final java.util.regex.Pattern BLOCK_COMMENT = java.util.regex.Pattern.compile("/\\*.*?\\*/", java.util.regex.Pattern.DOTALL);
-    private static final java.util.regex.Pattern LINE_COMMENT = java.util.regex.Pattern.compile("//[^\n]*");
 
     /**
      * The pack's Voxy patches see depth the way Iris shows it to every other pack program. On 26.3 the level depth is
@@ -177,8 +175,7 @@ public final class VoxyIrisBridge {
         // Undo Voxy's own gl_FragCoord.z flip: patchDepth flips gl_FragCoord itself.
         String body = source.replace(VOXY_FRAG_DEPTH, "gl_FragCoord.z");
         // Comments go (the AST printer drops them anyway; packs keep commented-out directives, e.g. Photon's extensions).
-        body = BLOCK_COMMENT.matcher(body).replaceAll(" ");
-        body = LINE_COMMENT.matcher(body).replaceAll("");
+        body = stripComments(body);
         // Preprocessor lines (left after Iris's preprocessor, e.g. #extension) are not part of the AST: keep them in front.
         StringBuilder directives = new StringBuilder();
         StringBuilder code = new StringBuilder("#version 460 core\n");
@@ -195,6 +192,39 @@ public final class VoxyIrisBridge {
         String patched = net.irisshaders.iris.pipeline.transform.TransformPatcher.patchDepth(code.toString(), net.irisshaders.iris.gl.shader.ShaderType.FRAGMENT);
         String withoutVersion = patched.replaceFirst("^\\s*#version[^\n]*\n", "");
         return directives + withoutVersion;
+    }
+
+    /**
+     * {@code source} without comments, in one left-to-right pass as the GLSL lexer reads them: whichever of {@code //}
+     * and {@code /*} comes first wins, so the "toggle" idiom {@code //*} ... {@code //*}{@code /} (Photon) stays a pair of
+     * line comments. Block comments become a space; their newlines are kept so line numbers stay put.
+     */
+    static String stripComments(final String source) {
+        StringBuilder out = new StringBuilder(source.length());
+        int i = 0;
+        int n = source.length();
+        while (i < n) {
+            char c = source.charAt(i);
+            if (c == '/' && i + 1 < n && source.charAt(i + 1) == '/') {
+                while (i < n && source.charAt(i) != '\n') {
+                    i++;
+                }
+            } else if (c == '/' && i + 1 < n && source.charAt(i + 1) == '*') {
+                int end = source.indexOf("*/", i + 2);
+                int stop = end < 0 ? n : end + 2;
+                out.append(' ');
+                for (int k = i; k < stop; k++) {
+                    if (source.charAt(k) == '\n') {
+                        out.append('\n');
+                    }
+                }
+                i = stop;
+            } else {
+                out.append(c);
+                i++;
+            }
+        }
+        return out.toString();
     }
 
     /** Iris's {@code RenderTargets} stand-in for Voxy's {@code getDrawBuffers}: the pack's draw buffers as stable GL names. */
