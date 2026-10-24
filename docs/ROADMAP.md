@@ -27,7 +27,8 @@ Status legend: ✅ done · 🔄 in progress · ⏳ planned · 🔬 needs researc
 Audit and implementation 2026-10-23 (`MetalCommandEncoder`; every new step has a system property for A/B and is on by
 default (except direct writes) after the regression suite - vanilla, Sodium, Iris + Complementary Reimagined, Voxy + Complementary - passed with
 screenshots pixel-identical to the property off, apart from the run-to-run timing noise of animated scenes). Frame-rate
-benchmarks on the G5 are still to be done (CPU-side encoder counters below, `-PperfCounters`).
+benchmarks on the G5 done 2026-10-24 (`docs/benchmarks/release-2026-10-24.md`): the steps on vs off are within run-to-run
+noise for the frame rate (CPU-side encoder counters below, `-PperfCounters`).
 - ✅ Merge consecutive render passes with the same targets (render encoder reused while the attachments match)
 - ✅ Clears as load actions: clears are recorded lazily and become `MTLLoadActionClear` of the next pass, or one grouped
   load-action-clear encoder (up to 8 same-size targets) when something else needs them first
@@ -183,7 +184,7 @@ benchmarks on the G5 are still to be done (CPU-side encoder counters below, `-Pp
 - ⏳ nativium-gl is still a separate jar (not jar-in-jar in the core); GL calls from mod *mixins* merged into Minecraft
   classes are not attributed/retargeted; scan does not look into reflection-based GL use
 
-## Phase 7 — Benchmarks and comparison ⏳
+## Phase 7 — Benchmarks and comparison ✅ (Metal vs OpenGL, 2026-10-24; Vulkan row in the 2026-10-20 shootout)
 **Engine shootout (fixed test stage, owner requirement: Metal must prove it is the fastest engine on Apple Silicon)**
 - Engines: Metal (Nativium) vs OpenGL (Apple GL 4.1, itself layered on Metal) vs Vulkan (MoltenVK → Metal)
 - Scenes: (1) vanilla light, (2) Sodium RD 32 CPU-heavy, (3) Complementary shaders GPU-heavy, (4) chunk loading while flying
@@ -198,6 +199,7 @@ benchmarks on the G5 are still to be done (CPU-side encoder counters below, `-Pp
 
 ## Phase 8 — Release 🔄
 - ✅ VSync-off present pacing (one present per refresh, up to 3 in flight; Complementary fullscreen 54.7 -> 131.5 shown/s)
+- ✅ 1.0 release benchmarks (`docs/benchmarks/release-2026-10-24.md`) and fixes of 2026-10-24 (STATUS)
 - ✅ Final pre-1.0 engine shootout (`docs/benchmarks/shootout-2026-10-20-final.md`) and release-jar production-style
   check (`docs/compat/release-check-2026-10-20.md`); install notes in `docs/RELEASE.md`
 - ⏳ **Code cleanup (before release):** remove dead options and diagnostics no longer needed, unify duplicated helpers,
@@ -228,9 +230,9 @@ Not started without the owner's explicit agreement per item:
   patch (Complementary Reimagined: pipeline created, LOD draws land in the pack's colortex0/6, `vxDepthTexOpaque/Trans`
   bound in the pack's passes, game test PASS incl. resizes); the safety net now only pauses Voxy when the bridge is
   not active (packs without `voxy.json`, failures). 2026-10-22: verified in the final image with Complementary
-  Reimagined, Photon and BSL (fix: constant expressions in `layout(binding)`, see STATUS). Open: fps cost at
-  2560x1440 in the owner's modpack. Distant Horizons: done 2026-10-23 (`DhIrisBridge`: DH's Blaze3D terrain pass
+  Reimagined, Photon and BSL (fix: constant expressions in `layout(binding)`, see STATUS). fps cost at 2560x1440:
+  Voxy + Reimagined 73 fps, Voxy + Photon 1.4 63 fps (2026-10-24 benchmarks). Distant Horizons: done 2026-10-23 (`DhIrisBridge`: DH's Blaze3D terrain pass
   runs the pack's `dh_terrain`/`dh_water` into the gbuffers; Reimagined, Photon, BSL verified; `dh_generic` and
-  `dh_shadow` added the same day). Open: fps cost.
+  `dh_shadow` added the same day). DH + Reimagined 44 fps (2026-10-24 benchmarks).
 - GPU culling (two-phase Hi-Z occlusion)
 - Broad nativium-gl coverage campaign

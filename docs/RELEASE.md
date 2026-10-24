@@ -84,10 +84,18 @@ See "Release jar verification" at the end of this file.
 
 ## Known limits (alpha, from `docs/STATUS.md`)
 
-- Iris adapter: custom textures (`texture.*`, incl. 3D) are missing (blocks e.g. Photon), `size.buffer.*`, mipmapped shadow maps,
-  programs with more than 16 textures / 9 draw buffers, geometry/tessellation shaders (`.gsh`). Not every pack works; see STATUS.md per pack.
-- Packs see `MC_OS_MAC` unless `-Dnativium.iris.hideMacOs=true`; some packs disable compute features on it.
+- Iris adapter: mipmapped shadow maps and tessellation shaders are missing; geometry shaders are emulated in the vertex
+  stage (triangle input only). Custom textures, `size.buffer.*`, >16 textures and compute work (see STATUS.md). Not every
+  pack works; see STATUS.md per pack. Complementary Reimagined/Unbound, Photon 1.3b/1.4, BSL, Bliss, Rethinking Voxels were tested.
+- Packs see `MC_OS_MAC` only with `-Dnativium.iris.hideMacOs=false` (hidden by default since 2026-10-18).
 - Voxy runs only through nativium-gl (opt-in); Distant Horizons works, closing a world with DH loaded can deadlock only in the test harness.
+- Voxy LOD water seam (upstream Voxy, not Nativium): where two LOD levels meet (about 370 blocks out) the water surface
+  of the coarser level sits at a slightly different height, which shows as a zigzag line. Same without a shader pack.
+- Voxy 0.2.19 with the camera high above the terrain (no Sodium section visible, e.g. y > ~250): Sodium skips its cutout
+  pass and Voxy's far terrain went with it. Nativium now keeps that pass alive when Voxy is present (`VoxyEmptyPassMixin`;
+  `-Dnativium.voxy.emptyPassRender=false` turns it off). Voxy 0.2.20 fixes the same upstream.
+- Enchantment glint under shader packs: drawn through the pack's `mc_sampleGlint()`; it is faint with Photon and Reimagined
+  on Metal (see STATUS.md, glint). The earlier white enchanted gear is fixed.
 - nativium-gl implements a subset of OpenGL; mods using unimplemented functions get a crash-recovery screen and OpenGL on the next start.
 - Apple-native extras (MetalFX, Game Mode, ...) are not part of the alpha.
 - Closed-source mods are never bundled; Physics Mod and similar work only as separate installs.
@@ -99,12 +107,13 @@ See "Release jar verification" at the end of this file.
   inline `CardinalLighting.byFace` (log line "C2 workaround ..."; off with `-Dnativium.jitWorkaround=false`). If the
   JVM refuses runtime directives (log warning), add `-XX:CompileCommand=dontinline,net.minecraft.world.level.CardinalLighting::byFace`
   to the JVM arguments instead.
-- Shader cache writer crash (fixed after the 1.0.0 jar): on 2026-10-23 the 1.0.0 jar crashed at start-up with a fresh
+- Shader cache writer crash (fixed in the 1.0.0 jar of 2026-10-24; the jar from 2026-10-23 crashed): on 2026-10-23 it crashed at start-up with a fresh
   `.nativium-cache` inside Metal's binary archive serializer (`EXC_BAD_ACCESS` in
   `-[_MTLBinaryArchive materializeAirNTFromOnlineForSlice:entryList:]`, thread "Nativium shader cache writer").
   Now only the writer thread adds to and serializes the session archive, only pipelines that were created go in, it
   waits until pipeline creation settles, and a `pipelines.serializing` marker turns archive writing off for that cache
-  if Metal ever crashes there again. Workaround for 1.0.0: `-Dnativium.shaderCache=false`.
+  if Metal ever crashes there again. Workaround for the old jar: `-Dnativium.shaderCache=false` (remove it with the new jar). Archive writing alone can
+  be turned off with `-Dnativium.shaderCache.writeArchive=false`.
 
 ## Release jar verification
 

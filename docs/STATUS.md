@@ -1,5 +1,31 @@
 # Nativium status
 
+## 2026-10-24: 1.0 release fixes and benchmarks
+
+Fixed on release-1.0 (each with a game test; screenshots checked):
+- Shader cache writer crash (the 1.0.0 jar of 2026-10-23 crashed in `MTLBinaryArchive` serialization): only the writer
+  thread builds and serializes the archive, from pipelines that were actually created, after pipeline creation settles;
+  a `pipelines.serializing` marker turns archive writing off if Metal ever crashes there again
+  (`MetalPipelineCacheWriterTest`; `-Dnativium.shaderCache.writeArchive=false`).
+- Photon 1.4 far (Voxy) water missing: Voxy 0.2.19 flips only `gl_FragCoord.z` for reversed-Z, the pack's depth reads
+  were left in reversed-Z and the water discarded itself. `VoxyIrisBridge` now undoes Voxy's flip and runs the pack's
+  Voxy patches through Iris's `TransformPatcher.patchDepth`; comments are stripped with a lexer (Photon's `//*` ... `//*/`
+  toggles broke the old regex). Game test with Voxy Server Side (`-PextraMods=<lss jar>`) + Photon 1.4: LOD water visible.
+- White enchanted gear under packs: Iris's `glintTexture` sampler name maps to the glint texture (`GbufferProgram`
+  sampler aliases). Game test `-PglintTest`. The glint itself is faint under Photon/Reimagined; the game test's
+  enchanted/plain sides were swapped, so the earlier "dark enchanted sword" was the plain one (no black-patch bug found).
+- Voxy far terrain gone with the camera high above the ground (Sodium skipped its empty cutout pass, Voxy renders
+  inside it): `VoxyEmptyPassMixin` keeps the pass when Voxy is loaded (`-Dnativium.voxy.emptyPassRender=false`).
+  154 Voxy render calls per 5 s at y 120, 160, 200 and 260; LODs visible at y 260.
+- Earlier the same night: regex budget for pack preprocessing (hang on a server pack), `GL_TEXTURE_BASE_LEVEL`, no
+  stencil test without a stencil attachment (floating islands), Voxy Server Side (`lss`) game test scenario.
+
+Known, not fixed: the zigzag seam on Voxy LOD water about 370 blocks out is upstream Voxy (LOD levels place the water
+surface at different heights; same without a pack). A dark line in the sky (owner: later).
+
+Benchmarks: `docs/benchmarks/release-2026-10-24.md` (G5 fullscreen 2560x1440, 18 rows, all valid). Metal vs OpenGL
+with Sodium: light 1541 vs 602 fps, rd32 500 vs 308, Reimagined 98 vs 80; Voxy + Photon 1.4 63 fps (Metal only).
+
 ## 2026-10-23: backend performance (ROADMAP Phase 2)
 
 New, on by default with a system property to turn each off for A/B: `nativium.storeActions` (DontCare store for
