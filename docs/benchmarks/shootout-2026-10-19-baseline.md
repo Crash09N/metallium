@@ -1,6 +1,6 @@
 # Engine shootout 2026-10-19 - BASELINE (before the encoder optimisation)
 
-Baseline measured on `claude/lucid-heisenberg-f4n1hp` @ 8c5c9ea (+ bench tooling commit: GPU_LOCK hook, `-PbenchRd`). Label all later
+Baseline measured on `claude/lucid-heisenberg-f4n1hp` (now `main`) @ 8c5c9ea (+ bench tooling commit: GPU_LOCK hook, `-PbenchRd`). Label all later
 comparisons against this file. Produced by `tools/engine-shootout.sh` (one invocation per block, 30 s per cell, each run under
 `gpu-lock.sh --exclusive`, so no other Minecraft client ran during a cell).
 

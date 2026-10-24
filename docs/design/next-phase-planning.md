@@ -66,4 +66,4 @@ B4 after A2 so the motion-vector work is shared.
 ## Not in these tracks (still open from 1.0)
 
 From `docs/STATUS.md` / `docs/RELEASE.md`: Voxy LOD water seam (upstream Voxy), a dark line in the sky (owner: later),
-tessellation shaders, mipmapped shadow maps, broad nativium-gl coverage campaign (`parked/gl-coverage`).
+tessellation shaders, mipmapped shadow maps, broad nativium-gl coverage campaign (tag `parked-gl-coverage`).

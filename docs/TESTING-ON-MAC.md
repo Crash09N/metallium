@@ -10,7 +10,6 @@ Just want to play? Use the release jar instead: `nativium-1.0.0.jar` in your Fab
 ```bash
 git clone https://github.com/Crash09N/nativium.git
 cd nativium
-git checkout claude/lucid-heisenberg-f4n1hp
 ```
 
 ## 2. Quick checks (2 minutes)

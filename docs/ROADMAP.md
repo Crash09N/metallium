@@ -102,7 +102,7 @@ noise for the frame rate (CPU-side encoder counters below, `-PperfCounters`).
 - ⏸ Deferred until after the alpha (owner decision 2026-10-18): the broad coverage campaign (scan the top ~200
   Fabric 26.3 client mods, implement missing GL functions until ≥90% of mods work). Only the GL coverage that
   current targets (Iris adapter, Voxy, DH, the owner's modpack) need is done before the alpha. WIP scanner parked on
-  branch `parked/gl-coverage`.
+  tag `parked-gl-coverage`.
 
 ## Phase 5 — Iris shader packs (top feature priority) 🔄
 - ✅ Shader translator: Iris-style GLSL → SPIR-V → Metal with uniform/binding reflection
@@ -238,4 +238,4 @@ In planning since 2026-10-24 (owner); each item starts only with the owner's go 
   runs the pack's `dh_terrain`/`dh_water` into the gbuffers; Reimagined, Photon, BSL verified; `dh_generic` and
   `dh_shadow` added the same day). DH + Reimagined 44 fps (2026-10-24 benchmarks).
 - ✅ GPU culling (two-phase Hi-Z occlusion): done in Phase 3 (terrain occlusion culling, 2026-10-21/23)
-- ⏳ Broad nativium-gl coverage campaign (scanner WIP on branch `parked/gl-coverage`)
+- ⏳ Broad nativium-gl coverage campaign (scanner WIP: tag `parked-gl-coverage`)
