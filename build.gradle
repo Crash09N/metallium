@@ -209,6 +209,8 @@ loom.runs.clientGameTest {
 	if (project.hasProperty('terrainCullTest')) vmArg '-Dnativium.gametest.mode=terrainCull'
 	// -PglintTest (with -PwithIris -Pshaderpack=...): enchanted armor/items/hand must not render white or black (glintTexture).
 	if (project.hasProperty('glintTest')) vmArg '-Dnativium.gametest.mode=glint'
+	// -PglintSpeed=0.5: glint animation speed in the glint test (default 0: a fixed pattern).
+	if (project.hasProperty('glintSpeed')) vmArg "-Dnativium.gametest.glintSpeed=${project.property('glintSpeed')}"
 	// -PconformanceTest [-PconformanceScenes=terrain,water] [-PconformanceFabulous=false]: deterministic scenes covering
 	// vanilla's pipelines for a Metal vs OpenGL (-PbackendOff) screenshot comparison (tools/conformance-compare.sh).
 	if (project.hasProperty('conformanceTest')) vmArg '-Dnativium.gametest.mode=conformance'
