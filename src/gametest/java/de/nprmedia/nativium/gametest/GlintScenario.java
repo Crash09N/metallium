@@ -25,11 +25,15 @@ import java.util.function.Function;
  * pickaxe (item glint) and an enchanted compass (special glint) on the left, the same items plain on the right. A
  * second shot adds an enchanted sword in the first-person hand (hand glint keys).
  * <p>Check: near-white pixels (all channels &gt;= 240) and near-black pixels (all &lt;= 8) in the left (enchanted) half
- * must not clearly exceed the right (plain) half; the hand shot's lower-right quadrant must not gain many white pixels.
+ * must not clearly exceed the right (plain) half; the hand shot's lower-right quadrant must not gain many white pixels
+ * over a shot with a plain sword. Glint must also be visible: each enchanted region (stand, framed items, sword in
+ * hand) must be measurably more purple (mean {@code (r + b) / 2 - g}) than its plain twin.
  */
 final class GlintScenario {
     private static final int WHITE = 240;
     private static final int BLACK = 8;
+    /** Minimum glint "purple shift" ({@link #purple}) of an enchanted region over its plain twin. */
+    private static final double MIN_PURPLE = 2.0;
 
     private final Consumer<String> line;
     private final List<String> failures;
@@ -65,26 +69,29 @@ final class GlintScenario {
                 line.accept("glint: shader pack " + pack);
             }
             cmd("fill -6 -60 4 6 -54 4 minecraft:green_concrete");
-            cmd("summon minecraft:armor_stand -0.9 -60 2.5 {Rotation:[180f,0f],ShowArms:1b,NoGravity:1b,equipment:{"
+            cmd("summon minecraft:armor_stand 0.9 -60 2.5 {Rotation:[180f,0f],ShowArms:1b,NoGravity:1b,equipment:{"
                     + armor("head", "diamond_helmet", true) + "," + armor("chest", "diamond_chestplate", true) + ","
                     + armor("legs", "diamond_leggings", true) + "," + armor("feet", "diamond_boots", true) + ","
                     + armor("mainhand", "diamond_sword", true) + "}}");
-            cmd("summon minecraft:armor_stand 0.9 -60 2.5 {Rotation:[180f,0f],ShowArms:1b,NoGravity:1b,equipment:{"
+            cmd("summon minecraft:armor_stand -0.9 -60 2.5 {Rotation:[180f,0f],ShowArms:1b,NoGravity:1b,equipment:{"
                     + armor("head", "diamond_helmet", false) + "," + armor("chest", "diamond_chestplate", false) + ","
                     + armor("legs", "diamond_leggings", false) + "," + armor("feet", "diamond_boots", false) + ","
                     + armor("mainhand", "diamond_sword", false) + "}}");
-            frame(-1.5, "diamond_pickaxe", true);
-            frame(-0.5, "compass", true);
-            frame(0.5, "compass", false);
-            frame(1.5, "diamond_pickaxe", false);
+            // The camera looks south (+Z): +X is on the left of the screen, so the enchanted side has positive X.
+            frame(1.5, "diamond_pickaxe", true);
+            frame(0.5, "compass", true);
+            frame(-0.5, "compass", false);
+            frame(-1.5, "diamond_pickaxe", false);
             cmd("item replace entity @p weapon.mainhand with minecraft:air");
             // HUD stays on: F1 would hide the first-person hand as well (creative: no hearts; the crosshair and the
             // hotbar are the same in both shots and halves within the floors below).
             camera(0.0, -59.0, -1.2, 0f, 5f);
             Path stands = shot("glint-stands", 60);
+            cmd("item replace entity @p weapon.mainhand with minecraft:diamond_sword");
+            Path plainHand = shot("glint-hand-plain", 20);
             cmd("item replace entity @p weapon.mainhand with minecraft:diamond_sword[enchantment_glint_override=true]");
             Path hand = shot("glint-hand", 20);
-            check(stands, hand);
+            check(stands, plainHand, hand);
             cmd("tick unfreeze");
         }
     }
@@ -143,9 +150,34 @@ final class GlintScenario {
         return new int[] {white, black, Math.max(1, ((int) (x1 * w) - (int) (x0 * w)) * ((int) (y1 * h) - (int) (y0 * h)))};
     }
 
-    private void check(final Path stands, final Path hand) {
+    /** Mean of {@code (r + b) / 2 - g} in {@code [x0,x1) x [y0,y1)}: the glint texture adds mostly red and blue. */
+    private static double purple(final BufferedImage image, final double x0, final double x1, final double y0, final double y1) {
+        int w = image.getWidth();
+        int h = image.getHeight();
+        long sum = 0;
+        int n = 0;
+        for (int y = (int) (y0 * h); y < (int) (y1 * h); y++) {
+            for (int x = (int) (x0 * w); x < (int) (x1 * w); x++) {
+                int rgb = image.getRGB(x, y);
+                sum += ((rgb >> 16) & 0xFF) + (rgb & 0xFF) - 2 * ((rgb >> 8) & 0xFF);
+                n++;
+            }
+        }
+        return n == 0 ? 0 : sum / (2.0 * n);
+    }
+
+    private void glintVisible(final String what, final double enchanted, final double plain) {
+        line.accept(String.format(Locale.ROOT, "glint: %s purple enchanted %.2f, plain %.2f (diff %.2f, need >= %.1f)",
+                what, enchanted, plain, enchanted - plain, MIN_PURPLE));
+        if (enchanted - plain < MIN_PURPLE) {
+            failures.add(String.format(Locale.ROOT, "glint: no visible glint on the enchanted %s (purple shift %.2f < %.1f)", what, enchanted - plain, MIN_PURPLE));
+        }
+    }
+
+    private void check(final Path stands, final Path plainHand, final Path hand) {
         try {
             BufferedImage a = javax.imageio.ImageIO.read(stands.toFile());
+            BufferedImage p = javax.imageio.ImageIO.read(plainHand.toFile());
             BufferedImage b = javax.imageio.ImageIO.read(hand.toFile());
             // Upper 80 %: stands and frames (the hand shot adds the first-person sword at the bottom right).
             int[] left = count(a, 0.0, 0.5, 0.0, 0.8);
@@ -159,9 +191,9 @@ final class GlintScenario {
             if (left[1] > Math.max(3 * right[1], floor)) {
                 failures.add("glint: enchanted armor/items have black patches (" + left[1] + " black px vs " + right[1] + " plain)");
             }
-            int[] before = count(a, 0.5, 1.0, 0.5, 1.0);
+            int[] before = count(p, 0.5, 1.0, 0.5, 1.0);
             int[] after = count(b, 0.5, 1.0, 0.5, 1.0);
-            line.accept(String.format(Locale.ROOT, "glint: hand quadrant white %d -> %d, black %d -> %d (of %d px)",
+            line.accept(String.format(Locale.ROOT, "glint: hand quadrant plain sword -> enchanted sword white %d -> %d, black %d -> %d (of %d px)",
                     before[0], after[0], before[1], after[1], after[2]));
             int handFloor = after[2] / 100; // 1 % of the quadrant
             if (after[0] - before[0] > handFloor) {
@@ -170,6 +202,11 @@ final class GlintScenario {
             if (after[1] - before[1] > handFloor) {
                 failures.add("glint: enchanted sword in hand has black patches (+" + (after[1] - before[1]) + " black px)");
             }
+            // Glint must actually be there: the stands are translated copies (enchanted one at screen x 0.30-0.49,
+            // plain one at 0.51-0.70), the frames hold the same items, the hand holds the same sword.
+            glintVisible("armor stand", purple(a, 0.30, 0.49, 0.53, 0.90), purple(a, 0.51, 0.70, 0.53, 0.90));
+            glintVisible("framed items", purple(a, 0.35, 0.49, 0.40, 0.52), purple(a, 0.51, 0.65, 0.40, 0.52));
+            glintVisible("sword in hand", purple(b, 0.70, 1.0, 0.60, 1.0), purple(p, 0.70, 1.0, 0.60, 1.0));
         } catch (Exception e) {
             failures.add("glint: could not read screenshots: " + e);
         }
