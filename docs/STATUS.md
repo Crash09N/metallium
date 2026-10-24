@@ -12,8 +12,11 @@ Fixed on release-1.0 (each with a game test; screenshots checked):
   Voxy patches through Iris's `TransformPatcher.patchDepth`; comments are stripped with a lexer (Photon's `//*` ... `//*/`
   toggles broke the old regex). Game test with Voxy Server Side (`-PextraMods=<lss jar>`) + Photon 1.4: LOD water visible.
 - White enchanted gear under packs: Iris's `glintTexture` sampler name maps to the glint texture (`GbufferProgram`
-  sampler aliases). Game test `-PglintTest`. The glint itself is faint under Photon/Reimagined; the game test's
-  enchanted/plain sides were swapped, so the earlier "dark enchanted sword" was the plain one (no black-patch bug found).
+  sampler aliases). Game test `-PglintTest` (each glint shot retaken with glint strength 0; every enchanted region must
+  turn more purple than its plain twin) passes on vanilla Metal/GL, Reimagined Metal/GL and Photon 1.4 Metal: vanilla
+  and Reimagined match OpenGL within 0.1 / ~0.02 of the purple shift (packs blend glint about half as strongly as
+  vanilla, also on GL). The scene's enchanted/plain sides had been swapped, so the "dark enchanted sword" was the plain
+  one; no black-patch bug found.
 - Voxy far terrain gone with the camera high above the ground (Sodium skipped its empty cutout pass, Voxy renders
   inside it): `VoxyEmptyPassMixin` keeps the pass when Voxy is loaded (`-Dnativium.voxy.emptyPassRender=false`).
   154 Voxy render calls per 5 s at y 120, 160, 200 and 260; LODs visible at y 260.

@@ -94,8 +94,9 @@ See "Release jar verification" at the end of this file.
 - Voxy 0.2.19 with the camera high above the terrain (no Sodium section visible, e.g. y > ~250): Sodium skips its cutout
   pass and Voxy's far terrain went with it. Nativium now keeps that pass alive when Voxy is present (`VoxyEmptyPassMixin`;
   `-Dnativium.voxy.emptyPassRender=false` turns it off). Voxy 0.2.20 fixes the same upstream.
-- Enchantment glint under shader packs: drawn through the pack's `mc_sampleGlint()`; it is faint with Photon and Reimagined
-  on Metal (see STATUS.md, glint). The earlier white enchanted gear is fixed.
+- Enchantment glint under shader packs is drawn by the pack's `mc_sampleGlint()` and is weaker than in vanilla (about
+  half with Reimagined, the same on Iris/OpenGL); diamond-armor glint is faint even in vanilla. The earlier white
+  enchanted gear is fixed.
 - nativium-gl implements a subset of OpenGL; mods using unimplemented functions get a crash-recovery screen and OpenGL on the next start.
 - Apple-native extras (MetalFX, Game Mode, ...) are not part of the alpha.
 - Closed-source mods are never bundled; Physics Mod and similar work only as separate installs.
