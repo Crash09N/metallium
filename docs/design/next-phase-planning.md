@@ -58,7 +58,7 @@ What is known:
 | B2 | **Backend choice** | GL (as Nvidium: NV extensions, but no DLSS) vs vanilla's Vulkan backend (DLSS possible, mesh shaders via `VK_EXT_mesh_shader`); decides everything after it |
 | B3 | **GPU-driven terrain** | Port the idea (not the code, unless in an LGPL module) of Nvidium's renderer onto the chosen backend; coexistence with Iris (Nvidium gives up with packs) |
 | B4 | **DLSS upscaling / frame generation** | NVIDIA Streamline/DLSS SDK licence terms and redistribution; motion vectors/jitter are the same problem as A2 (share the code) |
-| B5 | **Test hardware** | All testing so far is on an M3 Max; an NVIDIA machine (owner) and a benchmark matrix like the Mac one are needed before any claim |
+| B5 | **Test hardware** | All testing so far is on an M3 Max. The owner has a Windows PC with an RTX 4070 Super for this track; it needs its own test setup and a benchmark matrix like the Mac one before any claim |
 
 Proposed order: B0 and B5 first (they decide whether the track can start), then B2 as a research note, then B1/B3.
 B4 after A2 so the motion-vector work is shared.
