@@ -110,4 +110,4 @@ whether to disable the mod, keep using OpenGL, or try Metal again.
    always works on Nativium too.
 5. Apple's Metal HUD (frame times, GPU memory): start the game with the environment variable `MTL_HUD_ENABLED=1`.
 
-Problems or questions: open an issue at https://github.com/Crash09N/metallium.
+Problems or questions: open an issue at https://github.com/Crash09N/nativium.

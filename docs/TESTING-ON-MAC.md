@@ -5,7 +5,7 @@ Requirements: Apple Silicon Mac, macOS 14 or newer, Java 25 (e.g. `brew install 
 ## 1. Get the code
 
 ```bash
-git clone https://github.com/Crash09N/metallium.git
+git clone https://github.com/Crash09N/nativium.git
 cd nativium
 git checkout claude/lucid-heisenberg-f4n1hp
 ```

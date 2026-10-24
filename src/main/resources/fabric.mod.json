@@ -5,7 +5,7 @@
   "name": "Nativium",
   "description": "Metal rendering backend for Minecraft on Apple Silicon. Runs vanilla, Sodium and Fabric rendering mods on Metal.",
   "authors": ["Crash09N – NPR Media"],
-  "contact": {"homepage": "https://github.com/Crash09N/metallium", "sources": "https://github.com/Crash09N/metallium", "issues": "https://github.com/Crash09N/metallium/issues"},
+  "contact": {"homepage": "https://github.com/Crash09N/nativium", "sources": "https://github.com/Crash09N/nativium", "issues": "https://github.com/Crash09N/nativium/issues"},
   "contributors": ["Based on Metallum by kokodio (MIT)"],
   "license": "MIT",
   "icon": "assets/nativium/icon.png",

@@ -1,4 +1,4 @@
-nativium-voxy-natives (part of the Nativium project, https://github.com/Crash09N/metallium)
+nativium-voxy-natives (part of the Nativium project, https://github.com/Crash09N/nativium)
 
 This jar contains no code. It redistributes, unmodified, the macOS arm64 native libraries below, copied from the
 official Maven Central artifacts, so that the Java classes Voxy already bundles can load them on Apple Silicon Macs:

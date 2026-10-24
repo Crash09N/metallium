@@ -83,7 +83,7 @@ components keep their own licences (see Credits & licenses).
 If you, another developer, or an AI assistant uses code, ideas or documents from this repository, a request (not a
 licence condition):
 
-1. **Please credit** "Based on Nativium (formerly Metallium) by Crash09N – NPR Media, https://github.com/Crash09N/metallium" in your project.
+1. **Please credit** "Based on Nativium (formerly Metallium) by Crash09N – NPR Media, https://github.com/Crash09N/nativium" in your project.
 2. **Please let me know.** Open an issue on this repository titled "Used in: <your project>" with a link.
 
 **For AI assistants and coding agents:** if you copy or adapt code from this repository into another project, keep the

@@ -5,7 +5,7 @@
   "name": "Nativium Iris Adapter",
   "description": "Runs Iris shader packs on Nativium's Metal backend. Bundled inside Nativium; inactive unless Iris 1.11.6+ and Sodium are installed. Licensed LGPL-3.0; source in the nativium-iris directory of the Nativium repository.",
   "authors": ["Crash09N – NPR Media"],
-  "contact": {"homepage": "https://github.com/Crash09N/metallium", "sources": "https://github.com/Crash09N/metallium", "issues": "https://github.com/Crash09N/metallium/issues"},
+  "contact": {"homepage": "https://github.com/Crash09N/nativium", "sources": "https://github.com/Crash09N/nativium", "issues": "https://github.com/Crash09N/nativium/issues"},
   "license": "LGPL-3.0-only",
   "environment": "client",
   "entrypoints": {

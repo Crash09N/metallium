@@ -5,7 +5,7 @@ Nativium's own code is released under the MIT License (see LICENSE). The only li
 and permission notice stay in copies of the code.
 
 Request (not a licence condition): if you use Nativium's code, ideas or documents, please credit "Crash09N – NPR Media"
-and the Nativium project (https://github.com/Crash09N/metallium), and let the author know by opening a GitHub issue
+and the Nativium project (https://github.com/Crash09N/nativium), and let the author know by opening a GitHub issue
 titled "Used in: <your project>" on that repository.
 
 Third-party code included in this distribution:
@@ -24,4 +24,4 @@ Third-party code included in this distribution:
 Release jar layout: the single installable jar bundles metal-jvm, nativium-gl (MIT), nativium-iris (LGPL-3.0) and
 nativium-voxy-natives (natives only) as separate nested jars (META-INF/jars/). The LGPL-3.0 Iris adapter is never merged into the
 MIT-licensed core; its complete corresponding source is the nativium-iris/ directory of
-https://github.com/Crash09N/metallium (see SOURCE.txt in the nested jar).
+https://github.com/Crash09N/nativium (see SOURCE.txt in the nested jar).
