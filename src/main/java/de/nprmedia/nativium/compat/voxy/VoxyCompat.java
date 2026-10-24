@@ -28,7 +28,44 @@ public final class VoxyCompat {
     private static volatile long lastSuppressedNanos;
     private static boolean pauseNoticeShown;
 
+    /** {@code -Dnativium.voxy.emptyPassRender=false} turns off {@code VoxyEmptyPassMixin} (LODs with nothing visible in vanilla range). */
+    public static final boolean EMPTY_PASS_RENDER = !"false".equalsIgnoreCase(System.getProperty("nativium.voxy.emptyPassRender", "true"));
+    private static final class VoxyHandle {
+        static final java.lang.invoke.MethodHandle GET = findVoxyRenderSystem();
+    }
+    private static boolean emptyPassLogged;
+
     private VoxyCompat() {
+    }
+
+    private static java.lang.invoke.MethodHandle findVoxyRenderSystem() {
+        try {
+            Class<?> holder = Class.forName("me.cortex.voxy.client.core.IVoxyRenderSystemHolder");
+            return java.lang.invoke.MethodHandles.publicLookup().findStatic(holder, "getNullable",
+                    java.lang.invoke.MethodType.methodType(Class.forName("me.cortex.voxy.client.core.VoxyRenderSystem")));
+        } catch (ReflectiveOperationException | LinkageError e) {
+            return null;
+        }
+    }
+
+    /** Whether Voxy's render system exists right now ({@code IVoxyRenderSystemHolder.getNullable() != null}). */
+    public static boolean voxyRenderSystemActive() {
+        if (VoxyHandle.GET == null) {
+            return false;
+        }
+        try {
+            return VoxyHandle.GET.invoke() != null;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    /** Sodium's cutout pass had nothing to draw and was kept so Voxy's hook draws the LODs (logged once). */
+    public static void onEmptyPassForced() {
+        if (!emptyPassLogged) {
+            emptyPassLogged = true;
+            Nativium.LOGGER.info("[Nativium] Voxy: no vanilla terrain visible; keeping Sodium's cutout pass so Voxy draws its LODs (-Dnativium.voxy.emptyPassRender=false turns this off)");
+        }
     }
 
     public static boolean isVoxyLoaded() {
